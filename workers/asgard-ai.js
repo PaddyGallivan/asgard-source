@@ -1,5 +1,5 @@
 // asgard-ai v5.7.2-stopgap-v11-tools: multi-provider (Anthropic/OpenAI/Gemini) + DALL-E + vision
-const VERSION = '5.8.3-power-automate-2026-04-27';
+const VERSION = '5.8.4-errors-log';
 const WORKER_NAME = "asgard-ai";
 
 // --- PIN auth helper (v1.1.0 security patch) ---
@@ -1459,6 +1459,23 @@ async function handleSyncState(request, env) {
   }
 }
 
+
+async function handleAdminErrors(request, env) {
+  if (!env.DB) return json({ ok: false, error: 'D1 not bound' }, 500);
+  try {
+    await _aiEnsureErrorsTable(env);
+    const url = new URL(request.url);
+    const limit = parseInt(url.searchParams.get('limit') || '50', 10);
+    const since = parseInt(url.searchParams.get('since') || '0', 10);
+    const row = await env.DB.prepare(
+      "SELECT id, ts, worker, endpoint, message, detail FROM errors WHERE ts > ? ORDER BY ts DESC LIMIT ?"
+    ).bind(since, Math.min(limit, 200)).all();
+    return json({ ok: true, count: (row.results || []).length, errors: row.results || [] });
+  } catch (e) {
+    return json({ ok: false, error: e.message }, 500);
+  }
+}
+
 // =====================================================================
 // /chat/agentic — multi-provider agent loop (OpenAI tool_calls; Gemini functionCalls TBD)
 // Tools: http_request, get_worker_code, deploy_worker, get_secret
@@ -1633,6 +1650,22 @@ async function _agentLdAccessToken(env) {
   });
   if (!r.ok) throw new Error("LD token refresh failed: " + (await r.text()).slice(0, 200));
   return (await r.json()).access_token;
+}
+
+
+async function _aiEnsureErrorsTable(env) {
+  if (!env.DB) return false;
+  try { await env.DB.prepare("CREATE TABLE IF NOT EXISTS errors (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, worker TEXT, endpoint TEXT, message TEXT, detail TEXT, stack TEXT)").run(); return true; }
+  catch (e) { return false; }
+}
+
+async function _aiLogError(env, endpoint, message, detail) {
+  if (!env.DB) return;
+  try {
+    await _aiEnsureErrorsTable(env);
+    await env.DB.prepare("INSERT INTO errors (ts, worker, endpoint, message, detail, stack) VALUES (?, ?, ?, ?, ?, ?)")
+      .bind(Date.now(), 'asgard-ai', endpoint, String(message || '').slice(0, 1000), String(detail || '').slice(0, 4000), '').run();
+  } catch (e) { console.error('errors log failed:', e); }
 }
 
 async function agenticExecuteTool(name, input, env) {
@@ -2009,6 +2042,7 @@ async function agenticExecuteTool(name, input, env) {
     }
     return { error: "Unknown tool: " + name };
   } catch (e) {
+    try { await _aiLogError(env, 'tool:' + name, e.message, JSON.stringify(input || {}).substring(0, 500)); } catch {}
     return { error: e.message };
   }
 }
@@ -2242,7 +2276,7 @@ export default {
       if (path === "/health") {
         return json({
           ok: true, worker: WORKER_NAME, version: VERSION,
-          routes: ["/health","/chat/smart","/chat/stream","/chat/agent","/chat/agentic","/sync/state","/bridge/enqueue","/bridge/poll","/bridge/result","/chat/vision","/image/generate","/speak","/feature-request","/conversations","/history","/memory","/memory/clear","/slack/post","/telegram/send","/telegram/setup","/discord/send","/discord/interactions","/discord/register-commands","/discord/invite","/prefs","/ranking","/presence","/github/*","/vercel/*","/drive/upload","/drive/search","/drive/delete","/drive/ld-mkdir","/drive/ld-search","/drive/ld-copy","/google/oauth-start","/google/oauth-callback","/agent/propose"],
+          routes: ["/health","/chat/smart","/chat/stream","/chat/agent","/chat/agentic","/sync/state","/admin/errors","/bridge/enqueue","/bridge/poll","/bridge/result","/chat/vision","/image/generate","/speak","/feature-request","/conversations","/history","/memory","/memory/clear","/slack/post","/telegram/send","/telegram/setup","/discord/send","/discord/interactions","/discord/register-commands","/discord/invite","/prefs","/ranking","/presence","/github/*","/vercel/*","/drive/upload","/drive/search","/drive/delete","/drive/ld-mkdir","/drive/ld-search","/drive/ld-copy","/google/oauth-start","/google/oauth-callback","/agent/propose"],
           models: Object.keys(MODELS),
           providers: {
             anthropic: !!env.ANTHROPIC_API_KEY,
@@ -2290,6 +2324,7 @@ export default {
       if (path === "/chat/stream"  && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleChatStream(request, env); }
       if (path === "/chat/agentic" && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleChatAgentic(request, env); }
       if (path === "/sync/state" && (method === "GET" || method === "POST")) { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleSyncState(request, env); }
+      if (path === "/admin/errors" && method === "GET") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleAdminErrors(request, env); }
       if (path === "/bridge/enqueue" && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleBridgeEnqueue(request, env); }
       if (path === "/bridge/poll" && method === "GET")    { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleBridgePoll(request, env); }
       if (path === "/bridge/result" && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleBridgeResult(request, env); }
