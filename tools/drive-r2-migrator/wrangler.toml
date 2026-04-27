@@ -1,0 +1,16 @@
+name = "drive-r2-migrator"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+account_id = "a6f47c17811ee2f8b6caeb8f38768c20"
+workers_dev = true
+
+[[r2_buckets]]
+binding = "ARCHIVE"
+bucket_name = "asgard-archive"
+
+[[r2_buckets]]
+binding = "MANIFEST"
+bucket_name = "asgard-archive-manifest"
+
+# Secrets set via: wrangler secret put GOOGLE_SA_JSON
+# Value = entire contents of asgard-sa.json (kbt-slides SA)
