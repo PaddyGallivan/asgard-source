@@ -27,6 +27,6 @@ POST to `https://asgard-tools.pgallivan.workers.dev/admin/deploy` with `X-Pin: 2
 
 The deploy handler writes source to this repo on success — every deploy = a commit.
 
-## Versions in filenames
+## Versions
 
-The numbered versions in Drive (e.g. `asgard-home-v783.js`) are historical snapshots. The canonical source for each worker lives at `workers/{worker_name}.js` here.
+Numbered files (e.g. `asgard-home-v783.js`) only exist as historical snapshots in legacy storage and are not used. The canonical source for each worker lives at `workers/{worker_name}.js` here. Drive is no longer used.
