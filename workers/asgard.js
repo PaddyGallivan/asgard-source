@@ -1,7 +1,7 @@
 // asgard worker v7.8.3 — D1 product hub: PROJECTS now loads live from asgard-brain.products — Restored: project tiles, project detail view, tools pane in sidebar
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
-const VERSION = '7.8.3';
+const VERSION = '7.8.4';
 const TOOLS_URL = 'https://asgard-tools.pgallivan.workers.dev';
 
 // Live inventory pulled from CF API + GitHub. 39 projects.
