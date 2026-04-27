@@ -1,0 +1,2375 @@
+// asgard-ai v5.7.2-stopgap-v11-tools: multi-provider (Anthropic/OpenAI/Gemini) + DALL-E + vision
+const VERSION = '5.8.3-power-automate-2026-04-27';
+const WORKER_NAME = "asgard-ai";
+
+// --- PIN auth helper (v1.1.0 security patch) ---
+// ─── SECURITY v24: Rate limiting + env PINs + session tokens ──────────────────
+function getValidPins(env) {
+  const pins = [];
+  if (env.PADDY_PIN) pins.push(env.PADDY_PIN);
+  if (env.JACKY_PIN) pins.push(env.JACKY_PIN);
+  if (!pins.length) { console.warn("PADDY_PIN/JACKY_PIN not set"); pins.push('2967','7777'); }
+  return pins;
+}
+async function getRateLimit(env, ip) {
+  if (!env.RATE_LIMIT_KV) return { ok: true };
+  const d = await env.RATE_LIMIT_KV.get('rl:'+ip,'json') || {count:0,locked_until:0};
+  if (d.locked_until > Date.now()) return { ok:false, retry_after: Math.ceil((d.locked_until-Date.now())/1000) };
+  return { ok:true, count: d.count||0 };
+}
+async function recordFailedPin(env, ip) {
+  if (!env.RATE_LIMIT_KV) return;
+  const d = await env.RATE_LIMIT_KV.get('rl:'+ip,'json') || {count:0,locked_until:0};
+  const c = (d.count||0)+1;
+  await env.RATE_LIMIT_KV.put('rl:'+ip, JSON.stringify({count:c, locked_until: c>=5 ? Date.now()+900000 : d.locked_until}), {expirationTtl:900});
+}
+async function clearRateLimit(env, ip) {
+  if (env.RATE_LIMIT_KV) await env.RATE_LIMIT_KV.delete('rl:'+ip);
+}
+async function createSession(env, pin) {
+  if (!env.SESSIONS_KV) return null;
+  const tok = Array.from(crypto.getRandomValues(new Uint8Array(24))).map(b=>b.toString(16).padStart(2,'0')).join('');
+  await env.SESSIONS_KV.put('sess:'+tok, pin, {expirationTtl:86400});
+  return tok;
+}
+async function validateSession(env, tok) {
+  return (env.SESSIONS_KV && tok) ? await env.SESSIONS_KV.get('sess:'+tok) : null;
+}
+async function pinOk(request, env) {
+  const pin  = request.headers.get('X-Pin')||request.headers.get('X-PIN')||'';
+  const stok = request.headers.get('X-Session-Token')||'';
+  const ip   = request.headers.get('CF-Connecting-IP')||'unknown';
+  if (stok) { const sp=await validateSession(env,stok); return (sp && getValidPins(env).includes(sp)); }
+  const rl = await getRateLimit(env,ip);
+  if (!rl.ok) return 'locked';
+  if (getValidPins(env).includes(pin)) { await clearRateLimit(env,ip); return true; }
+  await recordFailedPin(env,ip);
+  return false;
+}
+function pinRequired(r) {
+  const locked=(r==='locked');
+  return new Response(JSON.stringify({ok:false,error:locked?'Too many failed attempts — locked 15 min':'Unauthorized — X-Pin required'}),
+    {status:locked?429:401,headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'*'}});
+}
+// ────────────────────────────────────────────────────────────────────────────────
+
+
+const ALLOWED_ORIGINS = [
+  "https://asgard.pgallivan.workers.dev",
+  "https://asgard-dev.pgallivan.workers.dev",
+  "https://kbt-trial-9gu.pages.dev",
+  "https://superleague-youth.pgallivan.workers.dev",
+];
+function makeCors(origin) {
+  const o = (origin && ALLOWED_ORIGINS.includes(origin)) ? origin : ALLOWED_ORIGINS[0];
+  return {
+    "Access-Control-Allow-Origin": o,
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, X-User-Id, X-Session-Id, X-Pin, X-PIN, Authorization",
+    "Vary": "Origin",
+  };
+}
+const CORS = makeCors("https://asgard.pgallivan.workers.dev");
+const SYSTEM_PROMPT = "You are Asgard AI for Paddy Gallivan and Jacky. Be direct, efficient, action-oriented. Be concrete, name projects, no fluff.";
+
+// Model registry: key = shorthand, value = {provider, full model id}
+const MODELS = {
+  // Anthropic
+  haiku:  { provider: "anthropic", id: "claude-haiku-4-5-20251001" },
+  sonnet: { provider: "anthropic", id: "claude-sonnet-4-6" },
+  opus:   { provider: "anthropic", id: "claude-opus-4-6" },
+  // OpenAI
+  "gpt-5":        { provider: "openai", id: "gpt-5" },
+  "gpt-5-mini":   { provider: "openai", id: "gpt-5-mini" },
+  "gpt-4.1":      { provider: "openai", id: "gpt-4.1" },
+  "gpt-4o":       { provider: "openai", id: "gpt-4o" },
+  "gpt-4o-mini":  { provider: "openai", id: "gpt-4o-mini" },
+  "o3":           { provider: "openai", id: "o3" },
+  "o3-mini":      { provider: "openai", id: "o3-mini" },
+  // Google Gemini
+  "gemini-2.5-pro":   { provider: "gemini", id: "gemini-2.5-pro" },
+  "gemini-2.5-flash": { provider: "gemini", id: "gemini-2.5-flash" },
+  "gemini-1.5-pro":   { provider: "gemini", id: "gemini-1.5-pro" },
+};
+const DEFAULT_MODEL = "haiku";
+// THUNDER_MEMORY constant removed 2026-04-23 — memory now in asgard-prod.facts
+const ASGARD_BRAIN   = "https://asgard-brain.pgallivan.workers.dev";
+
+// Compression tuning (from v9)
+const COMPRESS_THRESHOLD = 30;
+const COMPRESS_KEEP_RECENT = 10;
+const ARCHIVE_AFTER_DAYS = 30;
+
+function json(obj, status = 200, extra = {}) {
+  return new Response(JSON.stringify(obj), { status, headers: { ...CORS, "Content-Type": "application/json", ...extra } });
+}
+function err(message, status = 500, extra = {}) {
+  return json({ ok: false, error: message, ...extra }, status);
+}
+
+function resolveModel(input) {
+  if (!input) return MODELS[DEFAULT_MODEL];
+  const k = String(input).toLowerCase();
+  if (MODELS[k]) return MODELS[k];
+  // Auto-route by prefix
+  if (k.startsWith("gpt-") || k.startsWith("o1") || k.startsWith("o3") || k.startsWith("o4")) {
+    return { provider: "openai", id: input };
+  }
+  if (k.startsWith("gemini-")) {
+    return { provider: "gemini", id: input };
+  }
+  if (k.startsWith("claude-")) {
+    return { provider: "anthropic", id: input };
+  }
+  // Unknown → default to Anthropic with the given id
+  return { provider: "anthropic", id: input };
+}
+
+function quickRoute(message) {
+  if (!message) return DEFAULT_MODEL;
+  const m = message.toLowerCase();
+  const hardTriggers = ["strategy","architect","design","plan ","refactor","debug","why does","explain why","tradeoff","pros and cons","compare","write code","generate code","fix the","review","audit"];
+  if (hardTriggers.some(t => m.includes(t))) return "sonnet";
+  if (m.length > 600) return "sonnet";
+  return "haiku";
+}
+
+// ---------- Provider adapters ----------
+async function callAnthropic(env, { model, messages, system, max_tokens = 1024, tools, stream = false }) {
+  if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY missing");
+  const body = { model, max_tokens, system: system || SYSTEM_PROMPT, messages };
+  if (tools && tools.length) body.tools = tools;
+  if (stream) body.stream = true;
+  return fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify(body),
+  });
+}
+
+async function callOpenAI(env, { model, messages, system, max_tokens = 1024, stream = false }) {
+  if (!env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
+  const openaiMessages = [
+    ...(system ? [{ role: "system", content: system }] : [{ role: "system", content: SYSTEM_PROMPT }]),
+    ...messages,
+  ];
+  // GPT-5.x and o-series require max_completion_tokens instead of max_tokens
+  const isNewParam = /^(gpt-5|o1|o3|o4)/.test(String(model));
+  const body = { model, messages: openaiMessages };
+  if (isNewParam) body.max_completion_tokens = max_tokens;
+  else body.max_tokens = max_tokens;
+  if (stream) body.stream = true;
+  return fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + env.OPENAI_API_KEY },
+    body: JSON.stringify(body),
+  });
+}
+
+async function callGemini(env, { model, messages, system, max_tokens = 1024 }) {
+  if (!env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY missing");
+  const contents = messages.map(m => ({
+    role: m.role === "assistant" ? "model" : "user",
+    parts: [{ text: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }],
+  }));
+  const body = {
+    contents,
+    generationConfig: { maxOutputTokens: max_tokens },
+    systemInstruction: system ? { parts: [{ text: system }] } : { parts: [{ text: SYSTEM_PROMPT }] },
+  };
+  return fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${env.GEMINI_API_KEY}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+// Unified dispatcher: returns { ok, reply, usage, raw }
+async function generate(env, { provider, model, messages, system, max_tokens, tools }) {
+  if (provider === "openai") {
+    const r = await callOpenAI(env, { model, messages, system, max_tokens });
+    if (!r.ok) { const t = await r.text(); return { ok: false, error: "openai " + r.status + ": " + t.slice(0, 300) }; }
+    const d = await r.json();
+    const choice = d.choices && d.choices[0];
+    const reply = (choice && choice.message && choice.message.content) || "";
+    return { ok: true, reply, usage: d.usage || null, raw: d };
+  }
+  if (provider === "gemini") {
+    const r = await callGemini(env, { model, messages, system, max_tokens });
+    if (!r.ok) { const t = await r.text(); return { ok: false, error: "gemini " + r.status + ": " + t.slice(0, 300) }; }
+    const d = await r.json();
+    const cand = d.candidates && d.candidates[0];
+    const parts = cand && cand.content && cand.content.parts;
+    const reply = (parts && parts[0] && parts[0].text) || "";
+    return { ok: true, reply, usage: d.usageMetadata || null, raw: d };
+  }
+  // Default: Anthropic
+  const r = await callAnthropic(env, { model, messages, system, max_tokens, tools });
+  if (!r.ok) { const t = await r.text(); return { ok: false, error: "anthropic " + r.status + ": " + t.slice(0, 300) }; }
+  const d = await r.json();
+  const reply = (d.content && d.content[0] && d.content[0].text) || "";
+  return { ok: true, reply, usage: d.usage || null, raw: d };
+}
+
+// ---------- helpers (unchanged from v9) ----------
+async function slackPost(env, text, channel) {
+  if (!env.SLACK_BOT_TOKEN) return { ok: false, error: "SLACK_BOT_TOKEN missing" };
+  const r = await fetch("https://slack.com/api/chat.postMessage", {
+    method: "POST",
+    headers: { "Content-Type": "application/json; charset=utf-8", "Authorization": "Bearer " + env.SLACK_BOT_TOKEN },
+    body: JSON.stringify({ channel, text }),
+  });
+  const j = await r.json().catch(() => ({}));
+  return { ok: !!j.ok, error: j.error, raw: j };
+}
+
+
+// ---------- telegram helpers ----------
+async function telegramSend(env, text, chatId) {
+  if (!env.TELEGRAM_BOT_TOKEN) return { ok: false, error: "TELEGRAM_BOT_TOKEN missing" };
+  const cid = chatId || env.TELEGRAM_CHAT_ID;
+  if (!cid) return { ok: false, error: "No chat_id — call /telegram/setup first or set TELEGRAM_CHAT_ID" };
+  const r = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: cid, text, parse_mode: "HTML" }),
+  });
+  const j = await r.json().catch(() => ({}));
+  return { ok: !!j.ok, error: j.description || null, message_id: j.result?.message_id };
+}
+
+async function telegramGetChatId(env) {
+  if (!env.TELEGRAM_BOT_TOKEN) return { ok: false, error: "TELEGRAM_BOT_TOKEN missing" };
+  const r = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getUpdates?limit=5`);
+  const j = await r.json().catch(() => ({}));
+  if (!j.ok || !j.result?.length) return { ok: false, error: "No messages yet — send a message to your bot first, then call this again" };
+  const latest = j.result[j.result.length - 1];
+  const chatId = latest.message?.chat?.id || latest.channel_post?.chat?.id;
+  const name = latest.message?.chat?.first_name || latest.message?.chat?.title || "unknown";
+  return { ok: true, chat_id: chatId, name };
+}
+
+
+// ---------- discord helpers (v22) ----------
+function hexToBytes(hex) {
+  const b = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) b[i/2] = parseInt(hex.substr(i,2),16);
+  return b;
+}
+
+async function verifyDiscordSig(env, request) {
+  const sig = request.headers.get("X-Signature-Ed25519");
+  const ts  = request.headers.get("X-Signature-Timestamp");
+  if (!sig || !ts || !env.DISCORD_PUBLIC_KEY) return { valid: false, body: null };
+  const body = await request.text();
+  try {
+    const key = await crypto.subtle.importKey(
+      "raw", hexToBytes(env.DISCORD_PUBLIC_KEY),
+      { name: "Ed25519" }, false, ["verify"]
+    );
+    const valid = await crypto.subtle.verify(
+      "Ed25519", key, hexToBytes(sig),
+      new TextEncoder().encode(ts + body)
+    );
+    return { valid, body: valid ? body : null };
+  } catch { return { valid: false, body: null }; }
+}
+
+async function discordSend(env, message, channelId) {
+  if (!env.DISCORD_BOT_TOKEN) return { ok: false, error: "DISCORD_BOT_TOKEN missing" };
+  const cid = channelId || env.DISCORD_CHANNEL_ID;
+  if (!cid) return { ok: false, error: "No channel_id — set DISCORD_CHANNEL_ID or pass channel_id in body" };
+  const r = await fetch(`https://discord.com/api/v10/channels/${cid}/messages`, {
+    method: "POST",
+    headers: { "Authorization": `Bot ${env.DISCORD_BOT_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ content: message }),
+  });
+  const j = await r.json().catch(() => ({}));
+  return { ok: r.ok, id: j.id, error: j.message || null };
+}
+
+async function discordGet(env, channelId, messageId) {
+  if (!env.DISCORD_BOT_TOKEN) return { ok: false, error: "DISCORD_BOT_TOKEN missing" };
+  const cid = channelId || env.DISCORD_CHANNEL_ID;
+  if (!cid) return { ok: false, error: "no channel id" };
+  if (!messageId) return { ok: false, error: "message_id required" };
+  const r = await fetch(`https://discord.com/api/v10/channels/${cid}/messages/${messageId}`, {
+    headers: { "Authorization": `Bot ${env.DISCORD_BOT_TOKEN}` },
+  });
+  const t = await r.text();
+  let body = null;
+  try { body = JSON.parse(t); } catch (e) {}
+  return { ok: r.ok, status: r.status, channel_id: cid, message: body, body_len: t.length };
+}
+
+async function handleDiscordInteractions(request, env) {
+  const { valid, body } = await verifyDiscordSig(env, request);
+  if (!valid) return new Response("Invalid signature", { status: 401 });
+  const ix = JSON.parse(body);
+  // PING
+  if (ix.type === 1) return new Response(JSON.stringify({ type: 1 }), { headers: { "Content-Type": "application/json" } });
+  // SLASH COMMAND
+  if (ix.type === 2) {
+    const cmd = ix.data?.name;
+    if (cmd === "status") {
+      let msg = "🏰 **Asgard Status**\n";
+      try {
+        const h = await fetch("https://asgard-ai.pgallivan.workers.dev/health").then(r => r.json());
+        msg += `Version: ${h.version || "?"}\n`;
+        msg += `Drive: ${h.features?.drive ? "✅" : "❌"}  Discord: ✅  D1: ${h.features?.d1 ? "✅" : "❌"}`;
+      } catch { msg += "Could not reach health endpoint"; }
+      return new Response(JSON.stringify({ type: 4, data: { content: msg } }), { headers: { "Content-Type": "application/json" } });
+    }
+    if (cmd === "notify") {
+      const msg = ix.data?.options?.find(o => o.name === "message")?.value || "(empty)";
+      return new Response(JSON.stringify({ type: 4, data: { content: `📣 ${msg}` } }), { headers: { "Content-Type": "application/json" } });
+    }
+    return new Response(JSON.stringify({ type: 4, data: { content: "❓ Unknown command" } }), { headers: { "Content-Type": "application/json" } });
+  }
+  return new Response("OK", { status: 200 });
+}
+
+async function handleDiscordRegisterCommands(env) {
+  if (!env.DISCORD_BOT_TOKEN || !env.DISCORD_APP_ID) return { ok: false, error: "DISCORD_BOT_TOKEN or DISCORD_APP_ID missing" };
+  const commands = [
+    { name: "status", description: "Check Asgard system status" },
+    { name: "notify", description: "Broadcast a message to this channel", options: [{ name: "message", description: "What to say", type: 3, required: true }] },
+  ];
+  const r = await fetch(`https://discord.com/api/v10/applications/${env.DISCORD_APP_ID}/commands`, {
+    method: "PUT",
+    headers: { "Authorization": `Bot ${env.DISCORD_BOT_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify(commands),
+  });
+  const j = await r.json().catch(() => ({}));
+  return { ok: r.ok, registered: j.length ?? j, error: j.message || null };
+}
+
+async function memoryFetch(env, path, init) {
+  // Memory reads now come from asgard-prod.facts D1 table (migrated from thunder-memory 2026-04-23).
+  // Same response shape as the old thunder-memory /facts endpoint so the dashboard modal stays intact.
+  if ((path === "/facts" || path.startsWith("/facts?")) && env.DB) {
+    try {
+      const r = await env.DB.prepare(
+        "SELECT name as key, content as value, updated_at as updated, type, description FROM facts ORDER BY updated_at DESC"
+      ).all();
+      return { ok: true, json: { facts: r.results || [] }, status: 200 };
+    } catch (e) {
+      return { ok: false, json: { error: String(e.message || e) }, status: 500 };
+    }
+  }
+  if (path === "/health" && env.DB) {
+    return { ok: true, json: { ok: true, worker: "asgard-ai (memory via D1)", via: "asgard-prod.facts" }, status: 200 };
+  }
+  // Other legacy paths (/save, /sync, /snapshot) — deprecated post-thunder retirement.
+  return { ok: false, json: { error: "memory endpoint retired; write directly to asgard-prod.facts via asgard-brain /d1/write", path }, status: 410 };
+}
+
+async function compressIfNeeded(env, convId) {
+  if (!env.DB || !convId) return;
+  try {
+    const conv = await env.DB.prepare("SELECT summary, message_count FROM conversations WHERE id = ?").bind(convId).first();
+    if (!conv) return;
+    const mc = conv.message_count || 0;
+    if (mc <= COMPRESS_THRESHOLD) return;
+    const takeCount = mc - COMPRESS_KEEP_RECENT;
+    if (takeCount < 4) return;
+    const oldRows = await env.DB.prepare(
+      "SELECT id, role, content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC LIMIT ?"
+    ).bind(convId, takeCount).all();
+    const oldMsgs = oldRows.results || [];
+    if (oldMsgs.length === 0) return;
+    const existingSummary = conv.summary || '';
+    const transcript = oldMsgs.map(m => (m.role || 'unknown').toUpperCase() + ": " + (m.content || '')).join('\n\n');
+    const userPrompt =
+      (existingSummary ? "PREVIOUS SUMMARY:\n" + existingSummary + "\n\n" : "") +
+      "NEW TURNS TO INCORPORATE:\n" + transcript + "\n\n" +
+      "Produce a concise updated summary (max 300 words). Preserve names, decisions, facts, unresolved questions. Output only the summary.";
+    const result = await generate(env, {
+      provider: "anthropic", model: MODELS.haiku.id,
+      messages: [{ role: "user", content: userPrompt }],
+      max_tokens: 600,
+      system: "You are a conversation summarizer. Output only the summary text.",
+    });
+    if (!result.ok) return;
+    const newSummary = result.reply;
+    if (!newSummary) return;
+    const oldIds = oldMsgs.map(m => m.id);
+    await env.DB.prepare(
+      "UPDATE conversations SET summary = ?, message_count = MAX(0, message_count - ?) WHERE id = ?"
+    ).bind(newSummary, oldIds.length, convId).run();
+    const placeholders = oldIds.map(() => "?").join(",");
+    await env.DB.prepare("DELETE FROM messages WHERE id IN (" + placeholders + ")").bind(...oldIds).run();
+  } catch {}
+}
+
+async function archiveStale(env) {
+  if (!env.DB) return 0;
+  try {
+    const cutoff = Date.now() - (ARCHIVE_AFTER_DAYS * 24 * 60 * 60 * 1000);
+    const r = await env.DB.prepare(
+      "UPDATE conversations SET archived_at = ? WHERE updated_at < ? AND archived_at IS NULL"
+    ).bind(Date.now(), cutoff).run();
+    return (r && r.meta && r.meta.changes) || 0;
+  } catch { return 0; }
+}
+
+// ---------- Spend logging (v1) ----------
+const SPEND_PRICING = {
+  // per-million tokens [input, output]
+  "claude-haiku-4-5-20251001": [0.80, 4.00],
+  "claude-haiku-4-5":          [0.80, 4.00],
+  "claude-sonnet-4-6":         [3.00, 15.00],
+  "claude-opus-4-6":           [15.00, 75.00],
+  "gpt-5":                     [5.00, 20.00],
+  "gpt-5-mini":                [0.50, 2.00],
+  "gpt-4.1":                   [2.00, 8.00],
+  "gpt-4o":                    [2.50, 10.00],
+  "gpt-4o-mini":               [0.15, 0.60],
+  "o3":                        [15.00, 60.00],
+  "o3-mini":                   [1.10, 4.40],
+  "gemini-2.5-pro":            [1.25, 5.00],
+  "gemini-2.5-flash":          [0.075, 0.30],
+  "gemini-1.5-pro":            [1.25, 5.00],
+};
+const SPEND_PER_IMAGE = { "dall-e-3": 0.040, "dall-e-2": 0.020, "gpt-image-1": 0.042 };
+// USD per 1k characters of input text (TTS -- output text length proxy)
+const SPEND_TTS_PER_1K = {
+  "eleven_multilingual_v2": 0.30, "eleven_turbo_v2_5": 0.30,
+  "tts-1": 0.015, "tts-1-hd": 0.030,
+};
+function spendTokenCost(model, p, c) {
+  const r = SPEND_PRICING[model];
+  if (!r) return 0;
+  return (p / 1e6) * r[0] + (c / 1e6) * r[1];
+}
+function spendNormalizeUsage(provider, usage) {
+  if (!usage) return { p: 0, c: 0 };
+  if (provider === "anthropic") return { p: usage.input_tokens|0, c: usage.output_tokens|0 };
+  if (provider === "openai")    return { p: usage.prompt_tokens|0, c: usage.completion_tokens|0 };
+  if (provider === "gemini")    return { p: usage.promptTokenCount|0, c: usage.candidatesTokenCount|0 };
+  return { p: (usage.prompt_tokens||usage.input_tokens||0)|0, c: (usage.completion_tokens||usage.output_tokens||0)|0 };
+}
+async function logSpend(env, row) {
+  if (!env || !env.DB) return;
+  try {
+    await env.DB.prepare(
+      "INSERT INTO spend_log (ts, provider, model, endpoint, prompt_tokens, completion_tokens, cost_usd, uid, sid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).bind(
+      new Date().toISOString(),
+      row.provider || "unknown",
+      row.model || "unknown",
+      row.endpoint || null,
+      row.prompt_tokens|0,
+      row.completion_tokens|0,
+      +row.cost_usd || 0,
+      row.uid || null,
+      row.sid || null,
+    ).run();
+  } catch (e) {
+    console.error("spend_log insert failed:", e && (e.message || String(e)));
+  }
+}
+
+function bgLog(env, payload) {
+  const p = logSpend(env, payload);
+  if (env && env.__ctx && typeof env.__ctx.waitUntil === "function") {
+    env.__ctx.waitUntil(p.catch(e => console.error("bgLog:", e && (e.message || String(e)))));
+    return undefined;
+  }
+  return p;
+}
+// Tee an SSE stream and parse Anthropic-style usage events; log on flush.
+function teeStreamForSpendLog(upstreamBody, env, opts) {
+  const decoder = new TextDecoder();
+  let buf = "";
+  let prompt_tokens = 0;
+  let completion_tokens = 0;
+  const ts = new TransformStream({
+    transform(chunk, ctrl) {
+      ctrl.enqueue(chunk);
+      try {
+        buf += decoder.decode(chunk, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf("\n\n")) >= 0) {
+          const evt = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          const m = evt.match(/^data:\s*(\{[\s\S]*\})\s*$/m);
+          if (!m) continue;
+          let d; try { d = JSON.parse(m[1]); } catch { continue; }
+          if (d.message && d.message.usage) {
+            if (d.message.usage.input_tokens)  prompt_tokens     = d.message.usage.input_tokens;
+            if (d.message.usage.output_tokens) completion_tokens = d.message.usage.output_tokens;
+          }
+          if (d.usage) {
+            if (d.usage.input_tokens)  prompt_tokens     = d.usage.input_tokens;
+            if (d.usage.output_tokens) completion_tokens = d.usage.output_tokens;
+          }
+        }
+      } catch {}
+    },
+    async flush() {
+      try {
+        const cost = spendTokenCost(opts.model, prompt_tokens, completion_tokens);
+        await bgLog(env, { ...opts, prompt_tokens, completion_tokens, cost_usd: cost });
+      } catch (e) { console.error("spend stream flush:", e && (e.message || String(e))); }
+    }
+  });
+  return upstreamBody.pipeThrough(ts);
+}
+
+// ---------- route handlers ----------
+async function handleChatSmart(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const message = (body.message || "").toString();
+  if (!message) return err("message required", 400);
+  const uid = body.uid || request.headers.get("X-User-Id") || "paddy";
+  const project = body.project || "shared";
+  const modelKey = body.model || quickRoute(message);
+  const resolved = resolveModel(modelKey);
+
+  let convId = body.conversation_id || null;
+  let history = Array.isArray(body.history) ? body.history : [];
+  let summary = "";
+  if (convId && env.DB) {
+    try {
+      const convRow = await env.DB.prepare(
+        "SELECT summary FROM conversations WHERE id = ? AND (archived_at IS NULL OR archived_at = 0)"
+      ).bind(convId).first();
+      if (convRow) summary = convRow.summary || "";
+      if (history.length === 0) {
+        const rows = await env.DB.prepare(
+          "SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC LIMIT 50"
+        ).bind(convId).all();
+        history = (rows.results || []).map(r => ({ role: r.role, content: r.content }));
+      }
+    } catch {}
+  }
+  const messages = [...history, { role: "user", content: message }];
+  let systemText = SYSTEM_PROMPT;
+  if (summary) {
+    systemText = SYSTEM_PROMPT + "\n\n--- Summary of earlier turns ---\n" + summary + "\n--- End summary ---";
+  }
+
+  const result = await generate(env, {
+    provider: resolved.provider, model: resolved.id,
+    messages, system: systemText,
+    max_tokens: body.max_tokens || 1024,
+  });
+  if (!result.ok) return err(result.error, 502);
+  const reply = result.reply;
+
+  const now = Date.now();
+  if (env.DB) {
+    try {
+      if (!convId) {
+        convId = "c_" + now + "_" + Math.random().toString(36).slice(2, 8);
+        const title = message.slice(0, 80);
+        await env.DB.prepare(
+          "INSERT INTO conversations (id, uid, project, title, created_at, updated_at, message_count) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        ).bind(convId, uid, project, title, now, now, 2).run();
+      } else {
+        await env.DB.prepare(
+          "UPDATE conversations SET updated_at = ?, message_count = message_count + 2, archived_at = NULL WHERE id = ?"
+        ).bind(now, convId).run();
+      }
+      await env.DB.prepare(
+        "INSERT INTO messages (conversation_id, role, content, model, created_at) VALUES (?, 'user', ?, ?, ?)"
+      ).bind(convId, message, resolved.id, now).run();
+      await env.DB.prepare(
+        "INSERT INTO messages (conversation_id, role, content, model, created_at) VALUES (?, 'assistant', ?, ?, ?)"
+      ).bind(convId, reply, resolved.id, now + 1).run();
+    } catch {}
+    await compressIfNeeded(env, convId);
+  }
+
+  // spend log (fire-and-forget, never blocks response)
+  try {
+    const _u = spendNormalizeUsage(resolved.provider, result.usage);
+    const _cost = spendTokenCost(resolved.id, _u.p, _u.c);
+    await bgLog(env, {
+      provider: resolved.provider, model: resolved.id, endpoint: "chat",
+      prompt_tokens: _u.p, completion_tokens: _u.c, cost_usd: _cost,
+      uid, sid: convId || null,
+    });
+  } catch (e) { console.error("spend log (chat):", e && (e.message || String(e))); }
+
+  return json({
+    ok: true, reply,
+    provider: resolved.provider, model: resolved.id, model_key: modelKey,
+    conversation_id: convId || ("c_" + now),
+    usage: result.usage || null,
+    compressed: !!summary,
+  });
+}
+
+async function handleChatStream(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const message = (body.message || "").toString();
+  if (!message) return err("message required", 400);
+  const uid = body.uid || request.headers.get("X-User-Id") || "paddy";
+  const sid = body.conversation_id || body.sid || request.headers.get("X-Session-Id") || null;
+  const modelKey = body.model || quickRoute(message);
+  const resolved = resolveModel(modelKey);
+  const history = Array.isArray(body.history) ? body.history : [];
+  const messages = [...history, { role: "user", content: message }];
+  // Only Anthropic streaming is implemented (most reliable SSE passthrough)
+  if (resolved.provider !== "anthropic") {
+    return err("streaming only supported for Anthropic models in this version (got " + resolved.provider + ")", 400);
+  }
+  const upstream = await callAnthropic(env, { model: resolved.id, messages, max_tokens: body.max_tokens || 1024, stream: true });
+  if (!upstream.ok) { const t = await upstream.text(); return err("anthropic " + upstream.status + ": " + t.slice(0, 300), 502); }
+  const loggedBody = teeStreamForSpendLog(upstream.body, env, {
+    provider: "anthropic", model: resolved.id, endpoint: "chat_stream", uid, sid,
+  });
+  return new Response(loggedBody, {
+    status: 200,
+    headers: { ...CORS, "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" },
+  });
+}
+
+async function handleChatAgent(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const message = (body.message || "").toString();
+  if (!message) return err("message required", 400);
+  try {
+    let r;
+    const payload = JSON.stringify({ task: message });
+    if (env && env.ASGARD_BRAIN && typeof env.ASGARD_BRAIN.fetch === 'function') {
+      r = await env.ASGARD_BRAIN.fetch(new Request("https://asgard-brain/run", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: payload,
+      }));
+    } else {
+      r = await fetch(ASGARD_BRAIN + "/run", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: payload,
+      });
+    }
+    const d = await r.json().catch(() => ({}));
+    return json({ ok: !!d.ok, reply: d.result || d.answer || d.reply || "", model: "asgard-brain", agent: "brain-run", task: message });
+  } catch (e) {
+    return err("brain error: " + (e.message || String(e)), 502);
+  }
+}
+
+// ---------- NEW: Vision (image + text) ----------
+async function handleChatVision(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const message = (body.message || "Describe this image").toString();
+  const imageUrl = body.image_url;
+  const imageBase64 = body.image_base64;
+  const imageMime = body.image_mime || "image/jpeg";
+  const modelKey = body.model || "sonnet";
+  const resolved = resolveModel(modelKey);
+  const uid = body.uid || request.headers.get("X-User-Id") || "paddy";
+  const sid = body.conversation_id || body.sid || request.headers.get("X-Session-Id") || null;
+  if (!imageUrl && !imageBase64) return err("image_url or image_base64 required", 400);
+
+  if (resolved.provider === "anthropic") {
+    if (!env.ANTHROPIC_API_KEY) return err("ANTHROPIC_API_KEY missing", 500);
+    const imageBlock = imageBase64
+      ? { type: "image", source: { type: "base64", media_type: imageMime, data: imageBase64 } }
+      : { type: "image", source: { type: "url", url: imageUrl } };
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({
+        model: resolved.id, max_tokens: 1024, system: SYSTEM_PROMPT,
+        messages: [{ role: "user", content: [imageBlock, { type: "text", text: message }] }],
+      }),
+    });
+    if (!r.ok) { const t = await r.text(); return err("anthropic vision " + r.status + ": " + t.slice(0, 300), 502); }
+    const d = await r.json();
+    try {
+      const _u = spendNormalizeUsage("anthropic", d.usage);
+      const _cost = spendTokenCost(resolved.id, _u.p, _u.c);
+      await bgLog(env, { provider: "anthropic", model: resolved.id, endpoint: "vision",
+        prompt_tokens: _u.p, completion_tokens: _u.c, cost_usd: _cost, uid, sid });
+    } catch (e) { console.error("spend log (vision anthropic):", e && (e.message || String(e))); }
+    return json({ ok: true, reply: (d.content && d.content[0] && d.content[0].text) || "", model: resolved.id, provider: "anthropic", usage: d.usage });
+  }
+  if (resolved.provider === "openai") {
+    if (!env.OPENAI_API_KEY) return err("OPENAI_API_KEY missing", 500);
+    const imagePart = imageBase64
+      ? { type: "image_url", image_url: { url: "data:" + imageMime + ";base64," + imageBase64 } }
+      : { type: "image_url", image_url: { url: imageUrl } };
+    const r = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + env.OPENAI_API_KEY },
+      body: JSON.stringify({
+        model: resolved.id,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: [imagePart, { type: "text", text: message }] },
+        ],
+        max_tokens: 1024,
+      }),
+    });
+    if (!r.ok) { const t = await r.text(); return err("openai vision " + r.status + ": " + t.slice(0, 300), 502); }
+    const d = await r.json();
+    try {
+      const _u = spendNormalizeUsage("openai", d.usage);
+      const _cost = spendTokenCost(resolved.id, _u.p, _u.c);
+      await bgLog(env, { provider: "openai", model: resolved.id, endpoint: "vision",
+        prompt_tokens: _u.p, completion_tokens: _u.c, cost_usd: _cost, uid, sid });
+    } catch (e) { console.error("spend log (vision openai):", e && (e.message || String(e))); }
+    return json({ ok: true, reply: d.choices[0].message.content, model: resolved.id, provider: "openai", usage: d.usage });
+  }
+  return err("vision not supported for provider " + resolved.provider, 400);
+}
+
+// ---------- NEW: Image generation (DALL-E) ----------
+async function handleImageGenerate(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const prompt = (body.prompt || "").toString();
+  const size = body.size || "1024x1024";
+  const model = body.model || "gpt-image-1";
+  const uid = body.uid || request.headers.get("X-User-Id") || "paddy";
+  const sid = body.conversation_id || body.sid || request.headers.get("X-Session-Id") || null;
+  if (!prompt) return err("prompt required", 400);
+  if (!env.OPENAI_API_KEY) return err("OPENAI_API_KEY missing", 500);
+  // gpt-image-1: quality low/medium/high; dall-e-3: standard/hd
+  const quality = body.quality || (model === "gpt-image-1" ? "medium" : "standard");
+  const reqBody = { model, prompt, size, quality, n: 1 };
+  const r = await fetch("https://api.openai.com/v1/images/generations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + env.OPENAI_API_KEY },
+    body: JSON.stringify(reqBody),
+  });
+  if (!r.ok) { const t = await r.text(); return err("image-gen " + r.status + ": " + t.slice(0, 300), 502); }
+  const d = await r.json();
+  const image = d.data && d.data[0];
+  // gpt-image-1 returns b64_json; dall-e-3 returns url
+  let imageUrl = image && image.url;
+  if (!imageUrl && image && image.b64_json) {
+    imageUrl = "data:image/png;base64," + image.b64_json;
+  }
+  try {
+    const _cost = SPEND_PER_IMAGE[model] || 0.042;
+    await bgLog(env, { provider: "openai", model, endpoint: "image",
+      prompt_tokens: 0, completion_tokens: 0, cost_usd: _cost, uid, sid });
+  } catch (e) { console.error("spend log (image):", e && (e.message || String(e))); }
+  return json({ ok: true, url: imageUrl, revised_prompt: image && image.revised_prompt, model });
+}
+
+// ---------- NEW: TTS via ElevenLabs ----------
+async function handleSpeak(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const text = (body.text || "").toString();
+  if (!text) return err("text required", 400);
+  const uid = body.uid || request.headers.get("X-User-Id") || "paddy";
+  const sid = body.conversation_id || body.sid || request.headers.get("X-Session-Id") || null;
+  // Default to OpenAI TTS — ElevenLabs free tier blocks CF Workers IPs as "proxy/VPN abuse"
+  const provider = (body.provider || "openai").toLowerCase();
+  if (provider === "openai") {
+    if (!env.OPENAI_API_KEY) return err("OPENAI_API_KEY missing", 500);
+    const voice = body.voice || "alloy";
+    const model = body.model_id || "tts-1";
+    const r = await fetch("https://api.openai.com/v1/audio/speech", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + env.OPENAI_API_KEY },
+      body: JSON.stringify({ model, input: text, voice, response_format: "mp3" }),
+    });
+    if (!r.ok) { const t = await r.text(); return err("openai tts " + r.status + ": " + t.slice(0, 300), 502); }
+    try {
+      const rate = SPEND_TTS_PER_1K[model] || 0.015;
+      const cost = (text.length / 1000) * rate;
+      await bgLog(env, { provider: "openai", model, endpoint: "speak",
+        prompt_tokens: text.length, completion_tokens: 0, cost_usd: cost, uid, sid });
+    } catch (e) { console.error("spend log (speak openai):", e && (e.message || String(e))); }
+    return new Response(r.body, { status: 200, headers: { ...CORS, "Content-Type": "audio/mpeg" } });
+  }
+  // ElevenLabs path (only useful on a paid plan)
+  if (!env.ELEVENLABS_API_KEY) return err("ELEVENLABS_API_KEY missing", 500);
+  const voice = body.voice || "21m00Tcm4TlvDq8ikWAM";
+  const elevenModel = body.model_id || "eleven_turbo_v2_5";
+  const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voice)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "xi-api-key": env.ELEVENLABS_API_KEY, "Accept": "audio/mpeg" },
+    body: JSON.stringify({ text, model_id: elevenModel, voice_settings: { stability: 0.5, similarity_boost: 0.75 } }),
+  });
+  if (!r.ok) { const t = await r.text(); return err("elevenlabs " + r.status + ": " + t.slice(0, 300), 502); }
+  try {
+    const rate = SPEND_TTS_PER_1K[elevenModel] || 0.30;
+    const cost = (text.length / 1000) * rate;
+    await bgLog(env, { provider: "elevenlabs", model: elevenModel, endpoint: "speak",
+      prompt_tokens: text.length, completion_tokens: 0, cost_usd: cost, uid, sid });
+  } catch (e) { console.error("spend log (speak elevenlabs):", e && (e.message || String(e))); }
+  return new Response(r.body, { status: 200, headers: { ...CORS, "Content-Type": "audio/mpeg" } });
+}
+
+async function handleFeatureRequest(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const uid = body.uid || body.user || "unknown";
+  const name = body.name || uid;
+  const scope = body.scope || "-";
+  const text = body.body || body.message || "";
+  if (!text) return err("body required", 400);
+  const slackText = "*Feature Request* from *" + name + "* (" + uid + ")\n*Scope:* " + scope + "\n*Request:* " + text + "\n_Logged: " + new Date().toISOString() + "_";
+  const chain = [body.channel, "#asgard-feature-requests", "#asgard-alerts", "#general"].filter(Boolean);
+  const attempts = [];
+  for (const ch of chain) {
+    const r = await slackPost(env, slackText, ch);
+    attempts.push({ channel: ch, ok: r.ok, error: r.error || null });
+    if (r.ok) return json({ ok: true, channel: ch, attempts });
+  }
+  return err("all slack channels failed", 502, { attempts });
+}
+
+async function handleMemoryGet(request, env) {
+  const url = new URL(request.url);
+    // /claude/messages proxy — injects API key from env
+    if (url.pathname === '/claude/messages') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { status: 204, headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS' } });
+      }
+      const fwdHeaders = { 'Content-Type': 'application/json', 'anthropic-version': '2023-06-01', 'x-api-key': env.ANTHROPIC_API_KEY };
+      const anthropicResp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST', headers: fwdHeaders, body: request.body
+      });
+      const rh = new Headers(anthropicResp.headers);
+      rh.set('Access-Control-Allow-Origin', '*');
+      return new Response(anthropicResp.body, { status: anthropicResp.status, headers: rh });
+    }
+
+  const uid = url.searchParams.get("uid") || "paddy";
+  const project = url.searchParams.get("project") || "shared";
+  const qs = "?uid=" + encodeURIComponent(uid) + "&project=" + encodeURIComponent(project);
+  const { ok, json: j, status } = await memoryFetch(env, "/facts" + qs);
+  if (!ok) return json({ memory: { facts: [] }, upstream_status: status, upstream: j }, 200);
+  const facts = Array.isArray(j.facts) ? j.facts : ((j.memory && j.memory.facts) || []);
+  return json({ memory: { facts, count: facts.length } });
+}
+
+async function handleConversations(request, env) {
+  const url = new URL(request.url);
+  const uid = url.searchParams.get("uid") || "paddy";
+  const showArchived = url.searchParams.get("archived") === "1";
+  if (!env.DB) return json({ conversations: [] });
+  try {
+    await archiveStale(env);
+    const where = showArchived ? "AND archived_at IS NOT NULL" : "AND (archived_at IS NULL OR archived_at = 0)";
+    const rows = await env.DB.prepare(
+      "SELECT id, title, updated_at, message_count, summary, archived_at FROM conversations WHERE uid = ? " + where + " ORDER BY updated_at DESC LIMIT 50"
+    ).bind(uid).all();
+    const conversations = (rows.results || []).map(r => ({
+      id: r.id, title: r.title, updated: new Date(r.updated_at).toISOString(),
+      messages: r.message_count, compressed: !!r.summary, archived: !!r.archived_at,
+    }));
+    return json({ conversations, showing: showArchived ? "archived" : "active" });
+  } catch (e) {
+    return json({ conversations: [], error: e.message });
+  }
+}
+
+async function handleHistory(request, env) {
+  const url = new URL(request.url);
+  const convId = url.searchParams.get("conv") || url.searchParams.get("conversation_id");
+  const uid = url.searchParams.get("uid") || "paddy";
+  if (!convId || !env.DB) return json({ messages: [] });
+  try {
+    const own = await env.DB.prepare("SELECT uid, summary, archived_at FROM conversations WHERE id = ?").bind(convId).first();
+    if (!own || own.uid !== uid) return json({ messages: [] });
+    const rows = await env.DB.prepare(
+      "SELECT role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at ASC"
+    ).bind(convId).all();
+    const messages = (rows.results || []).map(r => ({ role: r.role, content: r.content, ts: new Date(r.created_at).toISOString() }));
+    return json({ messages, summary: own.summary || null, archived: !!own.archived_at });
+  } catch (e) {
+    return json({ messages: [], error: e.message });
+  }
+}
+
+async function handleMemoryClear(request, env) {
+  return json({ ok: false, error: "bulk memory clear not implemented upstream" }, 501);
+}
+
+
+// ---------- GitHub ----------
+async function githubApi(env, method, path, body) {
+  if (!env.GITHUB_TOKEN) throw new Error("GITHUB_TOKEN missing");
+  const r = await fetch("https://api.github.com" + path, {
+    method,
+    headers: {
+      "Authorization": "Bearer " + env.GITHUB_TOKEN,
+      "Accept": "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "asgard-ai",
+      ...(body ? { "Content-Type": "application/json" } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await r.text();
+  let data; try { data = JSON.parse(text); } catch { data = { raw: text.slice(0, 400) }; }
+  return { ok: r.ok, status: r.status, data };
+}
+
+async function handleGithubRepos(request, env) {
+  const r = await githubApi(env, "GET", "/user/repos?per_page=100&sort=updated");
+  if (!r.ok) return err("github " + r.status + ": " + JSON.stringify(r.data).slice(0, 200), 502);
+  return json({ ok: true, repos: (r.data || []).map(x => ({ name: x.full_name, private: x.private, updated: x.updated_at, default_branch: x.default_branch, url: x.html_url })) });
+}
+
+async function handleGithubReadFile(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const { repo, path, ref } = body;
+  if (!repo || !path) return err("repo and path required", 400);
+  const r = await githubApi(env, "GET", "/repos/" + repo + "/contents/" + encodeURIComponent(path) + (ref ? "?ref=" + encodeURIComponent(ref) : ""));
+  if (!r.ok) return err("github " + r.status + ": " + JSON.stringify(r.data).slice(0, 200), 502);
+  const content = r.data.content ? atob(r.data.content.replace(/\n/g, "")) : "";
+  return json({ ok: true, path: r.data.path, sha: r.data.sha, size: r.data.size, content });
+}
+
+async function handleGithubCommitFile(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const { repo, path, content, message, branch } = body;
+  if (!repo || !path || content === undefined || !message) return err("repo, path, content, message required", 400);
+  // Find current sha (if exists)
+  let sha;
+  try {
+    const cur = await githubApi(env, "GET", "/repos/" + repo + "/contents/" + encodeURIComponent(path) + (branch ? "?ref=" + encodeURIComponent(branch) : ""));
+    if (cur.ok) sha = cur.data.sha;
+  } catch {}
+  const b64 = typeof btoa === "function" ? btoa(unescape(encodeURIComponent(content))) : Buffer.from(content).toString("base64");
+  const payload = { message, content: b64, ...(sha ? { sha } : {}), ...(branch ? { branch } : {}) };
+  const r = await githubApi(env, "PUT", "/repos/" + repo + "/contents/" + encodeURIComponent(path), payload);
+  if (!r.ok) return err("github " + r.status + ": " + JSON.stringify(r.data).slice(0, 200), 502);
+  return json({ ok: true, commit: r.data.commit && r.data.commit.sha, path, url: r.data.content && r.data.content.html_url });
+}
+
+async function handleGithubCreatePr(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const { repo, title, head, base, body: prBody } = body;
+  if (!repo || !title || !head || !base) return err("repo, title, head, base required", 400);
+  const r = await githubApi(env, "POST", "/repos/" + repo + "/pulls", { title, head, base, body: prBody || "" });
+  if (!r.ok) return err("github " + r.status + ": " + JSON.stringify(r.data).slice(0, 200), 502);
+  return json({ ok: true, number: r.data.number, url: r.data.html_url });
+}
+
+async function handleGithubCreateIssue(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const { repo, title, body: issueBody, labels } = body;
+  if (!repo || !title) return err("repo and title required", 400);
+  const r = await githubApi(env, "POST", "/repos/" + repo + "/issues", { title, body: issueBody || "", ...(labels ? { labels } : {}) });
+  if (!r.ok) return err("github " + r.status + ": " + JSON.stringify(r.data).slice(0, 200), 502);
+  return json({ ok: true, number: r.data.number, url: r.data.html_url });
+}
+
+async function handleDriveDelete(request, env) {
+  if (!env.LD_GOOGLE_REFRESH_TOKEN) return err("LD_GOOGLE_REFRESH_TOKEN missing", 400);
+  const _tr = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET,
+      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN, grant_type: "refresh_token" }).toString(),
+  });
+  if (!_tr.ok) { const te = await _tr.text(); return err("LD token refresh failed: " + te.slice(0,200), 502); }
+  const { access_token: ldAccess } = await _tr.json();
+  const url = new URL(request.url);
+  const id = url.searchParams.get("id");
+  if (!id) return err("id required", 400);
+  const r = await fetch("https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(id),
+    { method: "DELETE", headers: { "Authorization": "Bearer " + ldAccess } });
+  if (r.status === 204) return json({ ok: true, deleted: id });
+  const text = await r.text();
+  return err("drive " + r.status + ": " + text.slice(0, 300), 502);
+}
+
+// ---------- Vercel ----------
+async function vercelApi(env, method, path, body) {
+  if (!env.VERCEL_TOKEN) throw new Error("VERCEL_TOKEN missing — paste one from vercel.com/account/tokens");
+  const r = await fetch("https://api.vercel.com" + path, {
+    method,
+    headers: { "Authorization": "Bearer " + env.VERCEL_TOKEN, ...(body ? { "Content-Type": "application/json" } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await r.text();
+  let data; try { data = JSON.parse(text); } catch { data = { raw: text.slice(0, 400) }; }
+  return { ok: r.ok, status: r.status, data };
+}
+
+async function handleVercelProjects(request, env) {
+  try {
+    const r = await vercelApi(env, "GET", "/v9/projects?limit=50");
+    if (!r.ok) return err("vercel " + r.status + ": " + JSON.stringify(r.data).slice(0, 200), 502);
+    return json({ ok: true, projects: (r.data.projects || []).map(p => ({ id: p.id, name: p.name, framework: p.framework, updated: p.updatedAt })) });
+  } catch (e) { return err(e.message, 400); }
+}
+
+async function handleVercelDeployments(request, env) {
+  const url = new URL(request.url);
+  const projectId = url.searchParams.get("project");
+  const q = projectId ? ("?projectId=" + encodeURIComponent(projectId) + "&limit=10") : "?limit=10";
+  try {
+    const r = await vercelApi(env, "GET", "/v6/deployments" + q);
+    if (!r.ok) return err("vercel " + r.status + ": " + JSON.stringify(r.data).slice(0, 200), 502);
+    return json({ ok: true, deployments: (r.data.deployments || []).map(d => ({ id: d.uid, url: d.url, state: d.state, created: d.created, project: d.name })) });
+  } catch (e) { return err(e.message, 400); }
+}
+
+async function handleVercelRedeploy(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const { deploymentId, projectId, name } = body;
+  if (!deploymentId) return err("deploymentId required (from /vercel/deployments)", 400);
+  try {
+    const r = await vercelApi(env, "POST", "/v13/deployments", { name, deploymentId, target: "production" });
+    if (!r.ok) return err("vercel " + r.status + ": " + JSON.stringify(r.data).slice(0, 200), 502);
+    return json({ ok: true, id: r.data.id, url: r.data.url, status: r.data.readyState });
+  } catch (e) { return err(e.message, 400); }
+}
+
+// ---------- Google Drive ----------
+async function refreshGoogleToken(env) {
+  if (!env.GOOGLE_REFRESH_TOKEN || !env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
+    throw new Error("Google OAuth secrets missing (need GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN)");
+  }
+  const r = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: env.GOOGLE_CLIENT_ID,
+      client_secret: env.GOOGLE_CLIENT_SECRET,
+      refresh_token: env.GOOGLE_REFRESH_TOKEN,
+      grant_type: "refresh_token",
+    }).toString(),
+  });
+  if (!r.ok) { const t = await r.text(); throw new Error("google refresh " + r.status + ": " + t.slice(0, 200)); }
+  const j = await r.json();
+  if (!j.access_token) throw new Error("google refresh: no access_token in response");
+  return j.access_token;
+}
+
+async function driveFetch(env, tokenBox, url, init = {}, retried = false) {
+  const token = tokenBox.token || env.GOOGLE_ACCESS_TOKEN;
+  const headers = { ...(init.headers || {}), "Authorization": "Bearer " + token };
+  const r = await fetch(url, { ...init, headers });
+  if (r.status === 401 && !retried) {
+    tokenBox.token = await refreshGoogleToken(env);
+    return driveFetch(env, tokenBox, url, init, true);
+  }
+  return r;
+}
+
+async function handleDriveUpload(request, env) {
+  if (!env.LD_GOOGLE_REFRESH_TOKEN) return err("LD_GOOGLE_REFRESH_TOKEN missing", 400);
+  const _tr = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET,
+      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN, grant_type: "refresh_token" }).toString(),
+  });
+  if (!_tr.ok) { const te = await _tr.text(); return err("LD token refresh failed: " + te.slice(0,200), 502); }
+  const { access_token: ldAccess } = await _tr.json();
+  const url = new URL(request.url);
+  const filename = url.searchParams.get("filename") || "upload.bin";
+  const parent = url.searchParams.get("parent") || "1aB7mY3ZwW2ZnDrkyjEKGQIbpO46X06MV";
+  const mime = url.searchParams.get("mime") || request.headers.get("x-file-type") || "application/octet-stream";
+  const buf = await request.arrayBuffer();
+  if (!buf.byteLength) return err("empty body", 400);
+  const boundary = "----asgard-" + Math.random().toString(36).slice(2);
+  const metadata = { name: filename, parents: [parent] };
+  const enc = new TextEncoder();
+  const head = enc.encode(
+    "--" + boundary + "\r\n" +
+    "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
+    JSON.stringify(metadata) + "\r\n" +
+    "--" + boundary + "\r\n" +
+    "Content-Type: " + mime + "\r\n\r\n"
+  );
+  const tail = enc.encode("\r\n--" + boundary + "--\r\n");
+  const body = new Uint8Array(head.byteLength + buf.byteLength + tail.byteLength);
+  body.set(head, 0);
+  body.set(new Uint8Array(buf), head.byteLength);
+  body.set(tail, head.byteLength + buf.byteLength);
+  const r = await fetch(
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,parents,size",
+    { method: "POST", headers: { "Authorization": "Bearer " + ldAccess, "Content-Type": "multipart/related; boundary=" + boundary }, body }
+  );
+  const text = await r.text();
+  let data; try { data = JSON.parse(text); } catch { data = { raw: text.slice(0, 400) }; }
+  if (!r.ok) return err("drive " + r.status + ": " + JSON.stringify(data).slice(0, 300), 502);
+  return json({ ok: true, id: data.id, name: data.name, size: data.size, url: data.webViewLink, parents: data.parents });
+}
+
+async function handleDriveLdMkdir(request, env) {
+  if (!env.LD_GOOGLE_REFRESH_TOKEN) return err("LD_GOOGLE_REFRESH_TOKEN missing \u2014 run /google/oauth-start?account=luckdragon first", 400);
+  const body = await request.json().catch(() => ({}));
+  const { name, parent } = body;
+  if (!name) return err("name required", 400);
+  const tr = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: env.GOOGLE_CLIENT_ID,
+      client_secret: env.GOOGLE_CLIENT_SECRET,
+      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN,
+      grant_type: "refresh_token",
+    }).toString(),
+  });
+  if (!tr.ok) { const t = await tr.text(); return err("ld refresh " + tr.status + ": " + t.slice(0,200), 502); }
+  const tj = await tr.json();
+  const access = tj.access_token;
+  if (!access) return err("ld refresh: no access_token", 502);
+  const metadata = { name, mimeType: "application/vnd.google-apps.folder", ...(parent ? { parents: [parent] } : {}) };
+  const r = await fetch("https://www.googleapis.com/drive/v3/files?fields=id,name,parents,webViewLink", {
+    method: "POST",
+    headers: { "Authorization": "Bearer " + access, "Content-Type": "application/json" },
+    body: JSON.stringify(metadata),
+  });
+  const text = await r.text();
+  let data; try { data = JSON.parse(text); } catch { data = { raw: text.slice(0,400) }; }
+  if (!r.ok) return err("drive " + r.status + ": " + JSON.stringify(data).slice(0,300), 502);
+  return json({ ok: true, id: data.id, name: data.name, parents: data.parents, url: data.webViewLink });
+}
+
+async function handleDriveLdSearch(request, env) {
+  if (!env.LD_GOOGLE_REFRESH_TOKEN) return err("LD_GOOGLE_REFRESH_TOKEN missing", 400);
+  const url = new URL(request.url);
+  const q = url.searchParams.get("q") || "trashed = false";
+  const tr = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: env.GOOGLE_CLIENT_ID,
+      client_secret: env.GOOGLE_CLIENT_SECRET,
+      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN,
+      grant_type: "refresh_token",
+    }).toString(),
+  });
+  if (!tr.ok) { const t = await tr.text(); return err("ld refresh " + tr.status + ": " + t.slice(0,200), 502); }
+  const tj = await tr.json();
+  const access = tj.access_token;
+  const fields = "files(id,name,mimeType,parents,webViewLink,size)";
+  const pageSize = Math.min(1000, parseInt(url.searchParams.get("pageSize") || "50"));
+  const r = await fetch("https://www.googleapis.com/drive/v3/files?q=" + encodeURIComponent(q) + "&fields=" + encodeURIComponent(fields) + "&pageSize=" + pageSize, {
+    headers: { "Authorization": "Bearer " + access },
+  });
+  const text = await r.text();
+  let data; try { data = JSON.parse(text); } catch { data = { raw: text.slice(0,400) }; }
+  if (!r.ok) return err("drive " + r.status + ": " + JSON.stringify(data).slice(0,300), 502);
+  return json({ ok: true, files: data.files || [] });
+}
+
+async function handleDriveLdCopy(request, env) {
+  if (!env.LD_GOOGLE_REFRESH_TOKEN) return err("LD_GOOGLE_REFRESH_TOKEN missing", 400);
+  if (!env.GOOGLE_REFRESH_TOKEN) return err("GOOGLE_REFRESH_TOKEN missing", 400);
+  const url = new URL(request.url);
+  const srcId = url.searchParams.get("src_id");
+  const parent = url.searchParams.get("parent");
+  const filename = url.searchParams.get("filename");
+  if (!srcId || !parent) return err("src_id and parent required", 400);
+  // Step 1a: fetch metadata first to know if native Google format
+  const tokenBox = { token: null };
+  const metaResp = await driveFetch(env, tokenBox,
+    "https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(srcId) + "?fields=name,mimeType",
+    { method: "GET" }
+  );
+  if (!metaResp.ok) { const t = await metaResp.text(); return err("meta " + metaResp.status + ": " + t.slice(0,200), 502); }
+  const metaJson = await metaResp.json();
+  const srcMime = metaJson.mimeType || "application/octet-stream";
+  const googleNativeExports = {
+    "application/vnd.google-apps.document": { mime: "text/markdown", ext: ".md" },
+    "application/vnd.google-apps.spreadsheet": { mime: "text/csv", ext: ".csv" },
+    "application/vnd.google-apps.presentation": { mime: "application/vnd.openxmlformats-officedocument.presentationml.presentation", ext: ".pptx" },
+    "application/vnd.google-apps.drawing": { mime: "image/png", ext: ".png" },
+  };
+  let dlResp, name, mime;
+  if (googleNativeExports[srcMime]) {
+    const exp = googleNativeExports[srcMime];
+    dlResp = await driveFetch(env, tokenBox,
+      "https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(srcId) + "/export?mimeType=" + encodeURIComponent(exp.mime),
+      { method: "GET" }
+    );
+    name = (filename || metaJson.name) + exp.ext;
+    mime = exp.mime;
+  } else {
+    dlResp = await driveFetch(env, tokenBox,
+      "https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(srcId) + "?alt=media",
+      { method: "GET" }
+    );
+    name = filename || metaJson.name;
+    mime = srcMime;
+  }
+  if (!dlResp.ok) { const t = await dlResp.text(); return err("download " + dlResp.status + ": " + t.slice(0,200), 502); }
+  const buf = await dlResp.arrayBuffer();
+  // Step 2: mint LD access token
+  const tr = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: env.GOOGLE_CLIENT_ID,
+      client_secret: env.GOOGLE_CLIENT_SECRET,
+      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN,
+      grant_type: "refresh_token",
+    }).toString(),
+  });
+  if (!tr.ok) { const t = await tr.text(); return err("ld refresh " + tr.status + ": " + t.slice(0,200), 502); }
+  const tj = await tr.json();
+  const ldAccess = tj.access_token;
+  if (!ldAccess) return err("ld refresh: no access_token", 502);
+  // Step 3: upload to LD Drive as multipart
+  const boundary = "----asgard-" + Math.random().toString(36).slice(2);
+  const metadata = { name, parents: [parent] };
+  const enc = new TextEncoder();
+  const head = enc.encode(
+    "--" + boundary + "\r\n" +
+    "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
+    JSON.stringify(metadata) + "\r\n" +
+    "--" + boundary + "\r\n" +
+    "Content-Type: " + mime + "\r\n\r\n"
+  );
+  const tail = enc.encode("\r\n--" + boundary + "--\r\n");
+  const body = new Uint8Array(head.byteLength + buf.byteLength + tail.byteLength);
+  body.set(head, 0);
+  body.set(new Uint8Array(buf), head.byteLength);
+  body.set(tail, head.byteLength + buf.byteLength);
+  const upResp = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,parents,size", {
+    method: "POST",
+    headers: { "Authorization": "Bearer " + ldAccess, "Content-Type": "multipart/related; boundary=" + boundary },
+    body,
+  });
+  const text = await upResp.text();
+  let data; try { data = JSON.parse(text); } catch { data = { raw: text.slice(0,400) }; }
+  if (!upResp.ok) return err("upload " + upResp.status + ": " + JSON.stringify(data).slice(0,300), 502);
+  return json({ ok: true, src_id: srcId, new_id: data.id, name: data.name, size: data.size, url: data.webViewLink, parents: data.parents });
+}
+
+async function handleDriveSearch(request, env) {
+  if (!env.LD_GOOGLE_REFRESH_TOKEN) return err("LD_GOOGLE_REFRESH_TOKEN missing", 400);
+  const _tr = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET,
+      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN, grant_type: "refresh_token" }).toString(),
+  });
+  if (!_tr.ok) { const te = await _tr.text(); return err("LD token refresh failed: " + te.slice(0,200), 502); }
+  const { access_token: ldAccess } = await _tr.json();
+  const url = new URL(request.url);
+  const q = url.searchParams.get("q") || "trashed = false";
+  const pageSize = Math.min(1000, parseInt(url.searchParams.get("pageSize") || "20"));
+  const fields = "files(id,name,mimeType,modifiedTime,webViewLink,parents,size),nextPageToken";
+  const apiUrl = "https://www.googleapis.com/drive/v3/files?q=" + encodeURIComponent(q) +
+    "&pageSize=" + pageSize + "&fields=" + encodeURIComponent(fields) + "&supportsAllDrives=true";
+  const r = await fetch(apiUrl, { headers: { "Authorization": "Bearer " + ldAccess } });
+  const text = await r.text();
+  let data; try { data = JSON.parse(text); } catch { data = { raw: text.slice(0, 400) }; }
+  if (!r.ok) return err("drive " + r.status + ": " + JSON.stringify(data).slice(0, 300), 502);
+  return json(data);
+}
+
+// ---------- Google OAuth rotation ----------
+function googleConsentUrl(env, request, account) {
+  const url = new URL(request.url);
+  const callback = url.origin + "/google/oauth-callback";
+  const isLD = account === "luckdragon";
+  const params = new URLSearchParams({
+    client_id: env.GOOGLE_CLIENT_ID,
+    redirect_uri: callback,
+    response_type: "code",
+    scope: "https://www.googleapis.com/auth/drive.file",
+    access_type: "offline",
+    prompt: isLD ? "select_account consent" : "consent",
+    include_granted_scopes: "true",
+    ...(account ? { state: account } : {}),
+    ...(isLD ? { login_hint: "hello@luckdragon.io" } : {}),
+  });
+  return "https://accounts.google.com/o/oauth2/v2/auth?" + params.toString();
+}
+
+async function handleOauthStart(request, env) {
+  if (!env.GOOGLE_CLIENT_ID) return new Response("GOOGLE_CLIENT_ID missing", { status: 500, headers: { "Content-Type": "text/plain" } });
+  const url = new URL(request.url);
+  const account = url.searchParams.get("account") || "";
+  const target = googleConsentUrl(env, request, account);
+  return new Response("Redirecting to Google (" + (account || "default") + ")…\n\n" + target, { status: 302, headers: { "Location": target, "Content-Type": "text/plain" } });
+}
+
+async function handleOauthCallback(request, env) {
+  const url = new URL(request.url);
+  const code = url.searchParams.get("code");
+  const errorParam = url.searchParams.get("error");
+  if (errorParam) return new Response("OAuth error: " + errorParam, { status: 400, headers: { "Content-Type": "text/plain" } });
+  if (!code) return new Response("No code in callback", { status: 400, headers: { "Content-Type": "text/plain" } });
+  const callback = url.origin + "/google/oauth-callback";
+  const tokenResp = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      code,
+      client_id: env.GOOGLE_CLIENT_ID,
+      client_secret: env.GOOGLE_CLIENT_SECRET,
+      redirect_uri: callback,
+      grant_type: "authorization_code",
+    }).toString(),
+  });
+  const tokenJson = await tokenResp.json().catch(() => ({}));
+  if (!tokenResp.ok) {
+    return new Response("Token exchange failed (" + tokenResp.status + "):\n" + JSON.stringify(tokenJson, null, 2), { status: 502, headers: { "Content-Type": "text/plain" } });
+  }
+  const refresh = tokenJson.refresh_token;
+  const access = tokenJson.access_token;
+  const scope = tokenJson.scope || "";
+  if (!refresh) {
+    return new Response("No refresh_token returned. Scope: " + scope + "\nResponse: " + JSON.stringify(tokenJson, null, 2), { status: 500, headers: { "Content-Type": "text/plain" } });
+  }
+  if (!env.CF_ACCOUNT_ID || !env.CF_API_TOKEN) {
+    return new Response("Got tokens but CF_API_TOKEN/CF_ACCOUNT_ID missing — can't persist.\nRefresh token: " + refresh, { status: 500, headers: { "Content-Type": "text/plain" } });
+  }
+  async function putSecret(name, text) {
+    const r = await fetch("https://api.cloudflare.com/client/v4/accounts/" + env.CF_ACCOUNT_ID + "/workers/scripts/asgard-ai/secrets", {
+      method: "PUT",
+      headers: { "Authorization": "Bearer " + env.CF_API_TOKEN, "Content-Type": "application/json" },
+      body: JSON.stringify({ name, text, type: "secret_text" }),
+    });
+    const j = await r.json().catch(() => ({}));
+    return { ok: r.ok, result: j };
+  }
+  const stateAcct = url.searchParams.get("state") || "";
+  const isLD = stateAcct === "luckdragon";
+  const refreshKey = isLD ? "LD_GOOGLE_REFRESH_TOKEN" : "GOOGLE_REFRESH_TOKEN";
+  const accessKey = isLD ? "LD_GOOGLE_ACCESS_TOKEN" : "GOOGLE_ACCESS_TOKEN";
+  const r1 = await putSecret(refreshKey, refresh);
+  const r2 = await putSecret(accessKey, access);
+  const msg =
+    "Google OAuth complete for account: " + (stateAcct || "default") + "\n\n" +
+    "Scope granted: " + scope + "\n" +
+    refreshKey + " updated: " + r1.ok + "\n" +
+    accessKey + " updated: " + r2.ok + "\n\n" +
+    "You can close this tab.";
+  return new Response(msg, { status: 200, headers: { "Content-Type": "text/plain" } });
+}
+
+// ---------- Confirmation gate helpers ----------
+// A "proposal" flow: dashboard asks /chat/agent?dry_run=1 → gets plan; user confirms → re-call with execute=true
+async function handleAgentPropose(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const message = (body.message || "").toString();
+  if (!message) return err("message required", 400);
+  const system = "You are a planning assistant. When asked to do something, respond with a JSON object describing the plan: {summary: string, steps: [{action: string, risky: boolean}], risky: boolean}. Do NOT execute anything. Only describe.";
+  const result = await generate(env, {
+    provider: "anthropic", model: MODELS.sonnet.id,
+    messages: [{ role: "user", content: message }],
+    system, max_tokens: 1024,
+  });
+  if (!result.ok) return err(result.error, 502);
+  let plan;
+  try {
+    const m = result.reply.match(/\{[\s\S]*\}/);
+    plan = m ? JSON.parse(m[0]) : { summary: result.reply, steps: [], risky: false };
+  } catch { plan = { summary: result.reply, steps: [], risky: false }; }
+  return json({ ok: true, plan, raw_reply: result.reply });
+}
+
+
+async function handleDriveLdMove(request, env) {
+  if (!env.LD_GOOGLE_REFRESH_TOKEN) return err("LD_GOOGLE_REFRESH_TOKEN missing", 400);
+  const body = await request.json().catch(() => ({}));
+  const { fileId, targetFolderId, sourceFolderId } = body;
+  if (!fileId || !targetFolderId) return err("fileId and targetFolderId required", 400);
+  const tr = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: env.GOOGLE_CLIENT_ID,
+      client_secret: env.GOOGLE_CLIENT_SECRET,
+      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN,
+      grant_type: "refresh_token",
+    }).toString(),
+  });
+  if (!tr.ok) { const t = await tr.text(); return err("ld refresh " + tr.status + ": " + t.slice(0,200), 502); }
+  const tj = await tr.json();
+  const access = tj.access_token;
+  if (!access) return err("ld refresh: no access_token", 502);
+
+  // Get file metadata (name + current parents)
+  const metaR = await fetch(
+    "https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(fileId) + "?fields=id,name,parents,mimeType",
+    { headers: { "Authorization": "Bearer " + access } }
+  );
+  const meta = metaR.ok ? await metaR.json() : {};
+  const currentParents = (meta.parents && meta.parents.length > 0) ? meta.parents : null;
+  const removeParents = sourceFolderId || (currentParents ? currentParents.join(",") : null);
+
+  // Try PATCH move first
+  let url = "https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(fileId) +
+    "?addParents=" + encodeURIComponent(targetFolderId) + "&fields=id,name,parents&supportsAllDrives=true";
+  if (removeParents) url += "&removeParents=" + encodeURIComponent(removeParents);
+  const r = await fetch(url, {
+    method: "PATCH",
+    headers: { "Authorization": "Bearer " + access, "Content-Type": "application/json" },
+    body: "{}",
+  });
+  if (r.ok) {
+    const data = await r.json();
+    return json({ ok: true, method: "move", id: data.id, name: data.name, parents: data.parents });
+  }
+  const errText = await r.text();
+  // If cannotAddParent (orphaned file), fall back to copy + trash
+  if (r.status === 403 && errText.includes("cannotAddParent")) {
+    // Copy to target folder
+    const fname = meta.name || "unnamed";
+    const copyR = await fetch(
+      "https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(fileId) + "/copy?fields=id,name,parents",
+      {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + access, "Content-Type": "application/json" },
+        body: JSON.stringify({ name: fname, parents: [targetFolderId] }),
+      }
+    );
+    if (!copyR.ok) { const ct = await copyR.text(); return err("copy " + copyR.status + ": " + ct.slice(0,300), 502); }
+    const copyData = await copyR.json();
+    // Trash original
+    await fetch(
+      "https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(fileId) + "?supportsAllDrives=true",
+      { method: "DELETE", headers: { "Authorization": "Bearer " + access } }
+    );
+    return json({ ok: true, method: "copy+trash", id: copyData.id, name: copyData.name, parents: copyData.parents, original_id: fileId });
+  }
+  return err("drive " + r.status + ": " + errText.slice(0,300), 502);
+}
+
+
+
+// =====================================================================
+// /sync/state — simple per-uid blob storage for cross-device dashboard sync.
+// Backed by D1; auto-creates table on first call.
+// =====================================================================
+async function _syncEnsureTable(env) {
+  if (!env.DB) throw new Error("DB not bound");
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS asgard_sync_state (uid TEXT PRIMARY KEY, blob TEXT, ts INTEGER)").run();
+}
+
+async function handleSyncState(request, env) {
+  if (!env.DB) return json({ ok: false, error: "D1 DB not bound on asgard-ai" }, 500);
+  const url = new URL(request.url);
+  const uid = url.searchParams.get("uid") || request.headers.get("X-User-Id") || "paddy";
+  try {
+    await _syncEnsureTable(env);
+    if (request.method === "GET") {
+      const row = await env.DB.prepare("SELECT blob, ts FROM asgard_sync_state WHERE uid = ?").bind(uid).first();
+      if (!row) return json({ ok: true, uid, found: false });
+      let parsed = null;
+      try { parsed = JSON.parse(row.blob); } catch (e) {}
+      return json({ ok: true, uid, found: true, ts: row.ts, blob: parsed });
+    }
+    // POST — store blob
+    const body = await request.json().catch(() => ({}));
+    const blobStr = JSON.stringify(body.blob !== undefined ? body.blob : body);
+    if (blobStr.length > 4000000) return json({ ok: false, error: "blob too large (>4MB)" }, 413);
+    const ts = Date.now();
+    await env.DB.prepare("INSERT INTO asgard_sync_state (uid, blob, ts) VALUES (?, ?, ?) ON CONFLICT(uid) DO UPDATE SET blob = excluded.blob, ts = excluded.ts").bind(uid, blobStr, ts).run();
+    return json({ ok: true, uid, ts, size: blobStr.length });
+  } catch (e) {
+    return json({ ok: false, error: "sync_state failed: " + e.message }, 500);
+  }
+}
+
+// =====================================================================
+// /chat/agentic — multi-provider agent loop (OpenAI tool_calls; Gemini functionCalls TBD)
+// Tools: http_request, get_worker_code, deploy_worker, get_secret
+// =====================================================================
+const AGENTIC_ACCT = "a6f47c17811ee2f8b6caeb8f38768c20";
+
+const AGENTIC_TOOLS_OPENAI = [
+  // Network
+  { type: "function", function: { name: "http_request", description: "HTTP request to any URL. Returns {status, ok, body}. Auto-adds a User-Agent.",
+    parameters: { type: "object", properties: {
+      url: { type: "string" }, method: { type: "string", enum: ["GET","POST","PUT","PATCH","DELETE"], default: "GET" },
+      headers: { type: "object", additionalProperties: { type: "string" } },
+      body: { type: "string", description: "Request body (JSON.stringify objects first)" }
+    }, required: ["url"] } } },
+  // Cloudflare Workers
+  { type: "function", function: { name: "get_worker_code", description: "Read the JS source of a Cloudflare Worker by script name.",
+    parameters: { type: "object", properties: { worker_name: { type: "string" }, main_module: { type: "string" } }, required: ["worker_name"] } } },
+  { type: "function", function: { name: "deploy_worker", description: "Deploy a new version of a CF Worker. Provide complete updated JS source.",
+    parameters: { type: "object", properties: { worker_name: { type: "string" }, code: { type: "string" }, main_module: { type: "string", default: "worker.js" } }, required: ["worker_name", "code"] } } },
+  // Secrets
+  { type: "function", function: { name: "get_secret", description: "Read a secret from the Asgard vault.",
+    parameters: { type: "object", properties: { key: { type: "string" } }, required: ["key"] } } },
+  // Google Drive (paddy@luckdragon.io)
+  { type: "function", function: { name: "drive_upload", description: "Upload a file to paddy@luckdragon.io's Google Drive. Default parent is the ASGARD folder.",
+    parameters: { type: "object", properties: {
+      filename: { type: "string" },
+      content: { type: "string", description: "File content as plain text" },
+      mime: { type: "string", default: "text/plain" },
+      parent: { type: "string", description: "Drive folder ID. Defaults to ASGARD folder." }
+    }, required: ["filename", "content"] } } },
+  { type: "function", function: { name: "drive_search", description: "Search files in paddy@luckdragon.io's Google Drive by name fragment. Returns up to 20 matches.",
+    parameters: { type: "object", properties: { query: { type: "string", description: "Substring to search for in file names" } }, required: ["query"] } } },
+  { type: "function", function: { name: "drive_read", description: "Read text content of a Drive file by ID.",
+    parameters: { type: "object", properties: { file_id: { type: "string" } }, required: ["file_id"] } } },
+  // GitHub
+  { type: "function", function: { name: "github_get_file", description: "Read a file from a GitHub repo. Returns {content, sha, size}.",
+    parameters: { type: "object", properties: {
+      owner: { type: "string", default: "LuckDragonAsgard" }, repo: { type: "string" }, path: { type: "string" }, branch: { type: "string", default: "main" }
+    }, required: ["repo", "path"] } } },
+  { type: "function", function: { name: "github_write_file", description: "Create or update a file in a GitHub repo. Auto-fetches current SHA for updates. Auto-commits.",
+    parameters: { type: "object", properties: {
+      owner: { type: "string", default: "LuckDragonAsgard" }, repo: { type: "string" }, path: { type: "string" }, content: { type: "string", description: "File content as plain text" }, message: { type: "string", description: "Commit message" }, branch: { type: "string", default: "main" }
+    }, required: ["repo", "path"] } } },
+  // Email via Resend
+  { type: "function", function: { name: "send_email", description: "Send an email via Resend. From defaults to noreply@luckdragon.io.",
+    parameters: { type: "object", properties: {
+      to: { type: "string" }, subject: { type: "string" }, html: { type: "string" }, text: { type: "string" }, from: { type: "string" }
+    }, required: ["to", "subject"] } } },
+  // Vercel
+  { type: "function", function: { name: "vercel_list_projects", description: "List Vercel projects in the team.",
+    parameters: { type: "object", properties: { limit: { type: "number", default: 20 } } } } },
+  { type: "function", function: { name: "vercel_list_deployments", description: "List recent Vercel deployments. Optionally filter by projectId.",
+    parameters: { type: "object", properties: { projectId: { type: "string" }, limit: { type: "number", default: 10 }, target: { type: "string", enum: ["production", "preview"] } } } } },
+  { type: "function", function: { name: "vercel_get_deployment", description: "Get full details of a Vercel deployment by id.",
+    parameters: { type: "object", properties: { deployment_id: { type: "string" } }, required: ["deployment_id"] } } },
+  { type: "function", function: { name: "vercel_redeploy", description: "Trigger a redeploy of an existing Vercel deployment.",
+    parameters: { type: "object", properties: { deployment_id: { type: "string" }, name: { type: "string" } }, required: ["deployment_id"] } } },
+  // Stripe
+  { type: "function", function: { name: "stripe_list_products", description: "List Stripe products.",
+    parameters: { type: "object", properties: { limit: { type: "number", default: 20 }, active: { type: "boolean" } } } } },
+  { type: "function", function: { name: "stripe_list_payment_links", description: "List Stripe Payment Links.",
+    parameters: { type: "object", properties: { limit: { type: "number", default: 20 } } } } },
+  { type: "function", function: { name: "stripe_create_payment_link", description: "Create a Stripe Payment Link for an existing price.",
+    parameters: { type: "object", properties: {
+      price_id: { type: "string" }, quantity: { type: "number", default: 1 }, adjustable_quantity: { type: "boolean", default: false }
+    }, required: ["price_id"] } } },
+  // Supabase
+  { type: "function", function: { name: "supabase_select", description: "SELECT from a Supabase table via PostgREST.",
+    parameters: { type: "object", properties: {
+      table: { type: "string" }, select: { type: "string", default: "*" }, query: { type: "string", description: "PostgREST query string e.g. id=eq.123" }, limit: { type: "number", default: 50 }
+    }, required: ["table"] } } },
+  { type: "function", function: { name: "supabase_insert", description: "INSERT a row into a Supabase table.",
+    parameters: { type: "object", properties: {
+      table: { type: "string" }, row: { type: "object", additionalProperties: true }
+    }, required: ["table", "row"] } } },
+  // Web search (Tavily)
+  { type: "function", function: { name: "web_search", description: "Search the live web for up-to-date information. Returns top results with snippets.",
+    parameters: { type: "object", properties: {
+      query: { type: "string" }, max_results: { type: "number", default: 5 }, include_answer: { type: "boolean", default: true }
+    }, required: ["query"] } } },
+  // Discord
+  { type: "function", function: { name: "discord_send", description: "Post a message to Paddy's Discord server. Defaults to the configured channel.",
+    parameters: { type: "object", properties: {
+      content: { type: "string" }, channel_id: { type: "string", description: "Optional channel override" }
+    }, required: ["content"] } } },
+  // Browser Rendering (asgard-browser worker)
+  { type: "function", function: { name: "browser_screenshot", description: "Take a PNG screenshot of any URL. Returns a data: URL embedding the image.",
+    parameters: { type: "object", properties: { url: { type: "string" }, full_page: { type: "boolean", default: false } }, required: ["url"] } } },
+  { type: "function", function: { name: "browser_content", description: "Fetch the rendered HTML of any URL after JavaScript execution.",
+    parameters: { type: "object", properties: { url: { type: "string" } }, required: ["url"] } } },
+  { type: "function", function: { name: "browser_markdown", description: "Fetch any URL and return its content as clean markdown.",
+    parameters: { type: "object", properties: { url: { type: "string" } }, required: ["url"] } } },
+  { type: "function", function: { name: "browser_json", description: "Use AI extraction to pull structured data from a webpage. Provide a natural-language prompt describing what to extract.",
+    parameters: { type: "object", properties: { url: { type: "string" }, prompt: { type: "string" } }, required: ["url", "prompt"] } } },
+  { type: "function", function: { name: "browser_links", description: "Get all hyperlinks from a URL.",
+    parameters: { type: "object", properties: { url: { type: "string" } }, required: ["url"] } } },
+  { type: "function", function: { name: "browser_scrape", description: "Scrape elements matching a CSS selector from a URL. Returns text/HTML/coords for each match.",
+    parameters: { type: "object", properties: { url: { type: "string" }, selector: { type: "string" } }, required: ["url", "selector"] } } },
+  { type: "function", function: { name: "browser_pdf", description: "Render any URL as PDF and return as data: URL.",
+    parameters: { type: "object", properties: { url: { type: "string" } }, required: ["url"] } } },
+  // Chrome bridge — drives the user's REAL browser via the Asgard Chrome extension.
+  { type: "function", function: { name: "chrome_navigate", description: "Navigate the user's active Chrome tab to a URL. Requires the Asgard Chrome extension to be installed and running.",
+    parameters: { type: "object", properties: { url: { type: "string" } }, required: ["url"] } } },
+  { type: "function", function: { name: "chrome_screenshot", description: "Take a screenshot of the user's active Chrome tab. Requires the Asgard Chrome extension. Returns image_data_url.",
+    parameters: { type: "object", properties: { full_page: { type: "boolean", default: false } } } } },
+  { type: "function", function: { name: "chrome_extract", description: "Get text or HTML content of the user's active Chrome tab.",
+    parameters: { type: "object", properties: { selector: { type: "string", description: "Optional CSS selector to scope extraction" }, format: { type: "string", enum: ["text", "html"], default: "text" } } } } },
+  { type: "function", function: { name: "chrome_click", description: "Click an element by CSS selector in the user's active Chrome tab.",
+    parameters: { type: "object", properties: { selector: { type: "string" } }, required: ["selector"] } } },
+  { type: "function", function: { name: "chrome_type", description: "Type text into an input/textarea in the user's active Chrome tab.",
+    parameters: { type: "object", properties: { selector: { type: "string" }, text: { type: "string" }, submit: { type: "boolean", default: false } }, required: ["selector", "text"] } } },
+  // Desktop bridge — controls user's native desktop via the asgard-desktop Python helper.
+  { type: "function", function: { name: "desktop_screenshot", description: "Take a screenshot of the user's full desktop (all monitors). Returns PNG data URL. Requires asgard-desktop helper running.",
+    parameters: { type: "object", properties: {} } } },
+  { type: "function", function: { name: "desktop_click", description: "Click at absolute screen coordinates (x, y).",
+    parameters: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, button: { type: "string", enum: ["left","right","middle"], default: "left" }, double: { type: "boolean", default: false } }, required: ["x", "y"] } } },
+  { type: "function", function: { name: "desktop_type", description: "Type text into the currently focused input on the desktop.",
+    parameters: { type: "object", properties: { text: { type: "string" } }, required: ["text"] } } },
+  { type: "function", function: { name: "desktop_key", description: "Press a key combination (e.g. 'cmd+c', 'ctrl+v', 'enter', 'tab').",
+    parameters: { type: "object", properties: { keys: { type: "string", description: "Plus-separated combo, e.g. 'cmd+shift+t'" } }, required: ["keys"] } } },
+  { type: "function", function: { name: "desktop_run", description: "Run a shell command or open an app by name. Use 'open <app>' on Mac or full path on Windows.",
+    parameters: { type: "object", properties: { command: { type: "string" } }, required: ["command"] } } },
+  { type: "function", function: { name: "power_automate_trigger", description: "Kick off a Microsoft Power Automate flow via its HTTP webhook URL. Returns the flow's response. Build the flow in Power Automate Cloud with a 'When an HTTP request is received' trigger first.",
+    parameters: { type: "object", properties: {
+      webhook_url: { type: "string", description: "Full Power Automate HTTP webhook URL (from the flow's trigger config)" },
+      payload: { type: "object", description: "JSON payload to send to the flow", additionalProperties: true }
+    }, required: ["webhook_url"] } } }
+];
+
+function _agSanitizeForGemini(schema) {
+  if (!schema || typeof schema !== 'object') return schema;
+  const clean = {};
+  for (const k in schema) {
+    if (k === 'additionalProperties') continue;
+    if (k === 'properties' && schema.properties) {
+      clean.properties = {};
+      for (const pk in schema.properties) clean.properties[pk] = _agSanitizeForGemini(schema.properties[pk]);
+    } else if (Array.isArray(schema[k])) {
+      clean[k] = schema[k].slice();
+    } else if (typeof schema[k] === 'object') {
+      clean[k] = _agSanitizeForGemini(schema[k]);
+    } else {
+      clean[k] = schema[k];
+    }
+  }
+  return clean;
+}
+const AGENTIC_TOOLS_GEMINI = [{ function_declarations: AGENTIC_TOOLS_OPENAI.map(function(t){
+  return { name: t.function.name, description: t.function.description, parameters: _agSanitizeForGemini(t.function.parameters) };
+}) }];
+
+async function agenticGetSecret(key, env) {
+  if (env && env[key]) return env[key];
+  try {
+    const r = await fetch("https://asgard-vault.pgallivan.workers.dev/secret/" + encodeURIComponent(key),
+      { headers: { "X-Pin": (env.PADDY_PIN || "2967") } });
+    if (!r.ok) return null;
+    return (await r.text()).trim();
+  } catch (e) { return null; }
+}
+
+const ASGARD_DRIVE_FOLDER = "1SVbCqDwD7AztVXmijffRTPdCi_JoGQr6"; // paddy@luckdragon.io ASGARD folder
+
+async function _agentLdAccessToken(env) {
+  if (!env.LD_GOOGLE_REFRESH_TOKEN) throw new Error("LD_GOOGLE_REFRESH_TOKEN missing");
+  const r = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET,
+      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN, grant_type: "refresh_token"
+    }).toString()
+  });
+  if (!r.ok) throw new Error("LD token refresh failed: " + (await r.text()).slice(0, 200));
+  return (await r.json()).access_token;
+}
+
+async function agenticExecuteTool(name, input, env) {
+  try {
+    if (name === "http_request") {
+      const { url, method = "GET", headers = {}, body } = input || {};
+      // Default User-Agent so APIs like GitHub don't 403 us
+      const finalHeaders = Object.assign({ 'User-Agent': 'Asgard-Agent/1.0 (+https://asgard.pgallivan.workers.dev)' }, headers || {});
+      const opts = { method, headers: finalHeaders };
+      if (body !== undefined && body !== null) opts.body = body;
+      // CF blocks worker-to-worker loopback within the same account → returns 1042.
+      // Detect that URL pattern and short-circuit with a useful explanation so the model can pivot.
+      const isLoopback = /^https?:\/\/[^\/]*\.pgallivan\.workers\.dev/i.test(String(url || ""));
+      try {
+        const r = await fetch(url, opts);
+        const text = await r.text();
+        if (isLoopback && (text.includes("error code: 1042") || text.includes("Worker threw"))) {
+          return {
+            status: r.status, ok: false,
+            error: "CF worker-to-worker loopback blocked (error 1042). The host " + new URL(url).hostname + " is in the same Cloudflare account as this caller.",
+            workaround: "For asgard workers use the dedicated tools instead: get_worker_code (read source), deploy_worker (push code), get_secret (vault). For external services, use their public custom domain (not workers.dev).",
+            body: text.substring(0, 1000)
+          };
+        }
+        return { status: r.status, ok: r.ok, body: text.substring(0, 20000) };
+      } catch (e) {
+        return { status: 0, ok: false, error: e.message, loopback_suspected: isLoopback };
+      }
+    }
+    if (name === "get_worker_code") {
+      const { worker_name, main_module } = input || {};
+      const cfToken = env.CF_API_TOKEN || (await agenticGetSecret("CF_API_TOKEN", env));
+      if (!cfToken) return { error: "CF_API_TOKEN missing" };
+      const r = await fetch(
+        "https://api.cloudflare.com/client/v4/accounts/" + AGENTIC_ACCT + "/workers/scripts/" + worker_name,
+        { headers: { "Authorization": "Bearer " + cfToken } }
+      );
+      if (!r.ok) return { error: "CF " + r.status, detail: (await r.text()).substring(0, 500) };
+      const ct = r.headers.get("Content-Type") || "";
+      const text = await r.text();
+      if (ct.startsWith("application/javascript") && !ct.includes("multipart")) {
+        return { code: text.substring(0, 60000), length: text.length, format: "classic" };
+      }
+      const bm = ct.match(/boundary=([^;]+)/);
+      if (!bm) return { error: "No boundary", ct };
+      const boundary = bm[1].trim().replace(/^"|"$/g, "");
+      const parts = text.split("--" + boundary).slice(1, -1);
+      const cands = [];
+      for (const raw of parts) {
+        let p = raw.replace(/^\r?\n/, "");
+        let si = p.indexOf("\r\n\r\n"); let sl = 4;
+        if (si === -1) { si = p.indexOf("\n\n"); sl = 2; }
+        if (si === -1) continue;
+        const headers = p.substring(0, si);
+        let body = p.substring(si + sl).replace(/\r?\n$/, "");
+        const fnm = headers.match(/filename="([^"]+)"/);
+        const nm  = headers.match(/name="([^"]+)"/);
+        const filename = fnm ? fnm[1] : (nm ? nm[1] : "");
+        cands.push({ filename, body });
+      }
+      const want = main_module || "worker.js";
+      const pick = cands.find(c => c.filename === want)
+                || cands.find(c => /\.m?js$/i.test(c.filename))
+                || cands.find(c => c.filename && c.filename !== "metadata");
+      if (!pick) return { error: "No JS part", filenames: cands.map(c => c.filename) };
+      return { code: pick.body.substring(0, 60000), length: pick.body.length, format: "module", part_name: pick.filename };
+    }
+    if (name === "deploy_worker") {
+      const { worker_name, code, main_module = "worker.js" } = input || {};
+      const cfToken = env.CF_API_TOKEN || (await agenticGetSecret("CF_API_TOKEN", env));
+      if (!cfToken) return { error: "CF_API_TOKEN missing" };
+      const meta = JSON.stringify({ main_module, keep_bindings: ["secret_text","plain_text","kv_namespace","d1","service"] });
+      const CRLF = String.fromCharCode(13, 10);
+      const boundary = "AgenticBoundary" + Date.now();
+      const bodyStr = "--" + boundary + CRLF +
+        "Content-Disposition: form-data; name=\"metadata\"" + CRLF +
+        "Content-Type: application/json" + CRLF + CRLF +
+        meta + CRLF +
+        "--" + boundary + CRLF +
+        "Content-Disposition: form-data; name=\"" + main_module + "\"; filename=\"" + main_module + "\"" + CRLF +
+        "Content-Type: application/javascript+module" + CRLF + CRLF +
+        code + CRLF +
+        "--" + boundary + "--";
+      const r = await fetch(
+        "https://api.cloudflare.com/client/v4/accounts/" + AGENTIC_ACCT + "/workers/scripts/" + worker_name,
+        { method: "PUT", headers: { "Authorization": "Bearer " + cfToken, "Content-Type": "multipart/form-data; boundary=" + boundary }, body: bodyStr }
+      );
+      const j = await r.json();
+      return { ok: !!j.success, errors: j.errors || [], worker: j.result && j.result.id };
+    }
+    if (name === "get_secret") {
+      const { key } = input || {};
+      const v = await agenticGetSecret(key, env);
+      return v ? { value: v, source: env[key] ? "env" : "vault" } : { error: "Secret not found: " + key };
+    }
+    if (name === "drive_upload") {
+      const { filename, content, mime = "text/plain", parent } = input || {};
+      const access = await _agentLdAccessToken(env);
+      const parentId = parent || ASGARD_DRIVE_FOLDER;
+      const boundary = "----asgard-agent-" + Math.random().toString(36).slice(2);
+      const meta = JSON.stringify({ name: filename, parents: [parentId] });
+      const enc = new TextEncoder();
+      const head = enc.encode("--" + boundary + "\r\n" + "Content-Type: application/json; charset=UTF-8\r\n\r\n" + meta + "\r\n" + "--" + boundary + "\r\n" + "Content-Type: " + mime + "\r\n\r\n");
+      const tail = enc.encode("\r\n--" + boundary + "--\r\n");
+      const bodyBytes = enc.encode(String(content));
+      const body = new Uint8Array(head.byteLength + bodyBytes.byteLength + tail.byteLength);
+      body.set(head, 0); body.set(bodyBytes, head.byteLength); body.set(tail, head.byteLength + bodyBytes.byteLength);
+      const r = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,size,webViewLink", {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + access, "Content-Type": "multipart/related; boundary=" + boundary },
+        body
+      });
+      if (!r.ok) return { error: "drive_upload " + r.status, detail: (await r.text()).slice(0, 500) };
+      return await r.json();
+    }
+    if (name === "drive_search") {
+      const { query } = input || {};
+      const access = await _agentLdAccessToken(env);
+      const q = encodeURIComponent("name contains '" + String(query).replace(/'/g, "\\'") + "' and trashed = false");
+      const r = await fetch("https://www.googleapis.com/drive/v3/files?q=" + q + "&pageSize=20&fields=files(id,name,mimeType,size,modifiedTime,parents)&supportsAllDrives=true&includeItemsFromAllDrives=true", {
+        headers: { "Authorization": "Bearer " + access }
+      });
+      if (!r.ok) return { error: "drive_search " + r.status, detail: (await r.text()).slice(0, 300) };
+      const j = await r.json();
+      return { count: (j.files || []).length, files: j.files || [] };
+    }
+    if (name === "drive_read") {
+      const { file_id } = input || {};
+      const access = await _agentLdAccessToken(env);
+      const r = await fetch("https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(file_id) + "?alt=media&supportsAllDrives=true", {
+        headers: { "Authorization": "Bearer " + access }
+      });
+      if (!r.ok) return { error: "drive_read " + r.status, detail: (await r.text()).slice(0, 300) };
+      const t = await r.text();
+      return { content: t.substring(0, 60000), length: t.length };
+    }
+    if (name === "github_get_file") {
+      const { owner = "LuckDragonAsgard", repo, path, branch = "main" } = input || {};
+      if (!env.GITHUB_TOKEN) return { error: "GITHUB_TOKEN missing" };
+      const url = "https://api.github.com/repos/" + owner + "/" + repo + "/contents/" + path + "?ref=" + encodeURIComponent(branch);
+      const r = await fetch(url, { headers: { "Authorization": "Bearer " + env.GITHUB_TOKEN, "Accept": "application/vnd.github+json", "User-Agent": "Asgard-Agent/1.0" } });
+      if (!r.ok) return { error: "github_get_file " + r.status, detail: (await r.text()).slice(0, 300) };
+      const j = await r.json();
+      let content = "";
+      try { content = atob((j.content || "").replace(/\n/g, "")); } catch (e) {}
+      return { content: content.substring(0, 60000), sha: j.sha, size: j.size, html_url: j.html_url };
+    }
+    if (name === "github_write_file") {
+      const { owner = "LuckDragonAsgard", repo, path, content, message, branch = "main" } = input || {};
+      if (!env.GITHUB_TOKEN) return { error: "GITHUB_TOKEN missing" };
+      const url = "https://api.github.com/repos/" + owner + "/" + repo + "/contents/" + path;
+      let sha = null;
+      try {
+        const probe = await fetch(url + "?ref=" + encodeURIComponent(branch), { headers: { "Authorization": "Bearer " + env.GITHUB_TOKEN, "Accept": "application/vnd.github+json", "User-Agent": "Asgard-Agent/1.0" } });
+        if (probe.ok) { const j0 = await probe.json(); sha = j0.sha; }
+      } catch (e) {}
+      const enc = new TextEncoder();
+      const bytes = enc.encode(String(content || ""));
+      let b64 = "";
+      for (let i = 0; i < bytes.length; i++) b64 += String.fromCharCode(bytes[i]);
+      b64 = btoa(b64);
+      const body = { message: message || "asgard-agent: update " + path, content: b64, branch };
+      if (sha) body.sha = sha;
+      const r = await fetch(url, { method: "PUT", headers: { "Authorization": "Bearer " + env.GITHUB_TOKEN, "Accept": "application/vnd.github+json", "Content-Type": "application/json", "User-Agent": "Asgard-Agent/1.0" }, body: JSON.stringify(body) });
+      if (!r.ok) return { error: "github_write_file " + r.status, detail: (await r.text()).slice(0, 500) };
+      const j = await r.json();
+      return { ok: true, action: sha ? "updated" : "created", commit: j.commit && j.commit.sha, html_url: j.content && j.content.html_url };
+    }
+    if (name === "send_email") {
+      const { to, subject, html, text, from } = input || {};
+      if (!env.RESEND_API_KEY) return { error: "RESEND_API_KEY missing" };
+      const body = { from: from || "Asgard <noreply@luckdragon.io>", to: Array.isArray(to) ? to : [to], subject };
+      if (html) body.html = html;
+      if (text) body.text = text;
+      if (!body.html && !body.text) body.text = subject;
+      const r = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + env.RESEND_API_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      if (!r.ok) return { error: "resend " + r.status, detail: (await r.text()).slice(0, 300) };
+      return await r.json();
+    }
+    if (name === "vercel_list_projects") {
+      if (!env.VERCEL_TOKEN) return { error: "VERCEL_TOKEN missing" };
+      const limit = (input && input.limit) || 20;
+      const r = await fetch("https://api.vercel.com/v10/projects?teamId=team_qXLAiOqq0EztMXKK8CXX6JhT&limit=" + limit, {
+        headers: { "Authorization": "Bearer " + env.VERCEL_TOKEN }
+      });
+      if (!r.ok) return { error: "vercel " + r.status, detail: (await r.text()).slice(0, 300) };
+      const j = await r.json();
+      return { count: (j.projects || []).length, projects: (j.projects || []).map(function(p){ return { id: p.id, name: p.name, framework: p.framework, latestDeployment: p.latestDeployments && p.latestDeployments[0] && p.latestDeployments[0].url }; }) };
+    }
+    if (name === "vercel_list_deployments") {
+      if (!env.VERCEL_TOKEN) return { error: "VERCEL_TOKEN missing" };
+      const limit = (input && input.limit) || 10;
+      const params = ["teamId=team_qXLAiOqq0EztMXKK8CXX6JhT", "limit=" + limit];
+      if (input && input.projectId) params.push("projectId=" + encodeURIComponent(input.projectId));
+      if (input && input.target) params.push("target=" + encodeURIComponent(input.target));
+      const r = await fetch("https://api.vercel.com/v6/deployments?" + params.join("&"), { headers: { "Authorization": "Bearer " + env.VERCEL_TOKEN } });
+      if (!r.ok) return { error: "vercel " + r.status, detail: (await r.text()).slice(0, 300) };
+      const j = await r.json();
+      return { count: (j.deployments || []).length, deployments: (j.deployments || []).map(function(d){ return { uid: d.uid, name: d.name, url: d.url, state: d.state, target: d.target, created: d.created }; }) };
+    }
+    if (name === "vercel_get_deployment") {
+      if (!env.VERCEL_TOKEN) return { error: "VERCEL_TOKEN missing" };
+      const r = await fetch("https://api.vercel.com/v13/deployments/" + encodeURIComponent(input.deployment_id) + "?teamId=team_qXLAiOqq0EztMXKK8CXX6JhT", { headers: { "Authorization": "Bearer " + env.VERCEL_TOKEN } });
+      if (!r.ok) return { error: "vercel " + r.status, detail: (await r.text()).slice(0, 300) };
+      const j = await r.json();
+      return { uid: j.id, name: j.name, url: j.url, state: j.readyState || j.state, target: j.target, created: j.createdAt, build: j.build, error: j.error };
+    }
+    if (name === "vercel_redeploy") {
+      if (!env.VERCEL_TOKEN) return { error: "VERCEL_TOKEN missing" };
+      const r = await fetch("https://api.vercel.com/v13/deployments?forceNew=1&teamId=team_qXLAiOqq0EztMXKK8CXX6JhT", {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + env.VERCEL_TOKEN, "Content-Type": "application/json" },
+        body: JSON.stringify({ name: input.name, deploymentId: input.deployment_id })
+      });
+      if (!r.ok) return { error: "vercel " + r.status, detail: (await r.text()).slice(0, 300) };
+      const j = await r.json();
+      return { uid: j.id, url: j.url, state: j.readyState };
+    }
+    if (name === "stripe_list_products") {
+      if (!env.STRIPE_SECRET_KEY) return { error: "STRIPE_SECRET_KEY missing" };
+      const limit = (input && input.limit) || 20;
+      const params = ["limit=" + limit];
+      if (input && typeof input.active === "boolean") params.push("active=" + input.active);
+      const r = await fetch("https://api.stripe.com/v1/products?" + params.join("&"), { headers: { "Authorization": "Bearer " + env.STRIPE_SECRET_KEY } });
+      if (!r.ok) return { error: "stripe " + r.status, detail: (await r.text()).slice(0, 300) };
+      const j = await r.json();
+      return { count: (j.data || []).length, products: (j.data || []).map(function(p){ return { id: p.id, name: p.name, active: p.active, default_price: p.default_price }; }) };
+    }
+    if (name === "stripe_list_payment_links") {
+      if (!env.STRIPE_SECRET_KEY) return { error: "STRIPE_SECRET_KEY missing" };
+      const limit = (input && input.limit) || 20;
+      const r = await fetch("https://api.stripe.com/v1/payment_links?limit=" + limit, { headers: { "Authorization": "Bearer " + env.STRIPE_SECRET_KEY } });
+      if (!r.ok) return { error: "stripe " + r.status, detail: (await r.text()).slice(0, 300) };
+      const j = await r.json();
+      return { count: (j.data || []).length, links: (j.data || []).map(function(l){ return { id: l.id, url: l.url, active: l.active }; }) };
+    }
+    if (name === "stripe_create_payment_link") {
+      if (!env.STRIPE_SECRET_KEY) return { error: "STRIPE_SECRET_KEY missing" };
+      const params = new URLSearchParams();
+      params.append("line_items[0][price]", input.price_id);
+      params.append("line_items[0][quantity]", String(input.quantity || 1));
+      if (input.adjustable_quantity) {
+        params.append("line_items[0][adjustable_quantity][enabled]", "true");
+        params.append("line_items[0][adjustable_quantity][minimum]", "1");
+      }
+      const r = await fetch("https://api.stripe.com/v1/payment_links", {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + env.STRIPE_SECRET_KEY, "Content-Type": "application/x-www-form-urlencoded" },
+        body: params.toString()
+      });
+      if (!r.ok) return { error: "stripe " + r.status, detail: (await r.text()).slice(0, 500) };
+      const j = await r.json();
+      return { id: j.id, url: j.url, active: j.active };
+    }
+    if (name === "supabase_select") {
+      if (!env.SUPABASE_URL || !env.SUPABASE_KEY) return { error: "SUPABASE_URL or SUPABASE_KEY missing" };
+      const limit = (input && input.limit) || 50;
+      const select = (input && input.select) || "*";
+      const url = env.SUPABASE_URL.replace(/\/$/, "") + "/rest/v1/" + encodeURIComponent(input.table) + "?select=" + encodeURIComponent(select) + (input.query ? "&" + input.query : "") + "&limit=" + limit;
+      const r = await fetch(url, { headers: { "apikey": env.SUPABASE_KEY, "Authorization": "Bearer " + env.SUPABASE_KEY } });
+      if (!r.ok) return { error: "supabase " + r.status, detail: (await r.text()).slice(0, 300) };
+      const j = await r.json();
+      return { count: Array.isArray(j) ? j.length : 0, rows: j };
+    }
+    if (name === "supabase_insert") {
+      if (!env.SUPABASE_URL || !env.SUPABASE_KEY) return { error: "SUPABASE_URL or SUPABASE_KEY missing" };
+      const url = env.SUPABASE_URL.replace(/\/$/, "") + "/rest/v1/" + encodeURIComponent(input.table);
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { "apikey": env.SUPABASE_KEY, "Authorization": "Bearer " + env.SUPABASE_KEY, "Content-Type": "application/json", "Prefer": "return=representation" },
+        body: JSON.stringify(input.row)
+      });
+      if (!r.ok) return { error: "supabase " + r.status, detail: (await r.text()).slice(0, 300) };
+      const j = await r.json();
+      return { inserted: Array.isArray(j) ? j.length : 1, rows: j };
+    }
+    if (name === "web_search") {
+      if (!env.TAVILY_API_KEY) return { error: "TAVILY_API_KEY missing" };
+      const r = await fetch("https://api.tavily.com/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          api_key: env.TAVILY_API_KEY,
+          query: input.query,
+          max_results: input.max_results || 5,
+          include_answer: input.include_answer !== false,
+          search_depth: "basic"
+        })
+      });
+      if (!r.ok) return { error: "tavily " + r.status, detail: (await r.text()).slice(0, 300) };
+      const j = await r.json();
+      return {
+        answer: j.answer || null,
+        results: (j.results || []).map(function(x){ return { title: x.title, url: x.url, content: (x.content || "").substring(0, 600) }; })
+      };
+    }
+    if (name === "discord_send") {
+      if (!env.DISCORD_BOT_TOKEN) return { error: "DISCORD_BOT_TOKEN missing" };
+      const ch = input.channel_id || env.DISCORD_CHANNEL_ID;
+      if (!ch) return { error: "channel_id missing and DISCORD_CHANNEL_ID not bound" };
+      const r = await fetch("https://discord.com/api/v10/channels/" + ch + "/messages", {
+        method: "POST",
+        headers: { "Authorization": "Bot " + env.DISCORD_BOT_TOKEN, "Content-Type": "application/json" },
+        body: JSON.stringify({ content: input.content })
+      });
+      if (!r.ok) return { error: "discord " + r.status, detail: (await r.text()).slice(0, 300) };
+      const j = await r.json();
+      return { ok: true, message_id: j.id, channel_id: j.channel_id };
+    }
+    // Browser Rendering family — proxied through asgard-browser worker (CF loopback ok because we use full domain via fetch from outside?)
+    // Note: asgard-ai loops back to asgard-browser will hit 1042. Use direct REST API instead.
+    if (name === "browser_screenshot" || name === "browser_content" || name === "browser_markdown" || name === "browser_json" || name === "browser_links" || name === "browser_scrape" || name === "browser_pdf") {
+      const tok = env.CF_API_TOKEN_FULLOPS || env.CF_API_TOKEN;
+      if (!tok) return { error: "CF_API_TOKEN_FULLOPS missing on asgard-ai" };
+      const ACCT = "a6f47c17811ee2f8b6caeb8f38768c20";
+      const ops = {
+        browser_screenshot: { op: 'screenshot', body: { url: input.url, screenshotOptions: { fullPage: !!input.full_page } } },
+        browser_content:    { op: 'content',    body: { url: input.url } },
+        browser_markdown:   { op: 'markdown',   body: { url: input.url } },
+        browser_json:       { op: 'json',       body: { url: input.url, prompt: input.prompt } },
+        browser_links:      { op: 'links',      body: { url: input.url } },
+        browser_scrape:     { op: 'scrape',     body: { url: input.url, elements: [{ selector: input.selector }] } },
+        browser_pdf:        { op: 'pdf',        body: { url: input.url } }
+      };
+      const cfg = ops[name];
+      const r = await fetch("https://api.cloudflare.com/client/v4/accounts/" + ACCT + "/browser-rendering/" + cfg.op, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + tok },
+        body: JSON.stringify(cfg.body)
+      });
+      if (!r.ok) return { error: "browser " + r.status, detail: (await r.text()).slice(0, 500) };
+      const ct = r.headers.get("Content-Type") || "";
+      if (ct.includes("image/png")) {
+        const ab = await r.arrayBuffer();
+        const u8 = new Uint8Array(ab);
+        let bin = ""; for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
+        return { ok: true, url: input.url, image_data_url: "data:image/png;base64," + btoa(bin), size: u8.length };
+      }
+      if (ct.includes("application/pdf")) {
+        const ab = await r.arrayBuffer();
+        const u8 = new Uint8Array(ab);
+        let bin = ""; for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
+        return { ok: true, url: input.url, pdf_data_url: "data:application/pdf;base64," + btoa(bin), size: u8.length };
+      }
+      const j = await r.json();
+      // Truncate long string results so they don't bloat the agent loop context.
+      if (j && typeof j.result === "string" && j.result.length > 30000) j.result = j.result.substring(0, 30000) + "…[truncated]";
+      return { ok: true, url: input.url, ...j };
+    }
+    if (name === "chrome_navigate" || name === "chrome_screenshot" || name === "chrome_extract" || name === "chrome_click" || name === "chrome_type") {
+      const cmd = { type: name.replace("chrome_", ""), input };
+      const r = await bridgeRunCommand(env, cmd, "paddy", 30000);
+      return r;
+    }
+    if (name === "desktop_screenshot" || name === "desktop_click" || name === "desktop_type" || name === "desktop_key" || name === "desktop_run") {
+      const cmd = { type: name.replace("desktop_", ""), input };
+      const r = await bridgeRunCommand(env, cmd, "paddy-desktop", 30000);
+      return r;
+    }
+    if (name === "power_automate_trigger") {
+      const r = await fetch(input.webhook_url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input.payload || {})
+      });
+      const text = await r.text();
+      let parsed = null;
+      try { parsed = JSON.parse(text); } catch (e) {}
+      return { ok: r.ok, status: r.status, response: parsed || text.substring(0, 4000) };
+    }
+    return { error: "Unknown tool: " + name };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+async function handleChatAgentic(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const message = (body.message || "").toString();
+  if (!message) return json({ ok: false, error: "message required" }, 400);
+  const modelId = body.model || "gpt-4o-mini";
+  const system = body.system || SYSTEM_PROMPT;
+  const provider = modelId.startsWith("claude") ? "anthropic" : (modelId.startsWith("gemini") ? "gemini" : "openai");
+  const messagesIn = Array.isArray(body.messages) ? body.messages : [];
+  let messages = [...messagesIn, { role: "user", content: message }];
+
+  const MAX_ITER = 12;
+  let iter = 0;
+  const toolsExecuted = [];
+  let usage = null;
+  let finalText = "";
+
+  if (provider === "openai") {
+    if (!env.OPENAI_API_KEY) return json({ ok: false, error: "OPENAI_API_KEY missing" }, 502);
+    const oaiMessages = [{ role: "system", content: system }, ...messages];
+    while (iter < MAX_ITER) {
+      iter++;
+      const _isNewParam = /^(gpt-5|o1|o3|o4)/.test(String(modelId));
+      const _oaiBody = { model: modelId, messages: oaiMessages, tools: AGENTIC_TOOLS_OPENAI };
+      if (_isNewParam) _oaiBody.max_completion_tokens = 4096;
+      else _oaiBody.max_tokens = 4096;
+      const r = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + env.OPENAI_API_KEY },
+        body: JSON.stringify(_oaiBody)
+      });
+      if (!r.ok) return json({ ok: false, error: "openai " + r.status + ": " + (await r.text()).slice(0, 300) }, 502);
+      const d = await r.json();
+      usage = d.usage || usage;
+      const choice = d.choices && d.choices[0];
+      if (!choice) return json({ ok: false, error: "no choice in OpenAI response" }, 502);
+      const msg = choice.message || {};
+      if (choice.finish_reason !== "tool_calls" || !msg.tool_calls || !msg.tool_calls.length) {
+        finalText = msg.content || "";
+        break;
+      }
+      // Append assistant message with tool_calls to history
+      oaiMessages.push({ role: "assistant", content: msg.content || null, tool_calls: msg.tool_calls });
+      for (const tc of msg.tool_calls) {
+        let args = {};
+        try { args = JSON.parse(tc.function.arguments || "{}"); } catch (e) { args = { _parse_error: e.message }; }
+        const result = await agenticExecuteTool(tc.function.name, args, env);
+        toolsExecuted.push({ tool: tc.function.name, input: args, result });
+        oaiMessages.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(result).substring(0, 20000) });
+      }
+    }
+  } else if (provider === "gemini") {
+    if (!env.GEMINI_API_KEY) return json({ ok: false, error: "GEMINI_API_KEY missing" }, 502);
+    const contents = messages.map(m => ({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }]
+    }));
+    while (iter < MAX_ITER) {
+      iter++;
+      const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(modelId) + ":generateContent?key=" + env.GEMINI_API_KEY, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents,
+          tools: AGENTIC_TOOLS_GEMINI,
+          systemInstruction: { parts: [{ text: system }] },
+          generationConfig: { maxOutputTokens: 4096 }
+        })
+      });
+      if (!r.ok) return json({ ok: false, error: "gemini " + r.status + ": " + (await r.text()).slice(0, 300) }, 502);
+      const d = await r.json();
+      usage = d.usageMetadata || usage;
+      const cand = d.candidates && d.candidates[0];
+      const parts = (cand && cand.content && cand.content.parts) || [];
+      const fnCalls = parts.filter(p => p.functionCall);
+      if (!fnCalls.length) {
+        finalText = parts.map(p => p.text).filter(Boolean).join("");
+        break;
+      }
+      contents.push({ role: "model", parts });
+      const responseParts = [];
+      for (const p of fnCalls) {
+        const fc = p.functionCall;
+        const result = await agenticExecuteTool(fc.name, fc.args || {}, env);
+        toolsExecuted.push({ tool: fc.name, input: fc.args, result });
+        responseParts.push({ functionResponse: { name: fc.name, response: { result } } });
+      }
+      contents.push({ role: "user", parts: responseParts });
+    }
+  } else if (provider === "anthropic") {
+    const ak = env.ANTHROPIC_API_KEY;
+    if (!ak) return json({ ok: false, error: "ANTHROPIC_API_KEY missing on asgard-ai" }, 502);
+    // Anthropic-shape tools converted from OpenAI-shape
+    const anthropicTools = AGENTIC_TOOLS_OPENAI.map(function(t){
+      return { name: t.function.name, description: t.function.description, input_schema: t.function.parameters };
+    });
+    const claudeReq = { model: modelId, max_tokens: 8192, system, messages, tools: anthropicTools };
+    while (iter < MAX_ITER) {
+      iter++;
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": ak, "anthropic-version": "2023-06-01" },
+        body: JSON.stringify(claudeReq)
+      });
+      if (!r.ok) return json({ ok: false, error: "anthropic " + r.status + ": " + (await r.text()).slice(0, 300) }, 502);
+      const d = await r.json();
+      usage = d.usage || usage;
+      if (d.stop_reason !== "tool_use") {
+        const txt = (d.content || []).find(function(b){ return b.type === "text"; });
+        finalText = txt ? txt.text : "";
+        break;
+      }
+      const toolResults = [];
+      for (const block of (d.content || [])) {
+        if (block.type !== "tool_use") continue;
+        const result = await agenticExecuteTool(block.name, block.input, env);
+        toolsExecuted.push({ tool: block.name, input: block.input, result });
+        toolResults.push({ type: "tool_result", tool_use_id: block.id, content: JSON.stringify(result).substring(0, 20000) });
+      }
+      claudeReq.messages = [...claudeReq.messages, { role: "assistant", content: d.content }, { role: "user", content: toolResults }];
+    }
+  } else {
+    return json({ ok: false, error: "Unknown provider for model: " + modelId }, 400);
+  }
+
+  return json({
+    ok: true,
+    reply: finalText,
+    response: finalText,
+    text: finalText, content: finalText, message: finalText,
+    provider, model: modelId,
+    iterations: iter,
+    tools_executed: toolsExecuted.map(t => t.tool),
+    tool_results: toolsExecuted,
+    usage
+  });
+}
+
+
+// =====================================================================
+// /bridge/* — Chrome extension queue, D1-backed.
+// asgard-ai (chrome_* tools) writes commands; the extension polls and writes results back.
+// =====================================================================
+async function _bridgeEnsure(env) {
+  if (!env.DB) throw new Error("D1 DB not bound on asgard-ai");
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS chrome_bridge (id TEXT PRIMARY KEY, uid TEXT, status TEXT, command TEXT, result TEXT, enqueued_at INTEGER, claimed_at INTEGER, finished_at INTEGER)").run();
+}
+
+async function handleBridgeEnqueue(request, env) {
+  if (!env.DB) return json({ ok: false, error: "D1 DB not bound" }, 500);
+  await _bridgeEnsure(env);
+  const body = await request.json().catch(() => ({}));
+  const uid = body.uid || "paddy";
+  const id = "cmd_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+  await env.DB.prepare(
+    "INSERT INTO chrome_bridge (id, uid, status, command, enqueued_at) VALUES (?, ?, 'pending', ?, ?)"
+  ).bind(id, uid, JSON.stringify(body.command || {}), Date.now()).run();
+  return json({ ok: true, id, uid });
+}
+
+async function handleBridgePoll(request, env) {
+  if (!env.DB) return json({ ok: false, error: "D1 DB not bound" }, 500);
+  await _bridgeEnsure(env);
+  const url = new URL(request.url);
+  const uid = url.searchParams.get("uid") || "paddy";
+  // Atomically claim oldest pending
+  const row = await env.DB.prepare(
+    "SELECT id, command, enqueued_at FROM chrome_bridge WHERE uid = ? AND status = 'pending' ORDER BY enqueued_at ASC LIMIT 1"
+  ).bind(uid).first();
+  if (!row) return json({ ok: true, idle: true });
+  await env.DB.prepare("UPDATE chrome_bridge SET status = 'in_flight', claimed_at = ? WHERE id = ?").bind(Date.now(), row.id).run();
+  let cmd = {};
+  try { cmd = JSON.parse(row.command); } catch (e) {}
+  return json({ ok: true, idle: false, id: row.id, command: cmd });
+}
+
+async function handleBridgeResult(request, env) {
+  if (!env.DB) return json({ ok: false, error: "D1 DB not bound" }, 500);
+  await _bridgeEnsure(env);
+  const body = await request.json().catch(() => ({}));
+  if (!body.id) return json({ ok: false, error: "id required" }, 400);
+  await env.DB.prepare(
+    "UPDATE chrome_bridge SET status = 'done', result = ?, finished_at = ? WHERE id = ?"
+  ).bind(JSON.stringify(body.result || {}), Date.now(), body.id).run();
+  return json({ ok: true, id: body.id });
+}
+
+async function handleBridgeGetResult(request, env) {
+  if (!env.DB) return json({ ok: false, error: "D1 DB not bound" }, 500);
+  await _bridgeEnsure(env);
+  const url = new URL(request.url);
+  const id = url.pathname.replace("/bridge/result/", "");
+  const row = await env.DB.prepare("SELECT id, status, result, enqueued_at, claimed_at, finished_at FROM chrome_bridge WHERE id = ?").bind(id).first();
+  if (!row) return json({ ok: false, error: "not found" }, 404);
+  let result = null;
+  if (row.result) { try { result = JSON.parse(row.result); } catch (e) {} }
+  return json({ ok: true, id, status: row.status, result, enqueued_at: row.enqueued_at, claimed_at: row.claimed_at, finished_at: row.finished_at });
+}
+
+// Helper: enqueue + poll for result (called by chrome_* tools)
+async function bridgeRunCommand(env, command, uidArg, timeoutMs) {
+  await _bridgeEnsure(env);
+  const uid = uidArg || "paddy";
+  const id = "cmd_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+  await env.DB.prepare(
+    "INSERT INTO chrome_bridge (id, uid, status, command, enqueued_at) VALUES (?, ?, 'pending', ?, ?)"
+  ).bind(id, uid, JSON.stringify(command), Date.now()).run();
+  const deadline = Date.now() + (timeoutMs || 30000);
+  while (Date.now() < deadline) {
+    const row = await env.DB.prepare("SELECT status, result FROM chrome_bridge WHERE id = ?").bind(id).first();
+    if (row && row.status === "done") {
+      let r = null; try { r = JSON.parse(row.result); } catch (e) {}
+      return { ok: true, id, result: r };
+    }
+    await new Promise(res => setTimeout(res, 800));
+  }
+  return { ok: false, id, error: "Chrome bridge timeout — extension didn't respond. Is the Asgard Chrome extension installed and running?" };
+}
+
+export default {
+  async fetch(request, env, ctx) {
+    if (ctx) env.__ctx = ctx;
+    const url = new URL(request.url);
+    const path = url.pathname;
+    const method = request.method;
+    if (method === "OPTIONS") { const reqOrigin = request.headers.get("Origin") || ""; return new Response(null, { status: 204, headers: makeCors(reqOrigin) }); }
+    try {
+      if (path === "/health") {
+        return json({
+          ok: true, worker: WORKER_NAME, version: VERSION,
+          routes: ["/health","/chat/smart","/chat/stream","/chat/agent","/chat/agentic","/sync/state","/bridge/enqueue","/bridge/poll","/bridge/result","/chat/vision","/image/generate","/speak","/feature-request","/conversations","/history","/memory","/memory/clear","/slack/post","/telegram/send","/telegram/setup","/discord/send","/discord/interactions","/discord/register-commands","/discord/invite","/prefs","/ranking","/presence","/github/*","/vercel/*","/drive/upload","/drive/search","/drive/delete","/drive/ld-mkdir","/drive/ld-search","/drive/ld-copy","/google/oauth-start","/google/oauth-callback","/agent/propose"],
+          models: Object.keys(MODELS),
+          providers: {
+            anthropic: !!env.ANTHROPIC_API_KEY,
+            openai: !!env.OPENAI_API_KEY,
+            gemini: !!env.GEMINI_API_KEY,
+            elevenlabs: !!env.ELEVENLABS_API_KEY,
+          },
+          slack: !!env.SLACK_BOT_TOKEN,
+          telegram: !!env.TELEGRAM_BOT_TOKEN,
+          discord: !!env.DISCORD_BOT_TOKEN,
+          compression: { threshold: COMPRESS_THRESHOLD, keep: COMPRESS_KEEP_RECENT, archive_after_days: ARCHIVE_AFTER_DAYS },
+        });
+      }
+      if (path === "/models") {
+        return json({ models: Object.keys(MODELS).map(k => ({ key: k, ...MODELS[k] })) });
+      }
+      if (path === "/manifest.json") {
+        return new Response(JSON.stringify({
+          name: "Asgard AI", short_name: "Asgard", start_url: "/", scope: "/", display: "standalone",
+          background_color: "#0a0a1a", theme_color: "#e8c44d",
+          icons: [{ src: "/icon-192.png", sizes: "192x192", type: "image/png" }, { src: "/icon-512.png", sizes: "512x512", type: "image/png" }],
+        }), { headers: { ...CORS, "Content-Type": "application/manifest+json" } });
+      }
+      if (path === "/sw.js") {
+        const sw = "self.addEventListener('install',e=>self.skipWaiting());self.addEventListener('activate',e=>e.waitUntil(clients.claim()));self.addEventListener('fetch',e=>e.respondWith(fetch(e.request,{cache:'no-store'}).catch(()=>new Response('offline',{status:503}))));";
+        return new Response(sw, { headers: { ...CORS, "Content-Type": "application/javascript", "Cache-Control": "no-store" } });
+      }
+      if (path === "/icon-192.png" || path === "/icon-512.png") {
+        const b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGP4zwAAAgEBAKrChTYAAAAASUVORK5CYII=";
+        const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+        return new Response(bytes, { headers: { ...CORS, "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" } });
+      }
+            if (path === "/auth/token" && method === "POST") {
+        const ip=request.headers.get('CF-Connecting-IP')||'unknown';
+        const pin=request.headers.get('X-Pin')||request.headers.get('X-PIN')||'';
+        const rl=await getRateLimit(env,ip);
+        if (!rl.ok) return pinRequired('locked');
+        if (!getValidPins(env).includes(pin)) { await recordFailedPin(env,ip); return pinRequired(false); }
+        await clearRateLimit(env,ip);
+        const token=await createSession(env,pin);
+        if (!token) return json({ok:false,error:'SESSIONS_KV not bound'},{status:500});
+        return json({ok:true,token,expires_in:86400});
+      }
+      if (path === "/chat/smart"   && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleChatSmart(request, env); }
+      if (path === "/chat/stream"  && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleChatStream(request, env); }
+      if (path === "/chat/agentic" && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleChatAgentic(request, env); }
+      if (path === "/sync/state" && (method === "GET" || method === "POST")) { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleSyncState(request, env); }
+      if (path === "/bridge/enqueue" && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleBridgeEnqueue(request, env); }
+      if (path === "/bridge/poll" && method === "GET")    { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleBridgePoll(request, env); }
+      if (path === "/bridge/result" && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleBridgeResult(request, env); }
+      if (path.startsWith("/bridge/result/") && method === "GET") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleBridgeGetResult(request, env); }
+      if (path === "/chat/agent"   && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleChatAgent(request, env); }
+      if (path === "/chat/vision"  && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleChatVision(request, env); }
+      if (path === "/image/generate" && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleImageGenerate(request, env); }
+      if (path === "/speak"        && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleSpeak(request, env); }
+      if (path === "/feature-request" && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleFeatureRequest(request, env); }
+      if (path === "/memory"       && method === "GET")  { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleMemoryGet(request, env); }
+      if (path === "/memory/clear" && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleMemoryClear(request, env); }
+      if (path === "/slack/post" && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr);
+        const body = await request.json().catch(() => ({}));
+        const channel = body.channel; const text = body.text || body.message;
+        if (!channel || !text) return err("channel and text required", 400);
+        const r = await slackPost(env, text, channel);
+        return json({ ok: r.ok, error: r.error || null, channel });
+      }
+      if (path === "/telegram/send" && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr);
+        const body = await request.json().catch(() => ({}));
+        const text = body.text || body.message;
+        if (!text) return err("text required", 400);
+        const r = await telegramSend(env, text, body.chat_id || null);
+        return json({ ok: r.ok, error: r.error || null, message_id: r.message_id });
+      }
+      if (path === "/telegram/setup" && method === "GET") {
+        const r = await telegramGetChatId(env);
+        return json(r);
+      }
+      if (path === "/discord/send" && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr);
+        const body = await request.json().catch(() => ({}));
+        const message = body.message || body.text;
+        if (!message) return err("message required", 400);
+        const r = await discordSend(env, message, body.channel_id || null);
+        return json(r);
+      }
+      if (path === "/discord/get" && method === "GET") {
+        const messageId = url.searchParams.get("message_id");
+        const channelId = url.searchParams.get("channel_id") || null;
+        return json(await discordGet(env, channelId, messageId));
+      }
+      if (path === "/discord/interactions" && method === "POST") return handleDiscordInteractions(request, env);
+      if (path === "/discord/register-commands" && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr);
+        const r = await handleDiscordRegisterCommands(env);
+        return json(r);
+      }
+      if (path === "/discord/invite" && method === "GET") {
+        const appId = env.DISCORD_APP_ID || "1497464108721766460";
+        const url = `https://discord.com/api/oauth2/authorize?client_id=${appId}&permissions=67584&scope=bot%20applications.commands`;
+        return json({ invite_url: url });
+      }
+      if (path === "/conversations" && method === "GET") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleConversations(request, env); }
+      if (path === "/history"       && method === "GET") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleHistory(request, env); }
+      if (path === "/prefs"         && method === "GET") return json({ prefs: {} });
+      if (path === "/ranking"       && method === "GET") return json({ rankings: [] });
+      if (path === "/presence"      && method === "GET") return json({ online: [] });
+      if (path === "/" || path === "/chat") {
+        return new Response("asgard-ai " + VERSION + " - multi-provider (Anthropic/OpenAI/Gemini/DALL-E/ElevenLabs).", { headers: { ...CORS, "Content-Type": "text/plain" } });
+      }
+      if (path === "/github/repos"        && method === "GET")  return handleGithubRepos(request, env);
+      if (path === "/github/read-file"    && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleGithubReadFile(request, env); }
+      if (path === "/github/commit-file"  && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleGithubCommitFile(request, env); }
+      if (path === "/github/create-pr"    && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleGithubCreatePr(request, env); }
+      if (path === "/github/create-issue" && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleGithubCreateIssue(request, env); }
+      if (path === "/vercel/projects"     && method === "GET")  return handleVercelProjects(request, env);
+      if (path === "/vercel/deployments"  && method === "GET")  return handleVercelDeployments(request, env);
+      if (path === "/vercel/redeploy"     && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleVercelRedeploy(request, env); }
+      if (path === "/drive/upload"        && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleDriveUpload(request, env); }
+      if (path === "/drive/delete"        && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleDriveDelete(request, env); }
+      if (path === "/drive/ld-mkdir"      && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleDriveLdMkdir(request, env); }
+      if (path === "/drive/ld-copy"       && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleDriveLdCopy(request, env); }
+      if (path === "/drive/ld-search"     && method === "GET")  return handleDriveLdSearch(request, env);
+      if (path === "/drive/ld-move"       && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleDriveLdMove(request, env); }
+      if (path === "/drive/search"        && method === "GET")  return handleDriveSearch(request, env);
+      if (path === "/google/oauth-start"  && method === "GET")  return handleOauthStart(request, env);
+      if (path === "/google/oauth-callback" && method === "GET") return handleOauthCallback(request, env);
+      if (path === "/agent/propose"       && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleAgentPropose(request, env); }
+      return json({ ok: false, error: "Not Found", path }, 404);
+    } catch (e) {
+      return err("unhandled: " + (e.message || String(e)), 500);
+    }
+  },
+};
