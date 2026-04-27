@@ -4,7 +4,7 @@
 // Deploy as worker script name: asgard-tools
 // Required bindings: CF_API_TOKEN (secret, optional — falls back to vault)
 
-const VERSION = '1.3.0-github-mirror';
+const VERSION = '1.4.0-smoke-rollback';
 const ACCOUNT_ID = 'a6f47c17811ee2f8b6caeb8f38768c20';
 
 const SYSTEM_PROMPT = `You are Asgard, Luck Dragon's infrastructure AI. You have REAL tools — when Paddy asks you to change something, you actually do it. Don't describe what to do; do it.
@@ -481,19 +481,122 @@ export default {
       }
       try {
         const result = await executeTool('deploy_worker', { worker_name, code, main_module }, env);
+        let smoke = null, rolled_back = false;
         if (result.ok === true) {
           try { await _autoCommitSource(env, worker_name, code); }
           catch (gh) { console.error('GitHub mirror failed:', gh.message); }
+          // Wait briefly for the deploy to propagate, then run smoke test
+          await new Promise(function(r){ setTimeout(r, 2500); });
+          try {
+            const sres = await fetch(request.url.replace(/\/admin\/deploy.*/, '/admin/smoke'));
+            smoke = await sres.json();
+            if (!smoke.ok) {
+              // Auto-rollback to previous SHA on this file
+              try {
+                const ghHist = await fetch('https://api.github.com/repos/PaddyGallivan/asgard-source/commits?path=workers/' + worker_name + '.js&per_page=2',
+                  { headers: { 'Authorization': 'Bearer ' + env.GITHUB_TOKEN, 'Accept': 'application/vnd.github+json', 'User-Agent': 'asgard-deploy' } });
+                const commits = await ghHist.json();
+                if (commits.length >= 2) {
+                  const prevSha = commits[1].sha;
+                  const prevRes = await fetch('https://api.github.com/repos/PaddyGallivan/asgard-source/contents/workers/' + worker_name + '.js?ref=' + prevSha,
+                    { headers: { 'Authorization': 'Bearer ' + env.GITHUB_TOKEN, 'Accept': 'application/vnd.github+json', 'User-Agent': 'asgard-deploy' } });
+                  const prevJ = await prevRes.json();
+                  const prevCode = atob((prevJ.content || '').replace(/\n/g, ''));
+                  await executeTool('deploy_worker', { worker_name, code: prevCode, main_module }, env);
+                  rolled_back = true;
+                }
+              } catch (rb) { console.error('Auto-rollback failed:', rb.message); }
+            }
+          } catch (e) { console.error('Smoke check skipped:', e.message); }
         }
-        return Response.json({ deployed: result.ok === true, ...result }, { headers: cors });
+        return Response.json({ deployed: result.ok === true, smoke, rolled_back, ...result }, { headers: cors });
       } catch (e) {
         return Response.json({ error: 'Deploy failed', detail: e.message }, { status: 500, headers: cors });
+      }
+    }
+
+
+    // /admin/smoke — run smoke tests against all known worker domains. Returns {ok, results}.
+    if (pathname === '/admin/smoke' && request.method === 'GET') {
+      const checks = [
+        ['asgard',         'https://asgard.pgallivan.workers.dev/health'],
+        ['asgard-ai',      'https://asgard-ai.pgallivan.workers.dev/health'],
+        ['asgard-tools',   'https://asgard-tools.pgallivan.workers.dev/health'],
+        ['asgard-browser', 'https://asgard-browser.pgallivan.workers.dev/health'],
+        ['asgard-vault',   'https://asgard-vault.pgallivan.workers.dev/health'],
+        ['asgard-brain',   'https://asgard-brain.pgallivan.workers.dev/health']
+      ];
+      const results = await Promise.all(checks.map(async function(c){
+        try {
+          const ctrl = new AbortController();
+          const t = setTimeout(function(){ ctrl.abort(); }, 4000);
+          const r = await fetch(c[1], { signal: ctrl.signal });
+          clearTimeout(t);
+          return { name: c[0], url: c[1], ok: r.ok, status: r.status };
+        } catch (e) {
+          return { name: c[0], url: c[1], ok: false, error: e.message };
+        }
+      }));
+      const allOk = results.every(function(r){ return r.ok; });
+      return Response.json({ ok: allOk, count: results.length, passed: results.filter(function(r){return r.ok;}).length, results }, { headers: cors });
+    }
+
+    // /admin/rollback — redeploy a worker from a specific GitHub commit SHA
+    // POST { worker_name, sha, main_module? }  X-Pin
+    if (pathname === '/admin/rollback' && request.method === 'POST') {
+      const pin = request.headers.get('X-Pin');
+      if (pin !== (env.PADDY_PIN || '2967')) return Response.json({error:'Forbidden'}, {status:403, headers:cors});
+      let payload;
+      try { payload = await request.json(); } catch { return Response.json({error:'Invalid JSON'}, {status:400, headers:cors}); }
+      const { worker_name, sha, main_module = 'worker.js' } = payload;
+      if (!worker_name || !sha) return Response.json({error:'worker_name and sha required'}, {status:400, headers:cors});
+      try {
+        const repoUrl = 'https://api.github.com/repos/PaddyGallivan/asgard-source/contents/workers/' + worker_name + '.js?ref=' + encodeURIComponent(sha);
+        const ghRes = await fetch(repoUrl, { headers: { 'Authorization': 'Bearer ' + env.GITHUB_TOKEN, 'Accept': 'application/vnd.github+json', 'User-Agent': 'asgard-deploy' } });
+        if (!ghRes.ok) return Response.json({error:'GitHub fetch failed', status: ghRes.status, detail: (await ghRes.text()).slice(0, 200)}, {status:502, headers:cors});
+        const ghJ = await ghRes.json();
+        let code = '';
+        try { code = atob((ghJ.content || '').replace(/\n/g, '')); } catch (e) { return Response.json({error:'Invalid base64 from GitHub'}, {status:502, headers:cors}); }
+        const result = await executeTool('deploy_worker', { worker_name, code, main_module }, env);
+        if (result.ok === true) {
+          try { await _autoCommitSource(env, worker_name, code); } catch (e) {}
+        }
+        return Response.json({ rolled_back: result.ok === true, sha, worker_name, ...result }, { headers: cors });
+      } catch (e) {
+        return Response.json({error:'Rollback failed', detail: e.message}, {status:500, headers:cors});
+      }
+    }
+
+    // /admin/log-error — append to errors D1 table (for observability). Public POST, used by other workers via fetch.
+    if (pathname === '/admin/log-error' && request.method === 'POST') {
+      let body; try { body = await request.json(); } catch { return Response.json({ok:false}, {status:400, headers:cors}); }
+      try {
+        await _logError(env, body.worker || 'unknown', body.endpoint || '', body.message || '', body.detail || '', body.stack || '');
+        return Response.json({ok:true}, {headers:cors});
+      } catch (e) {
+        return Response.json({ok:false, error:e.message}, {status:500, headers:cors});
       }
     }
 
     return new Response('Not found', { status: 404, headers: cors });
   }
 };
+
+
+async function _ensureErrorsTable(env) {
+  if (!env.DB) return false;
+  try {
+    await env.DB.prepare("CREATE TABLE IF NOT EXISTS errors (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, worker TEXT, endpoint TEXT, message TEXT, detail TEXT, stack TEXT)").run();
+    return true;
+  } catch (e) { return false; }
+}
+
+async function _logError(env, worker, endpoint, message, detail, stack) {
+  if (!env.DB) return;
+  await _ensureErrorsTable(env);
+  await env.DB.prepare("INSERT INTO errors (ts, worker, endpoint, message, detail, stack) VALUES (?, ?, ?, ?, ?, ?)")
+    .bind(Date.now(), worker, endpoint, String(message || '').slice(0, 1000), String(detail || '').slice(0, 4000), String(stack || '').slice(0, 2000)).run();
+}
 
 async function _autoCommitSource(env, worker_name, code) {
   if (!env.GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing');
