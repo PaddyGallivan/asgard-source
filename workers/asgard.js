@@ -1,7 +1,7 @@
-// asgard worker v7.9.0 — Smoke test + Rollback UI in Deploy modal — Restored: project tiles, project detail view, tools pane in sidebar
+// asgard worker v7.9.1 — Recent errors panel in Stats modal — Restored: project tiles, project detail view, tools pane in sidebar
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
-const VERSION = '7.9.0';
+const VERSION = '7.9.1';
 const TOOLS_URL = 'https://asgard-tools.pgallivan.workers.dev';
 
 // Live inventory pulled from CF API + GitHub. 39 projects.
@@ -1508,6 +1508,28 @@ async function loadStats() {
       html += '</div>';
     }
     html += '<div class="muted" style="margin-top:10px">Generated ' + escapeHtml(d.generated_at || '') + '</div>';
+    // Recent errors from asgard-ai
+    try {
+      var er = await fetch('https://asgard-ai.pgallivan.workers.dev/admin/errors?limit=20', { headers: { 'X-Pin': loadPin() } });
+      var ed = await er.json();
+      if (ed.ok && ed.errors && ed.errors.length) {
+        html += '<div style="margin-top:18px;font-weight:600;font-size:13px">Recent errors (' + ed.count + ')</div>';
+        html += '<div class="stat-list">';
+        ed.errors.forEach(function(e){
+          var when = new Date(e.ts).toLocaleString();
+          html += '<div class="item" style="display:block;padding:6px 8px;border-bottom:1px solid var(--border)">' +
+                  '<div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:var(--bad)">' + escapeHtml(e.endpoint || '?') + '</span><span class="muted">' + escapeHtml(when) + '</span></div>' +
+                  '<div style="font-size:11px;color:var(--text-soft);margin-top:2px">' + escapeHtml((e.message || '').substring(0, 200)) + '</div>' +
+                  (e.detail ? '<div style="font-size:10px;color:var(--muted);font-family:monospace;margin-top:2px">' + escapeHtml(e.detail.substring(0, 200)) + '</div>' : '') +
+                  '</div>';
+        });
+        html += '</div>';
+      } else {
+        html += '<div style="margin-top:18px;font-size:12px;color:var(--good)">✅ No recent errors logged</div>';
+      }
+    } catch(e) {
+      html += '<div style="margin-top:18px;font-size:11px;color:var(--muted)">Error log fetch failed: ' + escapeHtml(e.message) + '</div>';
+    }
     els.statsBody.innerHTML = html;
   } catch (e) {
     els.statsBody.innerHTML = '<div style="color:var(--bad)">Stats fetch failed: ' + escapeHtml(e.message) + '</div>';
