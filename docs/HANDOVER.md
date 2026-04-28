@@ -56,6 +56,17 @@ Mona's preferences:
 
 **Deploy**: `POST https://asgard-tools.pgallivan.workers.dev/admin/deploy` with header `X-Pin: <ASK MONA — PIN provided out-of-band, not stored in this doc>`, body `{worker_name, code_b64, main_module}`. Auto-commits source to GitHub on success.
 
+
+## Use the dashboard, not Claude.ai
+
+**Primary interface for all Asgard work**: <https://asgard.pgallivan.workers.dev>
+
+The dashboard is itself a Claude-style chat with the full agent loop and 38 tools (deploy, vault, GitHub, Drive, Vercel, Stripe, Supabase, web search, Discord, browser rendering, Chrome bridge, desktop bridge, Power Automate). PIN persists in localStorage per browser — one-time setup per device. Zero paste, zero context bootstrap.
+
+**Use Claude.ai or Cowork only when**: you specifically need Cowork's computer-use sandbox to drive your physical desktop OR a Mona-account-specific connector that the dashboard doesn't proxy. For those rare cases, set up an "Asgard" Project in Claude.ai with custom instructions to fetch this handover URL on chat start — that's a 30-second one-time setup per Claude account.
+
+The fragmentation in past sessions came from treating Cowork-Claude as the entry point. It's the escape hatch, not the home page.
+
 ## Live versions (2026-04-28 06:30 UTC)
 
 | Worker | Version | Source |
