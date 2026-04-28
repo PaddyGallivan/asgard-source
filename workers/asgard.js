@@ -1,7 +1,7 @@
 // asgard worker v7.9.2 — Drive references purged, bridge installers point to GitHub
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
-const VERSION = '7.9.3';
+const VERSION = '7.9.4-auth-hardening';
 const TOOLS_URL = 'https://asgard-tools.pgallivan.workers.dev';
 
 // Live inventory pulled from CF API + GitHub. 39 projects.
@@ -1492,7 +1492,7 @@ function populateSettings() {
 async function loadStats() {
   els.statsBody.innerHTML = '<div class="muted">Loading…</div>';
   try {
-    var r = await fetch(TOOLS_URL + '/admin/projects');
+    var r = await fetch(TOOLS_URL + '/admin/projects', { headers: { 'X-Pin': loadPin() } });
     var d = await r.json();
     var html = '<div class="stats-grid">' +
       '<div class="stat-card"><div class="num">' + (d.counts && d.counts.workers || 0) + '</div><div class="label">CF Workers</div></div>' +
@@ -1543,7 +1543,7 @@ async function runSmokeTest() {
   els.smokeStatus.textContent = 'Running...';
   els.smokeResults.innerHTML = '';
   try {
-    var r = await fetch(TOOLS_URL + '/admin/smoke');
+    var r = await fetch(TOOLS_URL + '/admin/smoke', { headers: { 'X-Pin': loadPin() } });
     var d = await r.json();
     els.smokeStatus.textContent = d.ok ? '✅ All workers green' : '⚠ Some failed';
     els.smokeStatus.style.color = d.ok ? 'var(--good)' : 'var(--bad)';
