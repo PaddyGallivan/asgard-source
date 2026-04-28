@@ -1,5 +1,5 @@
 // asgard-ai v5.7.2-stopgap-v11-tools: multi-provider (Anthropic/OpenAI/Gemini) + DALL-E + vision
-const VERSION = '5.9.1-pin-rotation';
+const VERSION = '5.10.0-george-added';
 const WORKER_NAME = "asgard-ai";
 
 // --- PIN auth helper (v1.1.0 security patch) ---
@@ -8,7 +8,8 @@ function getValidPins(env) {
   const pins = [];
   if (env.PADDY_PIN) pins.push(env.PADDY_PIN);
   if (env.JACKY_PIN) pins.push(env.JACKY_PIN);
-  if (!pins.length) { console.warn("PADDY_PIN/JACKY_PIN not set"); /* fallbacks removed for security */; }
+  if (env.GEORGE_PIN) pins.push(env.GEORGE_PIN);
+  if (!pins.length) { console.warn("PADDY_PIN/JACKY_PIN/GEORGE_PIN not set"); /* fallbacks removed for security */; }
   return pins;
 }
 async function getRateLimit(env, ip) {
