@@ -1,7 +1,7 @@
 // asgard worker v7.9.2 — Drive references purged, bridge installers point to GitHub
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
-const VERSION = '7.9.4-auth-hardening';
+const VERSION = '7.9.5-pin-rotation';
 const TOOLS_URL = 'https://asgard-tools.pgallivan.workers.dev';
 
 // Live inventory pulled from CF API + GitHub. 39 projects.
@@ -661,7 +661,7 @@ const HTML = `<!doctype html>
     <div class="setting"><label>Default model</label><select id="setDefaultModel"></select></div>
     <div class="setting"><label>Theme</label><select id="setTheme"><option value="dark">Dark (default)</option><option value="light">Light</option></select></div>
     <div class="setting"><label>Show debug info on messages (token counts, iters)</label><input type="checkbox" id="setDebug"></div>
-    <div class="setting"><label>X-Pin (for non-Claude providers)</label><input type="text" id="setPin" placeholder="2967"></div>
+    <div class="setting"><label>X-Pin (for non-Claude providers)</label><input type="text" id="setPin" placeholder="enter PIN"></div>
     <div class="setting"><label>Slack channel (for Send-to-Slack button)</label><input type="text" id="setSlackChan" placeholder="#asgard-alerts or C0123ABCDEF"></div>
     <div class="setting"><label>Telegram chat ID (for Send-to-Telegram button)</label><input type="text" id="setTelegramChat" placeholder="-1001234567890"></div>
     <div class="setting"><label>Shared facts (injected as system context for every chat)</label><textarea id="setFacts" rows="5" placeholder="e.g. Paddy is a PE teacher in Williamstown. CF account: a6f47c... GitHub org: LuckDragonAsgard. Telegram chat: -1001234..."></textarea></div>
@@ -764,12 +764,11 @@ const HTML = `<!doctype html>
 <script>
 let PROJECTS = [];
 const BRAIN_URL = 'https://asgard-brain.pgallivan.workers.dev';
-const BRAIN_PIN = '2967';
 async function loadProductsFromBrain() {
   try {
     const r = await fetch(BRAIN_URL + '/d1/query', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Pin': BRAIN_PIN },
+      headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
       body: JSON.stringify({
         sql: 'SELECT id, project_name, category, status, live_url, tech_stack, description, next_action, progress_pct, revenue_y1, revenue_y2, revenue_y3, income_priority, key_features, github_url, last_updated FROM products ORDER BY income_priority DESC, project_name ASC',
         params: []
@@ -801,7 +800,7 @@ async function loadProductsFromBrain() {
 async function _brainWrite(sql, params) {
   const r = await fetch(BRAIN_URL + '/d1/write', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Pin': BRAIN_PIN },
+    headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
     body: JSON.stringify({ sql: sql, params: params || [] })
   });
   if (!r.ok) throw new Error('brain ' + r.status + ': ' + (await r.text()).slice(0, 200));
@@ -850,7 +849,7 @@ function loadFilter() { return localStorage.getItem(FILTER_KEY) || 'all'; }
 function saveFilter(f) { localStorage.setItem(FILTER_KEY, f); }
 function loadModel() { return localStorage.getItem(MODEL_KEY) || 'claude-sonnet-4-5'; }
 function saveModel(m) { localStorage.setItem(MODEL_KEY, m); }
-function loadPin() { return localStorage.getItem(PIN_KEY) || '2967'; }
+function loadPin() { return localStorage.getItem(PIN_KEY) || ''; }
 function savePin(p) { localStorage.setItem(PIN_KEY, p); }
 function loadTheme() { return localStorage.getItem(THEME_KEY) || 'dark'; }
 function saveTheme(t) { localStorage.setItem(THEME_KEY, t); document.documentElement.setAttribute('data-theme', t); }
