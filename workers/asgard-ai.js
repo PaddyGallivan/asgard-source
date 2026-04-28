@@ -1,5 +1,5 @@
 // asgard-ai v5.7.2-stopgap-v11-tools: multi-provider (Anthropic/OpenAI/Gemini) + DALL-E + vision
-const VERSION = '5.10.0-george-added';
+const VERSION = '6.1.0-spend-rl-fix';
 const WORKER_NAME = "asgard-ai";
 
 // --- PIN auth helper (v1.1.0 security patch) ---
@@ -22,7 +22,8 @@ async function recordFailedPin(env, ip) {
   if (!env.RATE_LIMIT_KV) return;
   const d = await env.RATE_LIMIT_KV.get('rl:'+ip,'json') || {count:0,locked_until:0};
   const c = (d.count||0)+1;
-  await env.RATE_LIMIT_KV.put('rl:'+ip, JSON.stringify({count:c, locked_until: c>=5 ? Date.now()+900000 : d.locked_until}), {expirationTtl:900});
+  // 10 attempts before lockout, 5-min lockout (was 5 attempts, 15-min)
+  await env.RATE_LIMIT_KV.put('rl:'+ip, JSON.stringify({count:c, locked_until: c>=10 ? Date.now()+300000 : d.locked_until}), {expirationTtl:300});
 }
 async function clearRateLimit(env, ip) {
   if (env.RATE_LIMIT_KV) await env.RATE_LIMIT_KV.delete('rl:'+ip);
@@ -55,6 +56,24 @@ function pinRequired(r) {
 // ────────────────────────────────────────────────────────────────────────────────
 
 
+
+async function identifyPin(request, env) {
+  const pin  = request.headers.get('X-Pin')||request.headers.get('X-PIN')||'';
+  const stok = request.headers.get('X-Session-Token')||'';
+  if (stok && env.SESSIONS_KV) {
+    const sp = await env.SESSIONS_KV.get('sess:'+stok);
+    if (sp) {
+      if (env.PADDY_PIN && sp === env.PADDY_PIN) return 'paddy';
+      if (env.JACKY_PIN && sp === env.JACKY_PIN) return 'jacky';
+      if (env.GEORGE_PIN && sp === env.GEORGE_PIN) return 'george';
+    }
+    return null;
+  }
+  if (env.PADDY_PIN && pin === env.PADDY_PIN) return 'paddy';
+  if (env.JACKY_PIN && pin === env.JACKY_PIN) return 'jacky';
+  if (env.GEORGE_PIN && pin === env.GEORGE_PIN) return 'george';
+  return null;
+}
 const ALLOWED_ORIGINS = [
   "https://asgard.pgallivan.workers.dev",
   "https://asgard-dev.pgallivan.workers.dev",
@@ -71,7 +90,7 @@ function makeCors(origin) {
   };
 }
 const CORS = makeCors("https://asgard.pgallivan.workers.dev");
-const SYSTEM_PROMPT = "You are Asgard AI for Paddy Gallivan and Jacky. Be direct, efficient, action-oriented. Be concrete, name projects, no fluff.";
+const SYSTEM_PROMPT = "You are Asgard AI for Paddy, Jacky, and George. Be direct, efficient, action-oriented. Be concrete, name projects, no fluff. You have persistent memory — use save_memory to record important facts (project states, decisions, warnings) and read_messages/send_message for team comms.";
 
 // Model registry: key = shorthand, value = {provider, full model id}
 const MODELS = {
@@ -479,6 +498,159 @@ function bgLog(env, payload) {
   }
   return p;
 }
+
+// ─── MEMORY SYSTEM ───────────────────────────────────────────────────────────
+async function _ensureMemoryTables(env) {
+  if (!env.DB) return;
+  try {
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS memory (id INTEGER PRIMARY KEY AUTOINCREMENT, pin_user TEXT NOT NULL, project TEXT NOT NULL DEFAULT 'global', key TEXT NOT NULL, value TEXT NOT NULL, is_shared INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL)`).run();
+    await env.DB.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS memory_upk ON memory (pin_user, project, key)`).run();
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS msg_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL, members TEXT NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL)`).run();
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS msg_inbox (id INTEGER PRIMARY KEY AUTOINCREMENT, group_id TEXT NOT NULL, from_user TEXT NOT NULL, body TEXT NOT NULL, created_at INTEGER NOT NULL)`).run();
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS msg_read_receipts (group_id TEXT NOT NULL, pin_user TEXT NOT NULL, last_read_at INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (group_id, pin_user))`).run();
+  } catch (e) { console.error('_ensureMemoryTables:', e && (e.message||String(e))); }
+}
+
+async function loadMemories(env, pinUser, project) {
+  if (!env.DB || !pinUser) return '';
+  try {
+    await _ensureMemoryTables(env);
+    const personal = await env.DB.prepare("SELECT key, value, project FROM memory WHERE pin_user = ? AND is_shared = 0 ORDER BY updated_at DESC LIMIT 60").bind(pinUser).all();
+    const shared = await env.DB.prepare("SELECT key, value, project, pin_user FROM memory WHERE is_shared = 1 ORDER BY updated_at DESC LIMIT 100").bind().all();
+    const lines = [];
+    if ((personal.results||[]).length) {
+      lines.push('--- Your personal memory ---');
+      for (const r of personal.results) lines.push(`[${r.project}] ${r.key}: ${r.value}`);
+    }
+    if ((shared.results||[]).length) {
+      lines.push('--- Shared team memory ---');
+      for (const r of shared.results) lines.push(`[${r.project}] ${r.key}: ${r.value}`);
+    }
+    return lines.join('\n');
+  } catch (e) { console.error('loadMemories:', e && (e.message||String(e))); return ''; }
+}
+
+async function handleMemorySave(request, env, pinUser) {
+  if (!env.DB) return json({ ok: false, error: 'D1 not bound' }, 500);
+  await _ensureMemoryTables(env);
+  const body = await request.json().catch(() => ({}));
+  const { key, value, project = 'global', shared = false } = body;
+  if (!key || value === undefined) return json({ ok: false, error: 'key and value required' }, 400);
+  const now = Date.now();
+  await env.DB.prepare("INSERT INTO memory (pin_user, project, key, value, is_shared, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(pin_user, project, key) DO UPDATE SET value=excluded.value, is_shared=excluded.is_shared, updated_at=excluded.updated_at")
+    .bind(pinUser, project, String(key), String(value), shared ? 1 : 0, now).run();
+  return json({ ok: true, key, project, shared, pin_user: pinUser });
+}
+
+async function handleMemoryList(request, env, pinUser) {
+  if (!env.DB) return json({ ok: false, error: 'D1 not bound' }, 500);
+  await _ensureMemoryTables(env);
+  const url = new URL(request.url);
+  const project = url.searchParams.get('project') || null;
+  let personal, shared;
+  if (project) {
+    personal = await env.DB.prepare("SELECT key, value, project, updated_at FROM memory WHERE pin_user = ? AND is_shared = 0 AND project = ? ORDER BY updated_at DESC").bind(pinUser, project).all();
+    shared = await env.DB.prepare("SELECT key, value, project, pin_user, updated_at FROM memory WHERE is_shared = 1 AND project = ? ORDER BY updated_at DESC").bind(project).all();
+  } else {
+    personal = await env.DB.prepare("SELECT key, value, project, updated_at FROM memory WHERE pin_user = ? AND is_shared = 0 ORDER BY updated_at DESC LIMIT 100").bind(pinUser).all();
+    shared = await env.DB.prepare("SELECT key, value, project, pin_user, updated_at FROM memory WHERE is_shared = 1 ORDER BY updated_at DESC LIMIT 200").bind().all();
+  }
+  return json({ ok: true, personal: personal.results||[], shared: shared.results||[] });
+}
+
+async function handleMemoryForget(request, env, pinUser) {
+  if (!env.DB) return json({ ok: false, error: 'D1 not bound' }, 500);
+  const body = await request.json().catch(() => ({}));
+  const { key, project } = body;
+  if (!key) return json({ ok: false, error: 'key required' }, 400);
+  if (project) {
+    await env.DB.prepare("DELETE FROM memory WHERE pin_user = ? AND key = ? AND project = ?").bind(pinUser, key, project).run();
+  } else {
+    await env.DB.prepare("DELETE FROM memory WHERE pin_user = ? AND key = ?").bind(pinUser, key).run();
+  }
+  return json({ ok: true, deleted: key });
+}
+
+// ─── MESSAGING SYSTEM ────────────────────────────────────────────────────────
+async function _resolveGroup(env, nameOrId, pinUser) {
+  let row = await env.DB.prepare("SELECT * FROM msg_groups WHERE id = ? OR name = ?").bind(nameOrId, nameOrId).first();
+  if (!row && pinUser) {
+    const id = 'g_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+    await env.DB.prepare("INSERT INTO msg_groups (id, name, members, created_by, created_at) VALUES (?, ?, ?, ?, ?)")
+      .bind(id, nameOrId, JSON.stringify([pinUser]), pinUser, Date.now()).run();
+    row = { id, name: nameOrId, members: JSON.stringify([pinUser]), created_by: pinUser, created_at: Date.now() };
+  }
+  return row;
+}
+
+async function handleMsgGroupCreate(request, env, pinUser) {
+  if (!env.DB) return json({ ok: false, error: 'D1 not bound' }, 500);
+  await _ensureMemoryTables(env);
+  const body = await request.json().catch(() => ({}));
+  const { name, members = [] } = body;
+  if (!name) return json({ ok: false, error: 'name required' }, 400);
+  const allMembers = [...new Set([pinUser, ...members])];
+  const id = 'g_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+  await env.DB.prepare("INSERT OR REPLACE INTO msg_groups (id, name, members, created_by, created_at) VALUES (?, ?, ?, ?, ?)")
+    .bind(id, name, JSON.stringify(allMembers), pinUser, Date.now()).run();
+  return json({ ok: true, id, name, members: allMembers });
+}
+
+async function handleMsgGroupList(request, env, pinUser) {
+  if (!env.DB) return json({ ok: false, error: 'D1 not bound' }, 500);
+  await _ensureMemoryTables(env);
+  const rows = await env.DB.prepare("SELECT id, name, members, created_by, created_at FROM msg_groups ORDER BY created_at DESC").all();
+  const groups = (rows.results||[]).filter(g => { try { return JSON.parse(g.members||'[]').includes(pinUser); } catch { return false; } })
+    .map(g => ({ ...g, members: JSON.parse(g.members||'[]') }));
+  return json({ ok: true, groups });
+}
+
+async function handleMsgSend(request, env, pinUser) {
+  if (!env.DB) return json({ ok: false, error: 'D1 not bound' }, 500);
+  await _ensureMemoryTables(env);
+  const body = await request.json().catch(() => ({}));
+  const { group, message } = body;
+  if (!group || !message) return json({ ok: false, error: 'group and message required' }, 400);
+  const g = await _resolveGroup(env, group, pinUser);
+  if (!g) return json({ ok: false, error: 'group not found' }, 404);
+  const now = Date.now();
+  await env.DB.prepare("INSERT INTO msg_inbox (group_id, from_user, body, created_at) VALUES (?, ?, ?, ?)").bind(g.id, pinUser, message, now).run();
+  return json({ ok: true, group_id: g.id, group_name: g.name, from: pinUser, sent_at: now });
+}
+
+async function handleMsgRead(request, env, pinUser) {
+  if (!env.DB) return json({ ok: false, error: 'D1 not bound' }, 500);
+  await _ensureMemoryTables(env);
+  const url = new URL(request.url);
+  const groupNameOrId = url.searchParams.get('group');
+  const limit = parseInt(url.searchParams.get('limit') || '50', 10);
+  if (!groupNameOrId) return json({ ok: false, error: 'group param required' }, 400);
+  const g = await env.DB.prepare("SELECT * FROM msg_groups WHERE id = ? OR name = ?").bind(groupNameOrId, groupNameOrId).first();
+  if (!g) return json({ ok: false, error: 'group not found: ' + groupNameOrId }, 404);
+  const rows = await env.DB.prepare("SELECT id, from_user, body, created_at FROM msg_inbox WHERE group_id = ? ORDER BY created_at DESC LIMIT ?").bind(g.id, limit).all();
+  const now = Date.now();
+  await env.DB.prepare("INSERT OR REPLACE INTO msg_read_receipts (group_id, pin_user, last_read_at) VALUES (?, ?, ?)").bind(g.id, pinUser, now).run();
+  return json({ ok: true, group: { id: g.id, name: g.name, members: JSON.parse(g.members||'[]') }, messages: (rows.results||[]).reverse() });
+}
+
+async function handleMsgUnread(request, env, pinUser) {
+  if (!env.DB) return json({ ok: false, error: 'D1 not bound' }, 500);
+  await _ensureMemoryTables(env);
+  const allGroups = await env.DB.prepare("SELECT id, name, members FROM msg_groups").all();
+  const myGroups = (allGroups.results||[]).filter(g => { try { return JSON.parse(g.members||'[]').includes(pinUser); } catch { return false; } });
+  let totalUnread = 0;
+  const counts = [];
+  for (const g of myGroups) {
+    const rr = await env.DB.prepare("SELECT last_read_at FROM msg_read_receipts WHERE group_id = ? AND pin_user = ?").bind(g.id, pinUser).first();
+    const since = rr ? rr.last_read_at : 0;
+    const c = await env.DB.prepare("SELECT COUNT(*) as n FROM msg_inbox WHERE group_id = ? AND created_at > ? AND from_user != ?").bind(g.id, since, pinUser).first();
+    const n = c ? c.n : 0;
+    if (n > 0) counts.push({ group_id: g.id, name: g.name, unread: n });
+    totalUnread += n;
+  }
+  return json({ ok: true, total_unread: totalUnread, groups: counts });
+}
+// ─────────────────────────────────────────────────────────────────────────────
 // Tee an SSE stream and parse Anthropic-style usage events; log on flush.
 function teeStreamForSpendLog(upstreamBody, env, opts) {
   const decoder = new TextDecoder();
@@ -524,7 +696,9 @@ async function handleChatSmart(request, env) {
   const message = (body.message || "").toString();
   if (!message) return err("message required", 400);
   const uid = body.uid || request.headers.get("X-User-Id") || "paddy";
-  const project = body.project || "shared";
+  const project = body.project || "global";
+  const pinUser = await identifyPin(request, env) || uid;
+  env._pinUser = pinUser;
   const modelKey = body.model || quickRoute(message);
   const resolved = resolveModel(modelKey);
 
@@ -546,9 +720,11 @@ async function handleChatSmart(request, env) {
     } catch {}
   }
   const messages = [...history, { role: "user", content: message }];
+  const memCtx = await loadMemories(env, pinUser, project);
   let systemText = SYSTEM_PROMPT;
+  if (memCtx) systemText += '\n\n--- Memory context ---\n' + memCtx + '\n--- End memory ---';
   if (summary) {
-    systemText = SYSTEM_PROMPT + "\n\n--- Summary of earlier turns ---\n" + summary + "\n--- End summary ---";
+    systemText += "\n\n--- Summary of earlier turns ---\n" + summary + "\n--- End summary ---";
   }
 
   const result = await generate(env, {
@@ -1494,6 +1670,22 @@ async function handleSyncState(request, env) {
 }
 
 
+
+async function handleAdminSpend(request, env) {
+  if (!env.DB) return json({ ok: false, error: 'D1 not bound' }, 500);
+  const url = new URL(request.url);
+  const days = parseInt(url.searchParams.get('days') || '30', 10);
+  const since = Date.now() - (days * 86400000);
+  try {
+    const rows = await env.DB.prepare(
+      "SELECT model, uid, SUM(cost_usd) as total_cost, COUNT(*) as calls, SUM(prompt_tokens) as prompt_tokens, SUM(completion_tokens) as completion_tokens FROM spend_log WHERE created_at > ? GROUP BY model, uid ORDER BY total_cost DESC LIMIT 100"
+    ).bind(since).all();
+    const total = (rows.results||[]).reduce((s,r) => s+(r.total_cost||0), 0);
+    return json({ ok: true, days, since, total_usd: total, rows: rows.results||[] });
+  } catch (e) {
+    return json({ ok: false, error: e.message }, 500);
+  }
+}
 async function handleAdminErrors(request, env) {
   if (!env.DB) return json({ ok: false, error: 'D1 not bound' }, 500);
   try {
@@ -1640,7 +1832,29 @@ const AGENTIC_TOOLS_OPENAI = [
     parameters: { type: "object", properties: {
       webhook_url: { type: "string", description: "Full Power Automate HTTP webhook URL (from the flow's trigger config)" },
       payload: { type: "object", description: "JSON payload to send to the flow", additionalProperties: true }
-    }, required: ["webhook_url"] } } }
+    }, required: ["webhook_url"] } } },
+  { type: "function", function: { name: "save_memory", description: "Save a memory fact for future chats. shared=true = all users (Paddy/Jacky/George) see it; shared=false = only you. project = which project this belongs to (e.g. 'kbt','asgard','global').",
+    parameters: { type: "object", properties: {
+      key: { type: "string", description: "Short label, e.g. 'kbt_prod_url' or 'deploy_warning'" },
+      value: { type: "string", description: "The fact to remember" },
+      project: { type: "string", description: "Project name or 'global'" },
+      shared: { type: "boolean", description: "true = visible to all users" }
+    }, required: ["key", "value"] } } },
+  { type: "function", function: { name: "forget_memory", description: "Delete a remembered fact by key.",
+    parameters: { type: "object", properties: {
+      key: { type: "string" },
+      project: { type: "string" }
+    }, required: ["key"] } } },
+  { type: "function", function: { name: "send_message", description: "Send a message to a team group (Paddy, Jacky, George). Auto-creates the group if it doesn't exist. Use names like 'all', 'paddy-jacky', 'kbt-team'.",
+    parameters: { type: "object", properties: {
+      group: { type: "string", description: "Group name or ID" },
+      message: { type: "string", description: "Message to send" }
+    }, required: ["group", "message"] } } },
+  { type: "function", function: { name: "read_messages", description: "Read messages in a team group thread.",
+    parameters: { type: "object", properties: {
+      group: { type: "string", description: "Group name or ID" },
+      limit: { type: "number", description: "Max messages to return (default 20)" }
+    }, required: ["group"] } } }
 ];
 
 function _agSanitizeForGemini(schema) {
@@ -2100,6 +2314,51 @@ async function agenticExecuteTool(name, input, env) {
       const j = await r.json();
       return { ok: true, count: (j.files||[]).length, folders: j.files || [] };
     }
+    if (name === "save_memory") {
+      const { key, value, project = 'global', shared = false } = input || {};
+      if (!key || value === undefined) return { error: 'key and value required' };
+      if (!env.DB) return { error: 'D1 not bound' };
+      await _ensureMemoryTables(env);
+      const pinUser = env._pinUser || 'shared';
+      const now = Date.now();
+      await env.DB.prepare("INSERT INTO memory (pin_user, project, key, value, is_shared, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(pin_user, project, key) DO UPDATE SET value=excluded.value, is_shared=excluded.is_shared, updated_at=excluded.updated_at")
+        .bind(pinUser, project, String(key), String(value), shared ? 1 : 0, now).run();
+      return { ok: true, saved: key, project, shared, user: pinUser };
+    }
+    if (name === "forget_memory") {
+      const { key, project } = input || {};
+      if (!key) return { error: 'key required' };
+      if (!env.DB) return { error: 'D1 not bound' };
+      const pinUser = env._pinUser || 'shared';
+      if (project) {
+        await env.DB.prepare("DELETE FROM memory WHERE pin_user = ? AND key = ? AND project = ?").bind(pinUser, key, project).run();
+      } else {
+        await env.DB.prepare("DELETE FROM memory WHERE pin_user = ? AND key = ?").bind(pinUser, key).run();
+      }
+      return { ok: true, deleted: key };
+    }
+    if (name === "send_message") {
+      const { group, message } = input || {};
+      if (!group || !message) return { error: 'group and message required' };
+      if (!env.DB) return { error: 'D1 not bound' };
+      await _ensureMemoryTables(env);
+      const pinUser = env._pinUser || 'system';
+      const g = await _resolveGroup(env, group, pinUser);
+      if (!g) return { error: 'could not resolve group' };
+      const now = Date.now();
+      await env.DB.prepare("INSERT INTO msg_inbox (group_id, from_user, body, created_at) VALUES (?, ?, ?, ?)").bind(g.id, pinUser, message, now).run();
+      return { ok: true, sent_to: g.name, from: pinUser };
+    }
+    if (name === "read_messages") {
+      const { group, limit = 20 } = input || {};
+      if (!group) return { error: 'group required' };
+      if (!env.DB) return { error: 'D1 not bound' };
+      await _ensureMemoryTables(env);
+      const g = await env.DB.prepare("SELECT * FROM msg_groups WHERE id = ? OR name = ?").bind(group, group).first();
+      if (!g) return { error: 'group not found: ' + group };
+      const rows = await env.DB.prepare("SELECT from_user, body, created_at FROM msg_inbox WHERE group_id = ? ORDER BY created_at DESC LIMIT ?").bind(g.id, limit).all();
+      return { ok: true, group: g.name, messages: (rows.results||[]).reverse() };
+    }
     return { error: "Unknown tool: " + name };
   } catch (e) {
     try { await _aiLogError(env, 'tool:' + name, e.message, JSON.stringify(input || {}).substring(0, 500)); } catch {}
@@ -2112,7 +2371,12 @@ async function handleChatAgentic(request, env) {
   const message = (body.message || "").toString();
   if (!message) return json({ ok: false, error: "message required" }, 400);
   const modelId = body.model || "gpt-4o-mini";
-  const system = body.system || SYSTEM_PROMPT;
+  const _agUid = body.uid || request.headers.get("X-User-Id") || "paddy";
+  const _agPinUser = await identifyPin(request, env) || _agUid;
+  env._pinUser = _agPinUser;
+  const _agProject = body.project || "global";
+  const _agMemCtx = await loadMemories(env, _agPinUser, _agProject);
+  const system = body.system || (_agMemCtx ? SYSTEM_PROMPT + '\n\n--- Memory context ---\n' + _agMemCtx + '\n--- End memory ---' : SYSTEM_PROMPT);
   const provider = modelId.startsWith("claude") ? "anthropic" : (modelId.startsWith("gemini") ? "gemini" : "openai");
   const messagesIn = Array.isArray(body.messages) ? body.messages : [];
   let messages = [...messagesIn, { role: "user", content: message }];
@@ -2385,6 +2649,7 @@ export default {
       if (path === "/chat/agentic" && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleChatAgentic(request, env); }
       if (path === "/sync/state" && (method === "GET" || method === "POST")) { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleSyncState(request, env); }
       if (path === "/admin/errors" && method === "GET") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleAdminErrors(request, env); }
+      if (path === "/admin/spend"  && method === "GET") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleAdminSpend(request, env); }
       if (path === "/bridge/enqueue" && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleBridgeEnqueue(request, env); }
       if (path === "/bridge/poll" && method === "GET")    { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleBridgePoll(request, env); }
       if (path === "/bridge/result" && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleBridgeResult(request, env); }
@@ -2464,6 +2729,14 @@ export default {
       if (path === "/google/oauth-start"  && method === "GET")  { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleOauthStart(request, env); }
       if (path === "/google/oauth-callback" && method === "GET") return handleOauthCallback(request, env);
       if (path === "/agent/propose"       && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleAgentPropose(request, env); }
+      if (path === "/memory/save"     && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); const _pu=await identifyPin(request,env)||'paddy'; return handleMemorySave(request, env, _pu); }
+      if (path === "/memory/list"     && method === "GET")  { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); const _pu=await identifyPin(request,env)||'paddy'; return handleMemoryList(request, env, _pu); }
+      if (path === "/memory/forget"   && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); const _pu=await identifyPin(request,env)||'paddy'; return handleMemoryForget(request, env, _pu); }
+      if (path === "/messages/groups" && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); const _pu=await identifyPin(request,env)||'paddy'; return handleMsgGroupCreate(request, env, _pu); }
+      if (path === "/messages/groups" && method === "GET")  { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); const _pu=await identifyPin(request,env)||'paddy'; return handleMsgGroupList(request, env, _pu); }
+      if (path === "/messages/send"   && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); const _pu=await identifyPin(request,env)||'paddy'; return handleMsgSend(request, env, _pu); }
+      if (path === "/messages/read"   && method === "GET")  { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); const _pu=await identifyPin(request,env)||'paddy'; return handleMsgRead(request, env, _pu); }
+      if (path === "/messages/unread" && method === "GET")  { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); const _pu=await identifyPin(request,env)||'paddy'; return handleMsgUnread(request, env, _pu); }
       return json({ ok: false, error: "Not Found", path }, 404);
     } catch (e) {
       return err("unhandled: " + (e.message || String(e)), 500);
