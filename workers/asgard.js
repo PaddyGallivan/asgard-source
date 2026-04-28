@@ -1,7 +1,7 @@
 // asgard worker v7.9.2 — Drive references purged, bridge installers point to GitHub
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
-const VERSION = '7.11.0-public-products';
+const VERSION = '8.0.0-full-fixes';
 const TOOLS_URL = 'https://asgard-tools.pgallivan.workers.dev';
 
 // Live inventory pulled from CF API + GitHub. 39 projects.
@@ -528,6 +528,14 @@ const HTML = `<!doctype html>
   .msg .body a { color: var(--accent); }
   .msg .body ul, .msg .body ol { padding-left: 22px; margin: 0 0 12px; }
   .msg .body strong { font-weight: 600; }
+  .msg .body h1 { font-size: 20px; font-weight: 700; margin: 16px 0 8px; color: var(--text); line-height: 1.3; }
+  .msg .body h2 { font-size: 17px; font-weight: 700; margin: 14px 0 6px; color: var(--text); line-height: 1.3; }
+  .msg .body h3 { font-size: 15px; font-weight: 600; margin: 12px 0 4px; color: var(--text-soft); line-height: 1.3; }
+  .msg .body ul, .msg .body ol { padding-left: 20px; margin: 4px 0 10px; }
+  .msg .body li { margin-bottom: 3px; }
+  .msg .body hr { border: 0; border-top: 1px solid var(--border); margin: 12px 0; }
+  .msg .body a { color: var(--accent); text-decoration: underline; }
+  .msg .body p:empty { display: none; }
   .msg-tools { margin-top: 8px; font-size: 11px; color: var(--muted); padding: 6px 10px; background: var(--panel); border-radius: 6px; display: inline-block; }
   .msg.error .body { color: var(--bad); }
   .typing { display: inline-block; padding: 12px 16px; background: var(--panel); border-radius: 12px; }
@@ -710,7 +718,7 @@ const HTML = `<!doctype html>
 </div>
 
 <div class="modal" id="statsModal">
-  <div class="modal-head"><h2>Live stats</h2><button class="modal-close" data-close="statsModal" aria-label="Close stats">×</button></div>
+  <div class="modal-head"><h2>📊 Cost &amp; Stats</h2><button class="modal-close" data-close="statsModal" aria-label="Close stats">×</button></div>
   <div class="modal-body" id="statsBody"><div class="muted">Loading…</div></div>
 </div>
 
@@ -964,12 +972,64 @@ function escapeHtml(s) {
   }).join('');
 }
 function md(text) {
-  // Plain text + line breaks. Markdown can come back later once clicks are stable.
-  var safe = escapeHtml(String(text));
-  // Blank-line paragraph split using char codes (no regex backslashes that template literals will mangle)
-  var nl = String.fromCharCode(10);
-  var parts = safe.split(nl + nl);
-  return parts.map(function(p){ return '<p>' + p.split(nl).join('<br>') + '</p>'; }).join('');
+  var BT = String.fromCharCode(96);
+  var s = String(text || '');
+  // code blocks (triple backtick) — extract before escaping
+  var codeBlocks = [];
+  var tripleRe = new RegExp(BT+BT+BT+'([\\s\\S]*?)'+BT+BT+BT, 'g');
+  s = s.replace(tripleRe, function(_, c) {
+    codeBlocks.push('<pre><code>' + escapeHtml(c.replace(/^\n/, '')) + '</code></pre>');
+    return '\x00CODE' + (codeBlocks.length - 1) + '\x00';
+  });
+  // inline code (single backtick)
+  var singleRe = new RegExp(BT+'([^'+BT+']+)'+BT, 'g');
+  s = s.replace(singleRe, function(_, c) { return '<code>' + escapeHtml(c) + '</code>'; });
+  // escape remaining HTML (split on CODE placeholders to avoid double-escaping)
+  s = s.split('\x00CODE').map(function(part, i) {
+    if (i === 0) return escapeHtml(part);
+    var idx = part.indexOf('\x00');
+    return codeBlocks[parseInt(part.slice(0, idx))] + escapeHtml(part.slice(idx + 1));
+  }).join('');
+  var nl = '\n';
+  var lines = s.split(nl);
+  var out = [];
+  var inUl = false, inOl = false;
+  function closeList() {
+    if (inUl) { out.push('</ul>'); inUl = false; }
+    if (inOl) { out.push('</ol>'); inOl = false; }
+  }
+  for (var i = 0; i < lines.length; i++) {
+    var l = lines[i];
+    // headings
+    if (/^### /.test(l))      { closeList(); out.push('<h3>' + l.slice(4) + '</h3>'); continue; }
+    if (/^## /.test(l))       { closeList(); out.push('<h2>' + l.slice(3) + '</h2>'); continue; }
+    if (/^# /.test(l))        { closeList(); out.push('<h1>' + l.slice(2) + '</h1>'); continue; }
+    // hr
+    if (/^---+$/.test(l.trim())) { closeList(); out.push('<hr>'); continue; }
+    // unordered list
+    var ulm = l.match(/^[\-\*] (.+)/);
+    if (ulm) { if (!inUl) { closeList(); out.push('<ul>'); inUl = true; } out.push('<li>' + inline(ulm[1]) + '</li>'); continue; }
+    // ordered list
+    var olm = l.match(/^\d+\. (.+)/);
+    if (olm) { if (!inOl) { closeList(); out.push('<ol>'); inOl = true; } out.push('<li>' + inline(olm[1]) + '</li>'); continue; }
+    // blank line
+    if (l.trim() === '') { closeList(); out.push('<p></p>'); continue; }
+    closeList();
+    out.push('<p>' + inline(l) + '</p>');
+  }
+  closeList();
+  return out.join('');
+}
+function inline(s) {
+  // bold+italic
+  s = s.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+  s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // links
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // auto-links
+  s = s.replace(/(https?:\/\/[^\s<>"]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  return s;
 }
 
 // ---------- DOM refs ----------
@@ -1067,6 +1127,7 @@ function render() {
   var sysItems = [
     { id: 'settings', name: '⚙ Settings',         action: function(){ openModal('settingsModal'); populateSettings(); } },
     { id: 'stats',    name: '📊 Live stats',      action: function(){ openModal('statsModal'); loadStats(); } },
+  { id: 'msgs',     name: '💬 Messages <span id="unreadBadge" style="display:none;background:#e74c3c;color:white;border-radius:999px;padding:1px 6px;font-size:10px;font-weight:700;margin-left:4px">0</span>', action: function(){ sendMessage('Show my unread messages. Use read_messages for any groups I am in.'); } },
     { id: 'deploy',   name: '🚀 Deploy worker',   action: function(){ openModal('deployModal'); } },
     { id: 'feature',  name: '💡 Suggest feature',  action: function(){ submitFeatureRequest(); } },
     { id: 'bridges',  name: '🔌 Install bridges',  action: function(){ openModal('bridgesModal'); } }
@@ -1609,53 +1670,37 @@ function populateSettings() {
 }
 
 async function loadStats() {
-  els.statsBody.innerHTML = '<div class="muted">Loading…</div>';
-  try {
-    var r = await fetch(TOOLS_URL + '/admin/projects', { headers: { 'X-Pin': loadPin() } });
-    var d = await r.json();
-    var html = '<div class="stats-grid">' +
-      '<div class="stat-card"><div class="num">' + (d.counts && d.counts.workers || 0) + '</div><div class="label">CF Workers</div></div>' +
-      '<div class="stat-card"><div class="num">' + (d.counts && d.counts.pages || 0) + '</div><div class="label">CF Pages</div></div>' +
-      '<div class="stat-card"><div class="num">' + (PROJECTS.length) + '</div><div class="label">Tracked projects</div></div>' +
-      '<div class="stat-card"><div class="num">' + (convos.length) + '</div><div class="label">Local convos</div></div>' +
-      '</div>';
-    if (d.workers && d.workers.length) {
-      html += '<div class="stat-list"><div class="muted" style="padding:4px 8px">Workers:</div>';
-      d.workers.forEach(function(w){ html += '<div class="item">' + escapeHtml(w) + '</div>'; });
-      html += '</div>';
-    }
-    if (d.pages && d.pages.length) {
-      html += '<div class="stat-list"><div class="muted" style="padding:4px 8px">Pages:</div>';
-      d.pages.forEach(function(p){ var doms = (p.domains||[]).join(', '); html += '<div class="item">' + escapeHtml(p.name) + (doms ? ' → ' + escapeHtml(doms) : '') + '</div>'; });
-      html += '</div>';
-    }
-    html += '<div class="muted" style="margin-top:10px">Generated ' + escapeHtml(d.generated_at || '') + '</div>';
-    // Recent errors from asgard-ai
-    try {
-      var er = await fetch('https://asgard-ai.pgallivan.workers.dev/admin/errors?limit=20', { headers: { 'X-Pin': loadPin() } });
-      var ed = await er.json();
-      if (ed.ok && ed.errors && ed.errors.length) {
-        html += '<div style="margin-top:18px;font-weight:600;font-size:13px">Recent errors (' + ed.count + ')</div>';
-        html += '<div class="stat-list">';
-        ed.errors.forEach(function(e){
-          var when = new Date(e.ts).toLocaleString();
-          html += '<div class="item" style="display:block;padding:6px 8px;border-bottom:1px solid var(--border)">' +
-                  '<div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:var(--bad)">' + escapeHtml(e.endpoint || '?') + '</span><span class="muted">' + escapeHtml(when) + '</span></div>' +
-                  '<div style="font-size:11px;color:var(--text-soft);margin-top:2px">' + escapeHtml((e.message || '').substring(0, 200)) + '</div>' +
-                  (e.detail ? '<div style="font-size:10px;color:var(--muted);font-family:monospace;margin-top:2px">' + escapeHtml(e.detail.substring(0, 200)) + '</div>' : '') +
-                  '</div>';
-        });
-        html += '</div>';
-      } else {
-        html += '<div style="margin-top:18px;font-size:12px;color:var(--good)">✅ No recent errors logged</div>';
-      }
-    } catch(e) {
-      html += '<div style="margin-top:18px;font-size:11px;color:var(--muted)">Error log fetch failed: ' + escapeHtml(e.message) + '</div>';
-    }
-    els.statsBody.innerHTML = html;
-  } catch (e) {
-    els.statsBody.innerHTML = '<div style="color:var(--bad)">Stats fetch failed: ' + escapeHtml(e.message) + '</div>';
-  }
+  var b = els.statsBody;
+  b.innerHTML = '<div class="muted" style="padding:16px;text-align:center">Loading cost data…</div>';
+  var pin = loadPin();
+  fetch(AI_BASE + '/admin/spend?days=30', {headers:{'X-Pin':pin,'Content-Type':'application/json'}})
+    .then(function(r){return r.json();}).then(function(d){
+      if (!d.ok) { b.innerHTML = '<div class="muted" style="padding:16px">No spend data yet — start chatting!</div>'; return; }
+      var rows = d.rows || [];
+      var total = rows.reduce(function(s,r){return s+(r.total_cost||0);},0);
+      var byModel = {};
+      var byUser = {};
+      rows.forEach(function(r){
+        if(!byModel[r.model]) byModel[r.model]=0;
+        byModel[r.model]+=(r.total_cost||0);
+        if(r.uid){if(!byUser[r.uid])byUser[r.uid]=0;byUser[r.uid]+=(r.total_cost||0);}
+      });
+      var modelRows = Object.keys(byModel).sort(function(a,b){return byModel[b]-byModel[a];})
+        .map(function(m){return '<tr><td style="padding:4px 8px;color:var(--text)">'+escapeHtml(m)+'</td><td style="padding:4px 8px;text-align:right;font-family:monospace;color:var(--accent)">$'+byModel[m].toFixed(4)+'</td></tr>';}).join('');
+      var userRows = Object.keys(byUser).sort(function(a,b){return byUser[b]-byUser[a];})
+        .map(function(u){return '<tr><td style="padding:4px 8px;color:var(--text)">'+escapeHtml(u)+'</td><td style="padding:4px 8px;text-align:right;font-family:monospace;color:var(--accent)">$'+byUser[u].toFixed(4)+'</td></tr>';}).join('');
+      b.innerHTML =
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px">' +
+          '<div style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center">' +
+            '<div style="font-size:26px;font-weight:700;color:var(--accent)">$'+total.toFixed(4)+'</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:4px;text-transform:uppercase;letter-spacing:1px">30-day total</div></div>' +
+          '<div style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center">' +
+            '<div style="font-size:26px;font-weight:700;color:var(--text)">'+rows.length+'</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:4px;text-transform:uppercase;letter-spacing:1px">API calls</div></div></div>' +
+        (modelRows ? '<div style="margin-bottom:16px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);font-weight:600;margin-bottom:8px">By Model</div><table style="width:100%;border-collapse:collapse">'+modelRows+'</table></div>' : '') +
+        (userRows ? '<div style="margin-bottom:16px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);font-weight:600;margin-bottom:8px">By User</div><table style="width:100%;border-collapse:collapse">'+userRows+'</table></div>' : '') +
+        '<div style="font-size:11px;color:var(--muted);text-align:center;margin-top:4px">Costs are approximate. Verify with provider billing.</div>';
+    }).catch(function(e){b.innerHTML='<div class="muted" style="padding:16px">Error loading stats: '+escapeHtml(String(e))+'</div>';});
 }
 
 async function runSmokeTest() {
@@ -2103,7 +2148,17 @@ async function send(text) {
       // ALL providers (Claude, OpenAI, Gemini) route to asgard-ai /chat/agentic for unified tool access (drive_*, github_*, send_email, etc.)
       endpoint = 'https://asgard-ai.pgallivan.workers.dev/chat/agentic';
       body = { message: text, messages: conv.messages.slice(0, -1).map(m => ({ role: m.role, content: m.content })), model: selectedModel };
+      // Project context injection
+      if (conv.projectId) {
+        var _proj = (typeof PROJECTS_EFF !== 'undefined' ? PROJECTS_EFF : PROJECTS).find(function(p){return p.id === conv.projectId;});
+        if (_proj) {
+          var _projCtx = '--- Active project context ---\nProject: ' + _proj.name + (_proj.url ? '\nURL: ' + _proj.url : '') + (_proj.description ? '\nDescription: ' + _proj.description : '') + (_proj.status ? '\nStatus: ' + _proj.status : '') + '\n--- End project context ---';
+          sys = (sys ? sys + '\n\n' : '') + _projCtx;
+        }
+      }
       if (sys) body.system = sys;
+      // Pass uid so memory is attributed correctly
+      body.uid = loadPin() ? (loadPin().slice(0,4) === '6d06' ? 'paddy' : loadPin().slice(0,4) === '844c' ? 'jacky' : loadPin().slice(0,4) === '3df4' ? 'george' : 'user') : 'user';
     }
     var headers = { 'Content-Type': 'application/json', 'X-Pin': loadPin() };
     const r = await fetch(endpoint, { method: 'POST', headers: headers, body: JSON.stringify(body) });
@@ -2339,7 +2394,14 @@ export default {
         .replace('__TOOLS_JSON__', JSON.stringify(TOOLS))
         .replace('__MODELS_JSON__', JSON.stringify(MODELS))
         .replace('__TOOLS_URL__', TOOLS_URL);
-      return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+      return new Response(html, { headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'X-Frame-Options': 'SAMEORIGIN',
+        'X-Content-Type-Options': 'nosniff',
+        'Strict-Transport-Security': 'max-age=63072000; includeSubDomains',
+        'Referrer-Policy': 'strict-origin-when-cross-origin',
+        'Permissions-Policy': 'camera=(), microphone=(), geolocation=()'
+      } });
     }
 
     return new Response('Not Found', { status: 404, headers: corsHeaders() });
