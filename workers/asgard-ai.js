@@ -1,5 +1,5 @@
 // asgard-ai v5.7.2-stopgap-v11-tools: multi-provider (Anthropic/OpenAI/Gemini) + DALL-E + vision
-const VERSION = '5.8.6-drive-share-tools';
+const VERSION = '5.9.0-auth-hardening';
 const WORKER_NAME = "asgard-ai";
 
 // --- PIN auth helper (v1.1.0 security patch) ---
@@ -2455,12 +2455,12 @@ export default {
       if (path === "/drive/delete"        && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleDriveDelete(request, env); }
       if (path === "/drive/ld-mkdir"      && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleDriveLdMkdir(request, env); }
       if (path === "/drive/ld-copy"       && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleDriveLdCopy(request, env); }
-      if (path === "/drive/ld-search"     && method === "GET")  return handleDriveLdSearch(request, env);
+      if (path === "/drive/ld-search"     && method === "GET")  { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleDriveLdSearch(request, env); }
       if (path === "/drive/ld-move"       && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleDriveLdMove(request, env); }
       if (path === "/drive/ld-share"      && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleDriveLdShare(request, env); }
       if (path === "/drive/ld-list-roots" && method === "GET")  { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleDriveLdListRoots(request, env); }
-      if (path === "/drive/search"        && method === "GET")  return handleDriveSearch(request, env);
-      if (path === "/google/oauth-start"  && method === "GET")  return handleOauthStart(request, env);
+      if (path === "/drive/search"        && method === "GET")  { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleDriveSearch(request, env); }
+      if (path === "/google/oauth-start"  && method === "GET")  { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleOauthStart(request, env); }
       if (path === "/google/oauth-callback" && method === "GET") return handleOauthCallback(request, env);
       if (path === "/agent/propose"       && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleAgentPropose(request, env); }
       return json({ ok: false, error: "Not Found", path }, 404);
