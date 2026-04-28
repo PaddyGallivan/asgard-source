@@ -1,7 +1,7 @@
 // asgard worker v7.9.2 — Drive references purged, bridge installers point to GitHub
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
-const VERSION = '8.4.0';
+const VERSION = '8.5.0';
 const TOOLS_URL = 'https://asgard-tools.pgallivan.workers.dev';
 
 // Live inventory pulled from CF API + GitHub. 39 projects.
@@ -1149,6 +1149,7 @@ const els = {
 };
 
 // ---------- Render ----------
+var PRODUCTS_LOADING = true;
 var PROJECTS_EFF = [];
 function render() {
   // Refresh effective project list with user overrides
@@ -1319,6 +1320,13 @@ function render() {
 }
 
 function renderProjectTiles() {
+  if (PRODUCTS_LOADING) {
+    var _ld = document.createElement('div');
+    _ld.style.cssText = 'display:flex;align-items:center;justify-content:center;height:200px;color:var(--muted);font-size:14px;flex-direction:column;gap:8px';
+    _ld.innerHTML = '<div style="font-size:28px">&#x23F3;</div>Loading projects…';
+    els.chat.appendChild(_ld);
+    return;
+  }
   const w = document.createElement('div');
   w.className = 'welcome';
   // === Production Tracker ===
@@ -2480,7 +2488,7 @@ runPinGate(function() {
     if (currentView === 'chat') els.input.focus();
   }
   // Fetch products from asgard-brain D1 and re-render once loaded
-  loadProductsFromBrain().then(function(n){ console.log('[asgard] loaded ' + n + ' products from D1'); render(); });
+  loadProductsFromBrain().then(function(n){ console.log('[asgard] loaded ' + n + ' products from D1'); PRODUCTS_LOADING = false; render(); });
 });
 </script>
 </body>
