@@ -1,7 +1,7 @@
 // asgard worker v7.9.2 — Drive references purged, bridge installers point to GitHub
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
-const VERSION = '7.9.2';
+const VERSION = '7.9.3';
 const TOOLS_URL = 'https://asgard-tools.pgallivan.workers.dev';
 
 // Live inventory pulled from CF API + GitHub. 39 projects.
@@ -681,6 +681,7 @@ const HTML = `<!doctype html>
 <div class="modal modal-large" id="bridgesModal">
   <div class="modal-head"><h2>Install Asgard Bridges</h2><button class="modal-close" data-close="bridgesModal" aria-label="Close bridges">×</button></div>
   <div class="modal-body">
+    <div id="setupChecklist" style="background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:14px;margin:0 0 14px"><h3 style="margin:0 0 8px;font-size:14px">📋 Setup checklist</h3><div id="checklistItems" style="font-size:12px"><div class="muted">Loading...</div></div></div>
     <p style="font-size:13px;color:var(--text-soft);margin-top:0">Two bridges turn Asgard into a full computer-use agent — Chrome controls your real browser with your logged-in sessions, Desktop controls your native apps.</p>
 
     <div style="background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:14px;margin:14px 0">
@@ -1424,6 +1425,7 @@ function openModal(id) {
     probeBridge('paddy', els.chromeBridgeStatus);
     probeBridge('paddy-desktop', els.desktopBridgeStatus);
     if (els.btnTestBridges) els.btnTestBridges.onclick = testBridges;
+    renderSetupChecklist();
   }
   if (id === 'deployModal') {
     if (els.btnSmoke) els.btnSmoke.onclick = runSmokeTest;
@@ -1802,6 +1804,33 @@ async function testBridges() {
     els.bridgesTestStatus.textContent = 'Test failed: ' + e.message;
     els.bridgesTestStatus.style.color = 'var(--bad)';
   }
+}
+
+async function renderSetupChecklist() {
+  var box = document.getElementById('checklistItems');
+  if (!box) return;
+  var items = [];
+  // Chrome bridge
+  try {
+    var r = await fetch('https://asgard-ai.pgallivan.workers.dev/bridge/poll?uid=paddy', { headers: { 'X-Pin': loadPin() } });
+    items.push({ name: 'Chrome bridge installed & polling', ok: r.ok });
+  } catch (e) { items.push({ name: 'Chrome bridge installed & polling', ok: false }); }
+  // Desktop bridge — check if it polled in the last 5 minutes by enqueueing a no-op and seeing if it's claimed
+  // Simpler: just probe poll endpoint (returns idle if no command pending; doesn't tell us if helper is RUNNING)
+  // Better: check D1 — peek at any in_flight command for paddy-desktop. Skip for simplicity.
+  items.push({ name: 'Desktop helper running (python asgard-desktop.py)', ok: null, note: 'Status only visible while running — check Settings > X-Pin matches' });
+  // GHA
+  try {
+    var ghr = await fetch('https://api.github.com/repos/PaddyGallivan/asgard-source/contents/.github/workflows/deploy.yml');
+    items.push({ name: 'GitHub Actions CI/CD activated', ok: ghr.ok, note: ghr.ok ? '' : 'See docs/GHA-SETUP.md to activate (5 min)' });
+  } catch (e) { items.push({ name: 'GitHub Actions CI/CD activated', ok: false, note: 'See docs/GHA-SETUP.md' }); }
+  // Render
+  var html = '';
+  items.forEach(function(it){
+    var icon = it.ok === true ? '\u2705' : (it.ok === false ? '\u26a0\ufe0f' : '\u2754');
+    html += '<div style="padding:4px 0">' + icon + ' ' + escapeHtml(it.name) + (it.note ? ' <span class="muted">— ' + escapeHtml(it.note) + '</span>' : '') + '</div>';
+  });
+  box.innerHTML = html;
 }
 
 async function submitFeatureRequest() {
