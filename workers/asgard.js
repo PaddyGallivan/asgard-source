@@ -1054,10 +1054,10 @@ function md(text) {
     // hr
     if (/^---+$/.test(l.trim())) { closeList(); out.push('<hr>'); continue; }
     // unordered list
-    var ulm = l.match(/^[\-\*] (.+)/);
+    var ulm = l.match(/^[\\-\\*] (.+)/);
     if (ulm) { if (!inUl) { closeList(); out.push('<ul>'); inUl = true; } out.push('<li>' + inline(ulm[1]) + '</li>'); continue; }
     // ordered list
-    var olm = l.match(/^\d+\. (.+)/);
+    var olm = l.match(/^\\d+\\. (.+)/);
     if (olm) { if (!inOl) { closeList(); out.push('<ol>'); inOl = true; } out.push('<li>' + inline(olm[1]) + '</li>'); continue; }
     // blank line
     if (l.trim() === '') { closeList(); out.push('<p></p>'); continue; }
@@ -1069,9 +1069,9 @@ function md(text) {
 }
 function inline(s) {
   // bold+italic
-  s = s.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
-  s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  s = s.replace(/\\*\\*\\*(.+?)\\*\\*\\*/g, '<strong><em>$1</em></strong>');
+  s = s.replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>');
+  s = s.replace(/\\*(.+?)\\*/g, '<em>$1</em>');
   // links
   s = s.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
   // auto-links
@@ -1374,7 +1374,7 @@ function renderProjectTiles() {
         '<span class="tp-prio">priority ' + (p.income_priority||0) + '</span>' +
         '<span class="tp-progress">' + (p.progress_pct||0) + '%</span>' +
         '<span class="tp-rev">Y1 ' + fmtMoney(p.revenue_y1||0) + '</span>' +
-        '<span class="tp-status status-' + ((p.status||'').toLowerCase().replace(/\s+/g, '-')) + '">' + escapeHtml(p.status||'') + '</span>' +
+        '<span class="tp-status status-' + ((p.status||'').toLowerCase().replace(/\\s+/g, '-')) + '">' + escapeHtml(p.status||'') + '</span>' +
         '</div>';
     });
     trackerHtml += '</div>';
@@ -1435,7 +1435,7 @@ function renderProjectTiles() {
                 ' \u00b7 Y5 ' + fmtMoney(p.revenue_y5||0) + '</div>';
     }
     var prioBadge = prio > 0 ? '<span class="tile-prio" title="Income priority">\u2b50 ' + prio + '</span>' : '';
-    var statusBadge = p.status ? '<span class="tile-status status-' + (p.status||'').toLowerCase().replace(/\s+/g,'-') + '">' + escapeHtml(p.status) + '</span>' : '';
+    var statusBadge = p.status ? '<span class="tile-status status-' + (p.status||'').toLowerCase().replace(/\\s+/g,'-') + '">' + escapeHtml(p.status) + '</span>' : '';
     var progressBar = '<div class="tile-progress"><div class="tile-progress-fill" style="width:' + prog + '%"></div></div>';
     tile.innerHTML =
       '<div class="row"><div class="name">' + escapeHtml(p.name) + '</div>' + prioBadge + '<div class="tag">' + escapeHtml(p.tag) + '</div></div>' +
