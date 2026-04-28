@@ -2343,8 +2343,8 @@ async function send(text) {
       if (conv.projectId) {
         var _proj = (typeof PROJECTS_EFF !== 'undefined' ? PROJECTS_EFF : PROJECTS).find(function(p){return p.id === conv.projectId;});
         if (_proj) {
-          var _projCtx = '--- Active project context ---\nProject: ' + _proj.name + (_proj.url ? '\nURL: ' + _proj.url : '') + (_proj.description ? '\nDescription: ' + _proj.description : '') + (_proj.status ? '\nStatus: ' + _proj.status : '') + '\n--- End project context ---';
-          sys = (sys ? sys + '\n\n' : '') + _projCtx;
+          var _NL = String.fromCharCode(10); var _projCtx = '--- Active project context ---' + _NL + 'Project: ' + _proj.name + (_proj.url ? _NL + 'URL: ' + _proj.url : '') + (_proj.description ? _NL + 'Description: ' + _proj.description : '') + (_proj.status ? _NL + 'Status: ' + _proj.status : '') + _NL + '--- End project context ---';
+          sys = (sys ? sys + _NL + _NL : '') + _projCtx;
         }
       }
       if (sys) body.system = sys;
