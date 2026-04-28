@@ -4,7 +4,7 @@
 // Deploy as worker script name: asgard-tools
 // Required bindings: CF_API_TOKEN (secret, optional — falls back to vault)
 
-const VERSION = '1.5.3-george-added';
+const VERSION = '1.5.4';
 const ACCOUNT_ID = 'a6f47c17811ee2f8b6caeb8f38768c20';
 
 const SYSTEM_PROMPT = `You are Asgard, Luck Dragon's infrastructure AI. You have REAL tools — when Paddy asks you to change something, you actually do it. Don't describe what to do; do it.
@@ -408,10 +408,18 @@ async function handleChatSmart(request, env, corsHeaders) {
 
 export default {
   async fetch(request, env) {
+    const allowedOrigins = [
+      'https://asgard.pgallivan.workers.dev',
+      'https://asgard-ai.pgallivan.workers.dev',
+      'https://asgard-tools.pgallivan.workers.dev',
+      'https://asgard-brain.pgallivan.workers.dev'
+    ];
+    const reqOrigin = request.headers.get('Origin') || '';
     const cors = {
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin': allowedOrigins.includes(reqOrigin) ? reqOrigin : 'https://asgard.pgallivan.workers.dev',
       'Access-Control-Allow-Headers': 'Content-Type, X-Pin, Authorization',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Vary': 'Origin'
     };
 
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
