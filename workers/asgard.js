@@ -1,7 +1,7 @@
 // asgard worker v7.9.2 — Drive references purged, bridge installers point to GitHub
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
-const VERSION = '7.10.1-privacy-route';
+const VERSION = '7.11.0-public-products';
 const TOOLS_URL = 'https://asgard-tools.pgallivan.workers.dev';
 
 // Live inventory pulled from CF API + GitHub. 39 projects.
@@ -802,16 +802,11 @@ let PROJECTS = [];
 const BRAIN_URL = 'https://asgard-brain.pgallivan.workers.dev';
 async function loadProductsFromBrain() {
   try {
-    const r = await fetch(BRAIN_URL + '/d1/query', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
-      body: JSON.stringify({
-        sql: 'SELECT id, project_name, category, status, live_url, tech_stack, description, next_action, progress_pct, revenue_y1, revenue_y2, revenue_y3, revenue_y4, revenue_y5, income_priority, key_features, github_url, last_updated FROM products ORDER BY income_priority DESC, project_name ASC',
-        params: []
-      })
-    });
-    const d = await r.json();
-    PROJECTS = (d.results || []).map(function(p) {
+    // Public read — no PIN needed. Falls back to direct brain query if /products is unavailable.
+    var r = await fetch('/products');
+    if (!r.ok) throw new Error('public /products failed: ' + r.status);
+    var d = await r.json();
+    PROJECTS = (d.products || []).map(function(p) {
       return {
         id: 'p' + p.id, rawId: p.id, name: p.project_name,
         url: p.live_url || '', repo: p.github_url || '',
@@ -2258,6 +2253,29 @@ export default {
       return new Response(null, { headers: corsHeaders() });
     }
 
+    if (path === '/products' || path === '/api/products') {
+      try {
+        const r = await fetch('https://asgard-brain.pgallivan.workers.dev/d1/query', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Pin': env.PADDY_PIN || '' },
+          body: JSON.stringify({
+            sql: 'SELECT id, project_name, category, status, live_url, tech_stack, description, next_action, progress_pct, revenue_y1, revenue_y2, revenue_y3, revenue_y4, revenue_y5, income_priority, key_features, github_url, last_updated FROM products ORDER BY income_priority DESC, project_name ASC',
+            params: []
+          })
+        });
+        const d = await r.json();
+        return new Response(JSON.stringify({ ok: true, products: d.results || [] }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Cache-Control': 'public, max-age=30',
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      } catch (e) {
+        return new Response(JSON.stringify({ ok: false, error: e.message }), { status: 502, headers: { 'Content-Type': 'application/json' } });
+      }
+    }
     if (path === '/privacy' || path === '/privacy/') {
       try {
         const r = await fetch('https://raw.githubusercontent.com/PaddyGallivan/asgard-source/main/docs/PRIVACY.md', { cf: { cacheTtl: 300, cacheEverything: true } });
