@@ -1513,76 +1513,45 @@ function renderProjectDetail() {
   const wrap = document.createElement('div');
   wrap.className = 'pd';
   const repoLink = p.repo && p.repo !== '?' ? 'https://github.com/' + p.repo : null;
-  const fmtRev = function(v) { return v ? '$' + Number(v).toLocaleString() : '—'; };
+  const fmtRev = function(v) { return v ? '$' + Number(v).toLocaleString() : '\u2014'; };
   const fmtCash = function(v) { return v ? '$' + Number(v).toLocaleString() : '<em style="color:var(--muted)">0</em>'; };
-  // Build 10-year revenue table rows
   var revRows = '';
-  var revYears = [1,2,3,4,5,6,7,8,9,10];
-  revYears.forEach(function(y) {
+  [1,2,3,4,5,6,7,8,9,10].forEach(function(y) {
     var v = p['revenue_y' + y] || 0;
     var bar = v ? '<div style="display:inline-block;height:6px;border-radius:3px;background:var(--good);opacity:0.7;width:' + Math.min(120, Math.round(v / 1000)) + 'px;vertical-align:middle;margin-left:8px"></div>' : '';
     revRows += '<tr><td style="color:var(--text-soft);padding:2px 10px 2px 0;font-size:12px">Y' + y + '</td><td style="font-family:Menlo,Consolas,monospace;font-size:13px">' + fmtRev(v) + bar + '</td></tr>';
   });
-  var totalRevY10 = revYears.reduce(function(s,y){ return s + (p['revenue_y'+y]||0); }, 0);
+  var totalRevY10 = [1,2,3,4,5,6,7,8,9,10].reduce(function(s,y){ return s + (p['revenue_y'+y]||0); }, 0);
   wrap.innerHTML =
-    '<button class="back" id="pdBack">← Back</button>' +
+    '<button class="back" id="pdBack">\u2190 Back</button>' +
     '<h1>' + escapeHtml(p.name) + '</h1>' +
     '<div class="meta" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px">' +
       '<span class="tag">' + escapeHtml(p.tag) + '</span>' +
-      '<span class="health"><span class="dot checking" data-pid-detail="' + p.id + '"></span><span data-pid-detail-label="' + p.id + '">checking…</span></span>' +
+      '<span class="health"><span class="dot checking" data-pid-detail="' + p.id + '"></span><span data-pid-detail-label="' + p.id + '">checking\u2026</span></span>' +
       (p.last_updated ? '<span style="font-size:11px;color:var(--text-soft)">Updated ' + escapeHtml(p.last_updated) + '</span>' : '') +
     '</div>' +
-    // Action buttons
     '<div class="actions" style="margin-bottom:24px">' +
-      '<button class="primary" id="pdChat">💬 Chat about this</button>' +
-      (p.url ? '<a href="' + p.url + '" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;background:var(--panel);border:1px solid var(--border);border-radius:8px;font-size:13px;text-decoration:none;color:var(--text)">🌐 Live site</a>' : '') +
-      (repoLink ? '<a href="' + repoLink + '" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;background:var(--panel);border:1px solid var(--border);border-radius:8px;font-size:13px;text-decoration:none;color:var(--text)">📦 Repo</a>' : '') +
-      '<button id="pdEdit">✏ Edit</button>' +
-      '<button id="pdDelete" style="border-color:var(--bad);color:var(--bad)">🗑 Remove</button>' +
+      '<button class="primary" id="pdChat">\ud83d\udcac Chat about this</button>' +
+      (p.url ? '<a href="' + p.url + '" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;background:var(--panel);border:1px solid var(--border);border-radius:8px;font-size:13px;text-decoration:none;color:var(--text)">\ud83c\udf10 Live site</a>' : '') +
+      (repoLink ? '<a href="' + repoLink + '" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;background:var(--panel);border:1px solid var(--border);border-radius:8px;font-size:13px;text-decoration:none;color:var(--text)">\ud83d\udce6 Repo</a>' : '') +
+      '<button id="pdEdit">\u270f Edit</button>' +
+      '<button id="pdDelete" style="border-color:var(--bad);color:var(--bad)">\ud83d\uddd1 Remove</button>' +
     '</div>' +
-    // Two-column summary grid
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:24px">' +
-      '<div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px">' +
-        '<div style="font-size:11px;color:var(--text-soft);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Status</div>' +
-        '<div style="font-size:15px;font-weight:600">' + escapeHtml(p.status || 'idea') + (p.progress_pct ? '<span style="font-size:12px;color:var(--muted);font-weight:400;margin-left:6px">' + p.progress_pct + '%</span>' : '') + '</div>' +
-      '</div>' +
-      '<div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px">' +
-        '<div style="font-size:11px;color:var(--text-soft);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Priority</div>' +
-        '<div style="font-size:15px;font-weight:600">' + (p.income_priority ? '⭐ '.repeat(Math.min(5, p.income_priority)).trim() + '<span style="font-size:12px;color:var(--muted);font-weight:400;margin-left:6px">(' + p.income_priority + ')</span>' : '<span style="color:var(--muted);font-weight:400;font-size:13px">unranked</span>') + '</div>' +
-      '</div>' +
-      '<div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px">' +
-        '<div style="font-size:11px;color:var(--text-soft);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Cash spent</div>' +
-        '<div style="font-size:15px;font-weight:600;color:var(--bad)">' + fmtCash(p.cash_spent) + '</div>' +
-      '</div>' +
-      '<div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px">' +
-        '<div style="font-size:11px;color:var(--text-soft);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Cash earned</div>' +
-        '<div style="font-size:15px;font-weight:600;color:var(--good)">' + fmtCash(p.cash_earned) + '</div>' +
-      '</div>' +
-      '<div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px">' +
-        '<div style="font-size:11px;color:var(--text-soft);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Hours needed</div>' +
-        '<div style="font-size:15px;font-weight:600">' + (p.hours_needed ? p.hours_needed + '<span style="font-size:12px;color:var(--muted);font-weight:400"> hrs</span>' : '<em style="color:var(--muted);font-size:13px;font-weight:400">—</em>') + '</div>' +
-      '</div>' +
-      '<div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px">' +
-        '<div style="font-size:11px;color:var(--text-soft);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">10-yr total</div>' +
-        '<div style="font-size:15px;font-weight:600;color:var(--good)">' + (totalRevY10 ? '$' + totalRevY10.toLocaleString() : '<em style="color:var(--muted);font-size:13px;font-weight:400">no forecast</em>') + '</div>' +
-      '</div>' +
+      '<div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px"><div style="font-size:11px;color:var(--text-soft);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Status</div><div style="font-size:15px;font-weight:600">' + escapeHtml(p.status || 'idea') + (p.progress_pct ? '<span style="font-size:12px;color:var(--muted);font-weight:400;margin-left:6px">' + p.progress_pct + '%</span>' : '') + '</div></div>' +
+      '<div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px"><div style="font-size:11px;color:var(--text-soft);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Priority</div><div style="font-size:15px;font-weight:600">' + (p.income_priority ? '\u2b50 '.repeat(Math.min(5, p.income_priority)).trim() + '<span style="font-size:12px;color:var(--muted);font-weight:400;margin-left:6px">(' + p.income_priority + ')</span>' : '<span style="color:var(--muted);font-weight:400;font-size:13px">unranked</span>') + '</div></div>' +
+      '<div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px"><div style="font-size:11px;color:var(--text-soft);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Cash spent</div><div style="font-size:15px;font-weight:600;color:var(--bad)">' + fmtCash(p.cash_spent) + '</div></div>' +
+      '<div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px"><div style="font-size:11px;color:var(--text-soft);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Cash earned</div><div style="font-size:15px;font-weight:600;color:var(--good)">' + fmtCash(p.cash_earned) + '</div></div>' +
+      '<div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px"><div style="font-size:11px;color:var(--text-soft);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Hours needed</div><div style="font-size:15px;font-weight:600">' + (p.hours_needed ? p.hours_needed + '<span style="font-size:12px;color:var(--muted);font-weight:400"> hrs</span>' : '<em style="color:var(--muted);font-size:13px;font-weight:400">\u2014</em>') + '</div></div>' +
+      '<div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px"><div style="font-size:11px;color:var(--text-soft);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">10-yr total</div><div style="font-size:15px;font-weight:600;color:var(--good)">' + (totalRevY10 ? '$' + totalRevY10.toLocaleString() : '<em style="color:var(--muted);font-size:13px;font-weight:400">no forecast</em>') + '</div></div>' +
     '</div>' +
-    // Description
     (p.description ? '<div class="field"><div class="label">Description</div><div class="val" style="white-space:pre-wrap">' + escapeHtml(p.description) + '</div></div>' : '') +
-    // Next to do
-    (p.next_action ? '<div class="field"><div class="label" style="color:var(--accent)">▶ Next to do</div><div class="val" style="font-weight:500">' + escapeHtml(p.next_action) + '</div></div>' : '') +
-    // Recommendations
-    (p.recommendations ? '<div class="field"><div class="label">💡 Recommendations</div><div class="val" style="white-space:pre-wrap">' + escapeHtml(p.recommendations) + '</div></div>' : '') +
-    // Tech stack / key features
+    (p.next_action ? '<div class="field"><div class="label" style="color:var(--accent)">\u25b6 Next to do</div><div class="val" style="font-weight:500">' + escapeHtml(p.next_action) + '</div></div>' : '') +
+    (p.recommendations ? '<div class="field"><div class="label">\ud83d\udca1 Recommendations</div><div class="val" style="white-space:pre-wrap">' + escapeHtml(p.recommendations) + '</div></div>' : '') +
     (p.tech_stack ? '<div class="field"><div class="label">Tech stack</div><div class="val"><code style="font-size:12px">' + escapeHtml(p.tech_stack) + '</code></div></div>' : '') +
     (p.key_features ? '<div class="field"><div class="label">Key features</div><div class="val" style="white-space:pre-wrap;font-size:13px">' + escapeHtml(p.key_features) + '</div></div>' : '') +
-    // 10-year revenue forecast
     '<div class="field"><div class="label">10-year revenue forecast</div><div class="val"><table style="border-collapse:collapse;margin-top:4px">' + revRows + '</table></div></div>' +
-    // Live links section
-    ((p.url || repoLink) ? '<div class="field"><div class="label">Links</div><div class="val" style="display:flex;flex-direction:column;gap:6px">' +
-      (p.url ? '<a href="' + p.url + '" target="_blank" rel="noopener" style="color:var(--accent);font-size:13px">🌐 ' + escapeHtml(p.url) + '</a>' : '') +
-      (repoLink ? '<a href="' + repoLink + '" target="_blank" rel="noopener" style="color:var(--accent);font-size:13px">📦 github.com/' + escapeHtml(p.repo) + '</a>' : '') +
-    '</div></div>' : '');
+    ((p.url || repoLink) ? '<div class="field"><div class="label">Links</div><div class="val" style="display:flex;flex-direction:column;gap:6px">' + (p.url ? '<a href="' + p.url + '" target="_blank" rel="noopener" style="color:var(--accent);font-size:13px">\ud83c\udf10 ' + escapeHtml(p.url) + '</a>' : '') + (repoLink ? '<a href="' + repoLink + '" target="_blank" rel="noopener" style="color:var(--accent);font-size:13px">\ud83d\udce6 github.com/' + escapeHtml(p.repo) + '</a>' : '') + '</div></div>' : '');
   els.chat.appendChild(wrap);
   document.getElementById('pdBack').addEventListener('click', () => { currentView = 'projects'; saveView('projects'); render(); });
   document.getElementById('pdChat').addEventListener('click', () => { setProject(p.id); });
@@ -2400,4 +2369,96 @@ export default {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Pin': env.PADDY_PIN || '' },
           body: JSON.stringify({
-            sql: 'SELECT id, project_name, category, status, live_url, tech_stack, description, next_action, progress_pct, revenue_y1, revenue_y2, revenue_y3, revenue_y4, revenue_y5, revenue_y6, revenue_y7, revenue_y8, revenue_y9, revenue_y10, income_priority, key_features, github_url, last_updated, cash_spent
+            sql: 'SELECT id, project_name, category, status, live_url, tech_stack, description, next_action, progress_pct, revenue_y1, revenue_y2, revenue_y3, revenue_y4, revenue_y5, revenue_y6, revenue_y7, revenue_y8, revenue_y9, revenue_y10, income_priority, key_features, github_url, last_updated, cash_spent, cash_earned, hours_needed, recommendations FROM products ORDER BY income_priority DESC, project_name ASC',
+            params: []
+          })
+        });
+        const d = await r.json();
+        return new Response(JSON.stringify({ ok: true, products: d.results || [] }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Cache-Control': 'public, max-age=30',
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      } catch (e) {
+        return new Response(JSON.stringify({ ok: false, error: e.message }), { status: 502, headers: { 'Content-Type': 'application/json' } });
+      }
+    }
+    if (path === '/privacy' || path === '/privacy/') {
+      try {
+        const r = await fetch('https://raw.githubusercontent.com/PaddyGallivan/asgard-source/main/docs/PRIVACY.md', { cf: { cacheTtl: 300, cacheEverything: true } });
+        const md = await r.text();
+        // Render as simple HTML so Chrome Web Store accepts it
+        const html = '<!doctype html><html><head><meta charset="utf-8"><title>Asgard Bridge — Privacy Policy</title><style>body{max-width:720px;margin:40px auto;padding:0 20px;font-family:-apple-system,system-ui,sans-serif;line-height:1.6;color:#222}h1{border-bottom:2px solid #d97757;padding-bottom:8px}h2{margin-top:32px;color:#444}code{background:#f4f4f4;padding:2px 6px;border-radius:3px}a{color:#d97757}</style></head><body><div id="content"></div><script>const md=' + JSON.stringify(md) + ';const html=md.replace(/^# (.+)$/gm,"<h1>$1</h1>").replace(/^## (.+)$/gm,"<h2>$1</h2>").replace(/^### (.+)$/gm,"<h3>$1</h3>").replace(/\\*\\*(.+?)\\*\\*/g,"<strong>$1</strong>").replace(/`([^`]+)`/g,"<code>$1</code>").replace(/^- (.+)$/gm,"<li>$1</li>").replace(/(<li>.*<\/li>\n?)+/g,m=>"<ul>"+m+"</ul>").replace(/\n\n/g,"</p><p>").replace(/^([^<].+)$/gm,m=>m.startsWith("<")?m:"<p>"+m+"</p>");document.getElementById("content").innerHTML=html;</script></body></html>';
+        return new Response(html, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300', 'Access-Control-Allow-Origin': '*' } });
+      } catch (e) { return new Response('Privacy fetch failed: ' + e.message, { status: 502 }); }
+    }
+    if (path === '/handover' || path === '/handover/' || path === '/about') {
+      try {
+        const r = await fetch('https://raw.githubusercontent.com/PaddyGallivan/asgard-source/main/docs/HANDOVER.md', {
+          cf: { cacheTtl: 60, cacheEverything: true }
+        });
+        const md = await r.text();
+        return new Response(md, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/markdown; charset=utf-8',
+            'Cache-Control': 'public, max-age=60',
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      } catch (e) {
+        return new Response('Failed to fetch handover: ' + e.message, { status: 502 });
+      }
+    }
+    if (path === '/health') {
+      return Response.json({ status: 'ok', version: VERSION, timestamp: new Date().toISOString() }, { headers: corsHeaders() });
+    }
+
+    if (path === '/tools') {
+      return Response.json({ tools: ['http_request', 'get_worker_code', 'deploy_worker', 'get_secret'] }, { headers: corsHeaders() });
+    }
+
+    if (path === '/manifest.webmanifest' || path === '/manifest.json') {
+      return Response.json({
+        name: 'Asgard',
+        short_name: 'Asgard',
+        description: 'Luck Dragon infrastructure AI',
+        start_url: '/',
+        display: 'standalone',
+        background_color: '#1a1a1a',
+        theme_color: '#d97757',
+        orientation: 'portrait',
+        icons: [
+          { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }
+        ]
+      }, { headers: { 'Cache-Control': 'public, max-age=3600', ...corsHeaders() } });
+    }
+
+    if (path === '/icon.svg') {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="96" fill="#1a1a1a"/><circle cx="256" cy="256" r="160" fill="#d97757"/><circle cx="256" cy="256" r="60" fill="#1a1a1a"/><circle cx="256" cy="170" r="22" fill="#1a1a1a"/></svg>`;
+      return new Response(svg, { headers: { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400' } });
+    }
+
+    if (path === '/' || path === '/chat') {
+      const html = HTML
+        .replace(/__VERSION__/g, VERSION)
+        .replace('__PROJECTS_JSON__', JSON.stringify(PROJECTS))
+        .replace('__TOOLS_JSON__', JSON.stringify(TOOLS))
+        .replace('__MODELS_JSON__', JSON.stringify(MODELS))
+        .replace('__TOOLS_URL__', TOOLS_URL);
+      return new Response(html, { headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'X-Frame-Options': 'SAMEORIGIN',
+        'X-Content-Type-Options': 'nosniff',
+        'Strict-Transport-Security': 'max-age=63072000; includeSubDomains',
+        'Referrer-Policy': 'strict-origin-when-cross-origin',
+        'Permissions-Policy': 'camera=(), microphone=(), geolocation=()'
+      } });
+    }
+
+    return new Response('Not Found', { status: 404, headers: corsHeaders() });
+  }
+};
