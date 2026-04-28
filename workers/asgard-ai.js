@@ -1,5 +1,5 @@
 // asgard-ai v5.7.2-stopgap-v11-tools: multi-provider (Anthropic/OpenAI/Gemini) + DALL-E + vision
-const VERSION = '5.8.5-drive-share';
+const VERSION = '5.8.6-drive-share-tools';
 const WORKER_NAME = "asgard-ai";
 
 // --- PIN auth helper (v1.1.0 security patch) ---
@@ -1590,6 +1590,10 @@ const AGENTIC_TOOLS_OPENAI = [
       query: { type: "string" }, max_results: { type: "number", default: 5 }, include_answer: { type: "boolean", default: true }
     }, required: ["query"] } } },
   // Discord
+  { type: "function", function: { name: "drive_share", description: "Share a Drive file with another user via email. role: 'reader' (view only) | 'writer' (edit) | 'commenter'.",
+    parameters: { type: "object", properties: { file_id: { type: "string" }, email: { type: "string" }, role: { type: "string", enum: ["reader","writer","commenter"], default: "reader" }, sendNotificationEmail: { type: "boolean", default: false } }, required: ["file_id", "email"] } } },
+  { type: "function", function: { name: "drive_list_roots", description: "List top-level folders in paddy@luckdragon.io's Drive.",
+    parameters: { type: "object", properties: {} } } },
   { type: "function", function: { name: "discord_send", description: "Post a message to Paddy's Discord server. Defaults to the configured channel.",
     parameters: { type: "object", properties: {
       content: { type: "string" }, channel_id: { type: "string", description: "Optional channel override" }
@@ -2072,6 +2076,28 @@ async function agenticExecuteTool(name, input, env) {
       let parsed = null;
       try { parsed = JSON.parse(text); } catch (e) {}
       return { ok: r.ok, status: r.status, response: parsed || text.substring(0, 4000) };
+    }
+    if (name === "drive_share") {
+      if (!env.LD_GOOGLE_REFRESH_TOKEN) return { error: "LD_GOOGLE_REFRESH_TOKEN missing" };
+      const access = await _agentLdAccessToken(env);
+      const r = await fetch(
+        "https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(input.file_id) + "/permissions?supportsAllDrives=true&sendNotificationEmail=" + (input.sendNotificationEmail ? "true" : "false"),
+        { method: "POST", headers: { "Authorization": "Bearer " + access, "Content-Type": "application/json" },
+          body: JSON.stringify({ role: input.role || "reader", type: "user", emailAddress: input.email }) }
+      );
+      if (!r.ok) return { error: "drive_share " + r.status, detail: (await r.text()).slice(0, 300) };
+      const j = await r.json();
+      return { ok: true, file_id: input.file_id, email: input.email, role: input.role || "reader", permission_id: j.id };
+    }
+    if (name === "drive_list_roots") {
+      if (!env.LD_GOOGLE_REFRESH_TOKEN) return { error: "LD_GOOGLE_REFRESH_TOKEN missing" };
+      const access = await _agentLdAccessToken(env);
+      const q = encodeURIComponent("'root' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder'");
+      const r = await fetch("https://www.googleapis.com/drive/v3/files?q=" + q + "&fields=files(id,name,modifiedTime)&pageSize=200",
+        { headers: { "Authorization": "Bearer " + access } });
+      if (!r.ok) return { error: "drive_list_roots " + r.status, detail: (await r.text()).slice(0, 300) };
+      const j = await r.json();
+      return { ok: true, count: (j.files||[]).length, folders: j.files || [] };
     }
     return { error: "Unknown tool: " + name };
   } catch (e) {
