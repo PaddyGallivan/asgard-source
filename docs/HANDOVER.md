@@ -99,6 +99,31 @@ All 6 green via `/admin/smoke` at session end.
 - `chrome_bridge` — command queue for Chrome ext + desktop helper
 - `errors` — observability log
 
+## Portfolio products (per-project handovers)
+
+Asgard is the platform; portfolio products are the things that run on it. Each product has its own repo with a `RESUME-HERE.md` at the root + versioned handovers under `docs/handovers/`. A fresh Claude on any account should:
+
+1. Read this Asgard handover first (you're doing it now).
+2. For a specific product, fetch that product's `RESUME-HERE.md` from its repo.
+3. The full project list lives in D1 `asgard-brain.products` (51 rows, exposed at `https://asgard.pgallivan.workers.dev` dashboard tiles); the handover-bearing repos are listed below.
+
+**Active products with cross-account-safe handovers:**
+
+| Product | Repo | Resume URL |
+|---|---|---|
+| KBT (Know Brainer Trivia) | `LuckDragonAsgard/kbt-trivia-tools` | <https://github.com/LuckDragonAsgard/kbt-trivia-tools/blob/main/RESUME-HERE.md> |
+
+(Other products will be added here as their per-repo `RESUME-HERE.md` files land. Pattern: every active product gets one.)
+
+**Resume protocol for a fresh Claude session, any account, any computer:**
+
+1. Mona says the project name (e.g. "KBT") or pastes its repo URL.
+2. Claude fetches that repo's `RESUME-HERE.md` via the GitHub MCP (or `https://raw.githubusercontent.com/{org}/{repo}/main/RESUME-HERE.md` via WebFetch — no auth needed for public repos).
+3. The product's RESUME-HERE.md links to the latest `docs/handovers/v{N}.md` for full context.
+4. Pull credentials from the vault using the PIN (Mona shares verbally / in chat).
+
+This means **no copy-paste of context blobs ever** — just say the project name. The repo is the single source of truth for that product, and the Asgard handover is the single source of truth for the platform underneath.
+
 ## Auth model — PIN rotation (2026-04-28)
 
 Old PIN `2967` was leaked in public source as fallback. JACKY_PIN `7777` likewise. Today's rotation:
