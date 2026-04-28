@@ -1,7 +1,7 @@
 // asgard worker v7.9.2 — Drive references purged, bridge installers point to GitHub
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
-const VERSION = '7.9.6-handover-route';
+const VERSION = '7.10.0-production-tracker';
 const TOOLS_URL = 'https://asgard-tools.pgallivan.workers.dev';
 
 // Live inventory pulled from CF API + GitHub. 39 projects.
@@ -628,6 +628,42 @@ const HTML = `<!doctype html>
   @media all and (display-mode: standalone) {
     .sb-head { padding-top: max(16px, env(safe-area-inset-top)); }
   }
+
+  .prod-tracker { padding: 16px 20px 8px; }
+  .rev-strip { display:flex; align-items:center; gap:8px; margin:12px 0; flex-wrap:wrap; }
+  .rev-cell { background:rgba(217,119,87,0.08); border:1px solid rgba(217,119,87,0.25); border-radius:8px; padding:10px 14px; min-width:90px; text-align:center; }
+  .rev-cell.rev-empty { background:rgba(255,255,255,0.02); border-color:rgba(255,255,255,0.08); opacity:0.5; }
+  .rev-label { font-size:10px; text-transform:uppercase; color:var(--muted); letter-spacing:0.5px; }
+  .rev-amt { font-size:18px; font-weight:600; color:var(--text); margin-top:2px; }
+  .rev-arrow { color:var(--muted); font-size:18px; }
+  .status-row { display:flex; gap:8px; margin:12px 0; flex-wrap:wrap; align-items:center; }
+  .status-pill { background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:4px 10px; font-size:11px; color:var(--muted); }
+  .status-pill.live { background:rgba(74,222,128,0.12); color:#4ade80; border-color:rgba(74,222,128,0.25); }
+  .status-pill.in-dev { background:rgba(250,204,21,0.12); color:#facc15; border-color:rgba(250,204,21,0.25); }
+  .status-pill.idea { background:rgba(96,165,250,0.12); color:#60a5fa; border-color:rgba(96,165,250,0.25); }
+  .status-pill.archived { background:rgba(255,255,255,0.04); color:var(--muted); }
+  .top-priorities { background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:8px; margin-top:12px; }
+  .tp-header { font-size:11px; text-transform:uppercase; color:var(--muted); padding:6px 10px; letter-spacing:0.5px; }
+  .tp-row { display:grid; grid-template-columns:24px 1fr 90px 50px 90px 80px; gap:10px; align-items:center; padding:8px 10px; border-radius:6px; cursor:pointer; font-size:12px; }
+  .tp-row:hover { background:rgba(217,119,87,0.08); }
+  .tp-rank { color:var(--muted); font-weight:600; text-align:center; }
+  .tp-name { color:var(--text); font-weight:500; }
+  .tp-prio { color:var(--muted); font-size:11px; }
+  .tp-progress { color:var(--muted); text-align:right; }
+  .tp-rev { color:#4ade80; font-family:Menlo,Consolas,monospace; font-size:11px; }
+  .tp-status { font-size:10px; padding:2px 8px; border-radius:8px; text-align:center; text-transform:lowercase; }
+  .status-live { background:rgba(74,222,128,0.15); color:#4ade80; }
+  .status-in_dev, .status-in-dev, .status-in-development { background:rgba(250,204,21,0.15); color:#facc15; }
+  .status-idea { background:rgba(96,165,250,0.15); color:#60a5fa; }
+  .status-archived, .status-parked { background:rgba(255,255,255,0.05); color:var(--muted); }
+
+  .tile-rev { color:#4ade80; font-size:11px; font-family:Menlo,Consolas,monospace; margin:6px 0 0; }
+  .tile-meta { display:flex; align-items:center; gap:8px; margin-top:8px; }
+  .tile-progress-label { color:var(--muted); font-size:11px; margin-left:auto; }
+  .tile-progress { height:3px; background:rgba(255,255,255,0.06); border-radius:2px; margin-top:4px; overflow:hidden; }
+  .tile-progress-fill { height:100%; background:linear-gradient(90deg, #d97757, #4ade80); transition:width .3s; }
+  .tile-prio { font-size:11px; color:#facc15; margin-right:auto; margin-left:8px; }
+  .tile-status { font-size:10px; padding:2px 8px; border-radius:8px; text-transform:lowercase; }
 </style>
 </head>
 <body>
@@ -770,7 +806,7 @@ async function loadProductsFromBrain() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
       body: JSON.stringify({
-        sql: 'SELECT id, project_name, category, status, live_url, tech_stack, description, next_action, progress_pct, revenue_y1, revenue_y2, revenue_y3, income_priority, key_features, github_url, last_updated FROM products ORDER BY income_priority DESC, project_name ASC',
+        sql: 'SELECT id, project_name, category, status, live_url, tech_stack, description, next_action, progress_pct, revenue_y1, revenue_y2, revenue_y3, revenue_y4, revenue_y5, income_priority, key_features, github_url, last_updated FROM products ORDER BY income_priority DESC, project_name ASC',
         params: []
       })
     });
@@ -781,7 +817,7 @@ async function loadProductsFromBrain() {
         url: p.live_url || '', repo: p.github_url || '',
         tag: p.category || 'project',
         status: (p.status || 'idea').toLowerCase(),
-        revenue_y1: p.revenue_y1 || 0, revenue_y2: p.revenue_y2 || 0, revenue_y3: p.revenue_y3 || 0,
+        revenue_y1: p.revenue_y1 || 0, revenue_y2: p.revenue_y2 || 0, revenue_y3: p.revenue_y3 || 0, revenue_y4: p.revenue_y4 || 0, revenue_y5: p.revenue_y5 || 0,
         income_priority: p.income_priority || 0, progress_pct: p.progress_pct || 0,
         description: p.description || '', next_action: p.next_action || '',
         tech_stack: p.tech_stack || '', key_features: p.key_features || '',
@@ -1177,8 +1213,77 @@ function render() {
 function renderProjectTiles() {
   const w = document.createElement('div');
   w.className = 'welcome';
-  w.innerHTML = '<h1>Your projects</h1><p>' + PROJECTS.length + ' projects across Cloudflare, Vercel, GitHub. Click a tile for details + actions.</p>';
+  // === Production Tracker ===
+  function fmtMoney(n) {
+    n = Number(n) || 0;
+    if (n >= 1000000) return '$' + (n/1000000).toFixed(2) + 'M';
+    if (n >= 1000) return '$' + (n/1000).toFixed(0) + 'k';
+    return '$' + n.toLocaleString();
+  }
+  var totals = { y1:0, y2:0, y3:0, y4:0, y5:0, projects:PROJECTS.length, live:0, in_dev:0, idea:0, archived:0, avg_progress:0 };
+  PROJECTS.forEach(function(p){
+    totals.y1 += p.revenue_y1||0; totals.y2 += p.revenue_y2||0; totals.y3 += p.revenue_y3||0;
+    totals.y4 += p.revenue_y4||0; totals.y5 += p.revenue_y5||0;
+    var s = (p.status||'').toLowerCase();
+    if (s === 'live') totals.live++;
+    else if (s.indexOf('dev') >= 0) totals.in_dev++;
+    else if (s === 'idea') totals.idea++;
+    else if (s === 'archived') totals.archived++;
+    totals.avg_progress += (p.progress_pct||0);
+  });
+  totals.avg_progress = PROJECTS.length ? Math.round(totals.avg_progress / PROJECTS.length) : 0;
+
+  var top = PROJECTS.slice().filter(function(p){ return (p.income_priority||0) > 0; }).sort(function(a,b){ return (b.income_priority||0) - (a.income_priority||0); }).slice(0, 5);
+
+  var trackerHtml = '<div class="prod-tracker">';
+  trackerHtml += '<h1 style="margin:0 0 4px;font-size:24px">\u2728 Asgard Production Tracker</h1>';
+  trackerHtml += '<p style="margin:0 0 18px;color:var(--muted);font-size:13px">' + PROJECTS.length + ' projects across Cloudflare, Vercel, GitHub. Click a tile for details + actions.</p>';
+  // 5-year revenue strip
+  trackerHtml += '<div class="rev-strip">';
+  ['y1','y2','y3','y4','y5'].forEach(function(k, i){
+    var label = 'Year ' + (i+1);
+    var amt = totals[k];
+    var hasData = amt > 0;
+    trackerHtml += '<div class="rev-cell' + (hasData ? '' : ' rev-empty') + '">' +
+      '<div class="rev-label">' + label + '</div>' +
+      '<div class="rev-amt">' + fmtMoney(amt) + '</div>' +
+      '</div>';
+    if (i < 4) trackerHtml += '<div class="rev-arrow">\u2192</div>';
+  });
+  trackerHtml += '</div>';
+  // Status row + progress
+  trackerHtml += '<div class="status-row">';
+  trackerHtml += '<span class="status-pill live">' + totals.live + ' live</span>';
+  trackerHtml += '<span class="status-pill in-dev">' + totals.in_dev + ' in dev</span>';
+  trackerHtml += '<span class="status-pill idea">' + totals.idea + ' idea</span>';
+  trackerHtml += '<span class="status-pill archived">' + totals.archived + ' archived</span>';
+  trackerHtml += '<span class="status-pill" style="margin-left:auto">Avg progress ' + totals.avg_progress + '%</span>';
+  trackerHtml += '</div>';
+  // Top 5 priorities
+  if (top.length > 0) {
+    trackerHtml += '<div class="top-priorities">';
+    trackerHtml += '<div class="tp-header">\u2b50 Top priorities</div>';
+    top.forEach(function(p, i){
+      trackerHtml += '<div class="tp-row" data-pid="' + p.id + '">' +
+        '<span class="tp-rank">' + (i+1) + '</span>' +
+        '<span class="tp-name">' + escapeHtml(p.name) + '</span>' +
+        '<span class="tp-prio">priority ' + (p.income_priority||0) + '</span>' +
+        '<span class="tp-progress">' + (p.progress_pct||0) + '%</span>' +
+        '<span class="tp-rev">Y1 ' + fmtMoney(p.revenue_y1||0) + '</span>' +
+        '<span class="tp-status status-' + ((p.status||'').toLowerCase().replace(/\s+/g, '-')) + '">' + escapeHtml(p.status||'') + '</span>' +
+        '</div>';
+    });
+    trackerHtml += '</div>';
+  }
+  trackerHtml += '</div>';
+  w.innerHTML = trackerHtml;
   els.chat.appendChild(w);
+  // Wire up top-priority row clicks
+  setTimeout(function(){
+    document.querySelectorAll('.tp-row[data-pid]').forEach(function(row){
+      row.addEventListener('click', function(){ openProjectDetail(row.getAttribute('data-pid')); });
+    });
+  }, 0);
 
   const wrap = document.createElement('div');
   wrap.className = 'tiles-wrap';
@@ -1216,10 +1321,25 @@ function renderProjectTiles() {
   filtered.forEach(p => {
     const tile = document.createElement('div');
     tile.className = 'tile';
+    var prio = p.income_priority||0;
+    var prog = p.progress_pct||0;
+    var revLine = '';
+    var hasRev = (p.revenue_y1||0)+(p.revenue_y2||0)+(p.revenue_y3||0)+(p.revenue_y4||0)+(p.revenue_y5||0) > 0;
+    if (hasRev) {
+      revLine = '<div class="tile-rev">Y1 ' + fmtMoney(p.revenue_y1||0) +
+                ' \u00b7 Y3 ' + fmtMoney(p.revenue_y3||0) +
+                ' \u00b7 Y5 ' + fmtMoney(p.revenue_y5||0) + '</div>';
+    }
+    var prioBadge = prio > 0 ? '<span class="tile-prio" title="Income priority">\u2b50 ' + prio + '</span>' : '';
+    var statusBadge = p.status ? '<span class="tile-status status-' + (p.status||'').toLowerCase().replace(/\s+/g,'-') + '">' + escapeHtml(p.status) + '</span>' : '';
+    var progressBar = '<div class="tile-progress"><div class="tile-progress-fill" style="width:' + prog + '%"></div></div>';
     tile.innerHTML =
-      '<div class="row"><div class="name">' + escapeHtml(p.name) + '</div><div class="tag">' + escapeHtml(p.tag) + '</div></div>' +
+      '<div class="row"><div class="name">' + escapeHtml(p.name) + '</div>' + prioBadge + '<div class="tag">' + escapeHtml(p.tag) + '</div></div>' +
       (p.url ? '<a class="url" href="' + p.url + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">' + escapeHtml(p.url) + '</a>' : '<span class="url" style="color:var(--muted);font-style:italic">no live URL</span>') +
       '<div class="ctx">' + escapeHtml(p.context || '') + '</div>' +
+      revLine +
+      '<div class="tile-meta">' + statusBadge + '<span class="tile-progress-label">' + prog + '%</span></div>' +
+      progressBar +
       '<div class="health"><span class="dot checking" data-pid-tile="' + p.id + '"></span><span data-pid-tile-label="' + p.id + '">checking…</span></div>';
     tile.addEventListener('click', () => openProjectDetail(p.id));
     grid.appendChild(tile);
@@ -1277,11 +1397,16 @@ async function editProjectFlow(pid) {
   var description = prompt('Description:', p.description || '') || '';
   var next_action = prompt('Next action:', p.next_action || '') || '';
   var rev_y1 = parseInt(prompt('Year 1 revenue $:', String(p.revenue_y1 || 0)) || '0', 10) || 0;
+  var rev_y2 = parseInt(prompt('Year 2 revenue $:', String(p.revenue_y2 || 0)) || '0', 10) || 0;
+  var rev_y3 = parseInt(prompt('Year 3 revenue $:', String(p.revenue_y3 || 0)) || '0', 10) || 0;
+  var rev_y4 = parseInt(prompt('Year 4 revenue $:', String(p.revenue_y4 || 0)) || '0', 10) || 0;
+  var rev_y5 = parseInt(prompt('Year 5 revenue $:', String(p.revenue_y5 || 0)) || '0', 10) || 0;
+  var prio = parseInt(prompt('Income priority (0-100, higher = more important):', String(p.income_priority || 0)) || '0', 10) || 0;
   var progress = parseInt(prompt('Progress %:', String(p.progress_pct || 0)) || '0', 10) || 0;
   try {
     await _brainWrite(
-      'UPDATE products SET project_name=?, category=?, status=?, live_url=?, description=?, next_action=?, revenue_y1=?, progress_pct=?, last_updated=? WHERE id=?',
-      [name, category, status, url, description, next_action, rev_y1, progress, new Date().toISOString().split('T')[0], p.rawId]
+      'UPDATE products SET project_name=?, category=?, status=?, live_url=?, description=?, next_action=?, revenue_y1=?, revenue_y2=?, revenue_y3=?, revenue_y4=?, revenue_y5=?, income_priority=?, progress_pct=?, last_updated=? WHERE id=?',
+      [name, category, status, url, description, next_action, rev_y1, rev_y2, rev_y3, rev_y4, rev_y5, prio, progress, new Date().toISOString().split('T')[0], p.rawId]
     );
     await loadProductsFromBrain();
     render();
@@ -1312,7 +1437,7 @@ function renderProjectDetail() {
     '</div>' +
     '<div class="field"><div class="label">Status</div><div class="val">' + escapeHtml(p.status || 'idea') + (p.progress_pct ? ' · <span style="color:var(--muted)">' + p.progress_pct + '%</span>' : '') + '</div></div>' +
     '<div class="field"><div class="label">Income priority</div><div class="val">' + (p.income_priority ? '⭐ '.repeat(Math.min(5, p.income_priority)) + ' (' + p.income_priority + ')' : '<em style="color:var(--muted)">unranked</em>') + '</div></div>' +
-    '<div class="field"><div class="label">Revenue forecast</div><div class="val" style="font-family:Menlo,Consolas,monospace">Y1 $' + (p.revenue_y1||0).toLocaleString() + ' · Y2 $' + (p.revenue_y2||0).toLocaleString() + ' · Y3 $' + (p.revenue_y3||0).toLocaleString() + '</div></div>' +
+    '<div class="field"><div class="label">Revenue forecast (5-year)</div><div class="val" style="font-family:Menlo,Consolas,monospace">Y1 $' + (p.revenue_y1||0).toLocaleString() + ' · Y2 $' + (p.revenue_y2||0).toLocaleString() + ' · Y3 $' + (p.revenue_y3||0).toLocaleString() + ' · Y4 $' + (p.revenue_y4||0).toLocaleString() + ' · Y5 $' + (p.revenue_y5||0).toLocaleString() + '</div></div>' +
     '<div class="field"><div class="label">Last updated</div><div class="val">' + escapeHtml(p.last_updated || '—') + '</div></div>' +
     '<div class="field"><div class="label">Live URL</div><div class="val">' + (p.url ? '<a href="' + p.url + '" target="_blank" rel="noopener">' + escapeHtml(p.url) + '</a>' : '<em style="color:var(--muted)">none</em>') + '</div></div>' +
     '<div class="field"><div class="label">Repo</div><div class="val">' + (repoLink ? '<a href="' + repoLink + '" target="_blank" rel="noopener">' + escapeHtml(p.repo) + '</a>' : '<em style="color:var(--muted)">unknown</em>') + '</div></div>' +
