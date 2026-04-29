@@ -30,7 +30,7 @@ const SYSTEM_PROMPT = `You are Asgard, Luck Dragon's infrastructure AI. You have
 
 ## Key facts
 - CF Account ID: ${ACCOUNT_ID}
-- Paddy's PIN: use get_secret("PADDY_PIN") if you need it, or pass 2967 for X-Pin headers
+- Paddy's PIN: use get_secret("PADDY_PIN") if you need it, or use get_secret("PADDY_PIN") for the current PIN
 - All repos are under LuckDragonAsgard org on GitHub
 - Bomber Boat API worker: bomber-boat-api | Bomber Boat Pages project: bomber-boat
 - Asgard dashboard worker: asgard (main_module: asgard.js)
@@ -475,7 +475,7 @@ export default {
     // POST { worker_name, code_b64, main_module? }  X-Pin: <pin>
     if (pathname === '/admin/deploy' && request.method === 'POST') {
       const pin = request.headers.get('X-Pin');
-      const expectedPin = env.PADDY_PIN || '';
+      const validPins = [env.PADDY_PIN, env.JACKY_PIN, env.GEORGE_PIN].filter(Boolean);
       if (!validPins.includes(pin)) {
         return Response.json({ error: 'Forbidden' }, { status: 403, headers: cors });
       }
