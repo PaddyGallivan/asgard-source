@@ -1504,9 +1504,9 @@ function showProjectInfo(id) {
   // Actions
   html += '<div class="pi-sec"><div class="pi-sec-title">Actions</div>';
   html += '<div class="pi-actions">';
-  if (url) html += '<button class="pi-btn pi-btn-health" onclick="piHealthCheck(\'' + escapeHtml(url) + '\',document.getElementById(\'piOut\'))">&#x2665; Health Check</button>';
+  if (url) html += '<button class="pi-btn pi-btn-health" onclick="piHealthCheck(&quot;' + escapeHtml(url) + '&quot;,document.getElementById(&quot;piOut&quot;))">&#x2665; Health Check</button>';
   if (ghUrl) html += '<a href="' + escapeHtml(ghUrl) + '" target="_blank"><button class="pi-btn pi-btn-src">&#x2387; View Source</button></a>';
-  if (workerName) html += '<button class="pi-btn pi-btn-restore" onclick="piRestore(\'' + workerName + '\',document.getElementById(\'piOut\'))">&#x21BA; Restore from GitHub</button>';
+  if (workerName) html += '<button class="pi-btn pi-btn-restore" onclick="piRestore(&quot;' + workerName + '&quot;,document.getElementById(&quot;piOut&quot;))">&#x21BA; Restore from GitHub</button>';
   html += '<button class="pi-btn pi-btn-edit" onclick="closeProjInfo();editProjectFlow(' + id + ')">&#x270E; Edit Project</button>';
   html += '</div>';
   html += '<div class="pi-out" id="piOut"></div></div>';
