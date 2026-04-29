@@ -2865,6 +2865,11 @@ export default {
         return new Response(JSON.stringify({ ok: false, error: e.message }), { status: 502, headers: { 'Content-Type': 'application/json' } });
       }
     }
+    if (path === '/login') {
+      const p = url.searchParams.get('p') || '';
+      const loginPage = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Asgard Login</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#12121f;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif}.box{background:#1e1e35;padding:2rem;border-radius:16px;width:300px;text-align:center}h1{color:#fff;font-size:1.2rem;margin:.5rem 0}p{color:#888;font-size:.85rem;margin:.5rem 0 1.2rem}input{width:100%;padding:.75rem;border-radius:8px;border:1px solid #444;background:#12121f;color:#fff;font-size:1rem;margin-bottom:.75rem}button{width:100%;padding:.75rem;background:#d97757;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer}</style></head><body><div class="box"><div style="font-size:2rem">&#128409;</div><h1>Asgard</h1><p>Enter your PIN</p><form id="f"><input id="p" type="text" placeholder="PIN" autocomplete="off" autofocus><button type="submit">Login</button></form></div><script>var pv=' + JSON.stringify(p) + ';document.getElementById("p").value=pv;document.getElementById("f").onsubmit=function(e){e.preventDefault();var v=document.getElementById("p").value.trim();if(v){localStorage.setItem("asgard.pin.v1",v);location.href="/";}};</script></body></html>';
+      return new Response(loginPage, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+    }
     if (path === '/privacy' || path === '/privacy/') {
       try {
         const r = await fetch('https://raw.githubusercontent.com/PaddyGallivan/asgard-source/main/docs/PRIVACY.md', { cf: { cacheTtl: 300, cacheEverything: true } });
