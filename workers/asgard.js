@@ -1553,7 +1553,7 @@ async function piRestore(workerName, out) {
     var commits = await ghR.json();
     if (!Array.isArray(commits) || !commits[0] || !commits[0].sha) throw new Error('No commits found for workers/' + workerName + '.js');
     var sha = commits[0].sha;
-    var msg = (commits[0].commit && commits[0].commit.message) ? commits[0].commit.message.split('\n')[0] : sha.substring(0,8);
+    var msg = (commits[0].commit && commits[0].commit.message) ? commits[0].commit.message.split(String.fromCharCode(10))[0] : sha.substring(0,8);
     out.textContent = '⏳ Restoring from ' + sha.substring(0,8) + ': ' + msg;
     var mainMod = workerName === 'asgard' ? 'asgard.js' : 'worker.js';
     var r = await fetch('https://asgard-tools.pgallivan.workers.dev/admin/rollback', {
