@@ -1,7 +1,7 @@
 // asgard worker v7.9.2 — Drive references purged, bridge installers point to GitHub
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
-const VERSION = '8.8.0';
+const VERSION = '8.8.1';
 // Auto-login from URL: asgard.pgallivan.workers.dev?pin=XXXXX
 (function(){
   try {
@@ -1472,7 +1472,7 @@ function showProjectInfo(id) {
   }
   if (ctx.indexOf('digital ocean') !== -1 || ctx.indexOf('digitalocean') !== -1) {
     badges += '<span class="pi-badge b-do">&#x1F30A; DigitalOcean</span>';
-    stackNotes.push('<strong>DigitalOcean</strong> — a VPS/cloud server. Needed for long-running processes, WebSockets that persist, or anything that requires a persistent server (Cloudflare Workers time out after 30s and can\'t hold open connections for more than a few seconds).');
+    stackNotes.push('<strong>DigitalOcean</strong> — a VPS/cloud server. Needed for long-running processes, WebSockets that persist, or anything that requires a persistent server (Cloudflare Workers time out after 30s and cannot hold open connections for more than a few seconds).');
   }
   if (ghUrl) {
     badges += '<span class="pi-badge b-gh">&#x2387; GitHub</span>';
