@@ -1016,7 +1016,7 @@ function loadFilter() { return localStorage.getItem(FILTER_KEY) || 'all'; }
 function saveFilter(f) { localStorage.setItem(FILTER_KEY, f); }
 function loadModel() { return localStorage.getItem(MODEL_KEY) || 'claude-sonnet-4-5'; }
 function saveModel(m) { localStorage.setItem(MODEL_KEY, m); }
-function loadPin() { return localStorage.getItem(PIN_KEY) || ''; }
+function loadPin() { var c=document.cookie.split(';').map(function(x){return x.trim();}).find(function(x){return x.startsWith('asgard_pin=');}); if(c)return decodeURIComponent(c.split('=')[1]||''); return localStorage.getItem(PIN_KEY) || ''; }
 function savePin(p) { localStorage.setItem(PIN_KEY, p); updateUserPill(); }
 function updateUserPill() {
   var pin = loadPin();
@@ -2866,8 +2866,24 @@ export default {
       }
     }
     if (path === '/login') {
-      const p = url.searchParams.get('p') || '';
-      const loginPage = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Asgard Login</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#12121f;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif}.box{background:#1e1e35;padding:2rem;border-radius:16px;width:300px;text-align:center}h1{color:#fff;font-size:1.2rem;margin:.5rem 0}p{color:#888;font-size:.85rem;margin:.5rem 0 1.2rem}input{width:100%;padding:.75rem;border-radius:8px;border:1px solid #444;background:#12121f;color:#fff;font-size:1rem;margin-bottom:.75rem}button{width:100%;padding:.75rem;background:#d97757;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer}</style></head><body><div class="box"><div style="font-size:2rem">&#128409;</div><h1>Asgard</h1><p>Enter your PIN</p><form id="f"><input id="p" type="text" placeholder="PIN" autocomplete="off" autofocus><button type="submit">Login</button></form></div><script>var pv=' + JSON.stringify(p) + ';document.getElementById("p").value=pv;document.getElementById("f").onsubmit=function(e){e.preventDefault();var v=document.getElementById("p").value.trim();if(v){localStorage.setItem("asgard.pin.v1",v);location.href="/";}};</script></body></html>';
+      // POST: set cookie and redirect
+      if (request.method === 'POST') {
+        const form = await request.formData().catch(() => null);
+        const pin = (form && form.get('pin')) || '';
+        if (pin) {
+          return new Response(null, {
+            status: 302,
+            headers: {
+              'Location': '/',
+              'Set-Cookie': `asgard_pin=${encodeURIComponent(pin)}; Path=/; Max-Age=31536000; SameSite=Lax`,
+              'Cache-Control': 'no-store'
+            }
+          });
+        }
+      }
+      // GET: show form
+      const msg = url.searchParams.get('err') ? '<p style="color:#f87171;font-size:.8rem;margin-bottom:.5rem">Invalid PIN, try again</p>' : '';
+      const loginPage = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Asgard Login</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#12121f;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif}.box{background:#1e1e35;padding:2rem;border-radius:16px;width:300px;text-align:center}h1{color:#fff;font-size:1.2rem;margin:.5rem 0}p{color:#888;font-size:.85rem;margin:.5rem 0 1.2rem}input{width:100%;padding:.75rem;border-radius:8px;border:1px solid #444;background:#12121f;color:#fff;font-size:1rem;margin-bottom:.75rem}button{width:100%;padding:.75rem;background:#d97757;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer}</style></head><body><div class="box"><div style="font-size:2rem">&#128409;</div><h1>Asgard</h1>${msg}<p>Enter your PIN</p><form method="POST" action="/login"><input name="pin" type="text" placeholder="PIN" autocomplete="off" autofocus><button type="submit">Login</button></form></div></body></html>`;
       return new Response(loginPage, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
     }
     if (path === '/privacy' || path === '/privacy/') {
