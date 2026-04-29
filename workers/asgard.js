@@ -1,7 +1,7 @@
 // asgard worker v7.9.2 — Drive references purged, bridge installers point to GitHub
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
-const VERSION = '8.8.1';
+const VERSION = '8.8.2';
 // Auto-login from URL: asgard.pgallivan.workers.dev?pin=XXXXX
 (function(){
   try {
@@ -1486,7 +1486,7 @@ function showProjectInfo(id) {
   var hours = p.hours_needed || 0;
   var prio = p.income_priority || 0;
 
-  var html = '<div class="pi-overlay" id="piOverlay" onclick="if(event.target.id===\'piOverlay\')closeProjInfo()">';
+  var html = '<div class="pi-overlay" id="piOverlay" onclick="if(event.target===this)closeProjInfo()">';
   html += '<div class="pi-modal">';
   html += '<button class="pi-close" onclick="closeProjInfo()">&#x2715;</button>';
   html += '<h2>' + escapeHtml(p.name || 'Untitled') + '</h2>';
@@ -1525,9 +1525,9 @@ function showProjectInfo(id) {
   // Actions
   html += '<div class="pi-sec"><div class="pi-sec-title">Actions</div>';
   html += '<div class="pi-actions">';
-  if (url) html += '<button class="pi-btn pi-btn-health" onclick="piHealthCheck(\'' + escapeHtml(url) + '\',document.getElementById(\'piOut\'))">&#x2665; Health Check</button>';
+  if (url) html += '<button class="pi-btn pi-btn-health" onclick="piHealthCheck(\\'' + escapeHtml(url) + '\\',document.getElementById(\\'piOut\\'))">&#x2665; Health Check</button>';
   if (ghUrl) html += '<a href="' + escapeHtml(ghUrl) + '" target="_blank"><button class="pi-btn pi-btn-src">&#x2387; View Source</button></a>';
-  if (workerName) html += '<button class="pi-btn pi-btn-restore" onclick="piRestore(\'' + workerName + '\',document.getElementById(\'piOut\'))">&#x21BA; Restore from GitHub</button>';
+  if (workerName) html += '<button class="pi-btn pi-btn-restore" onclick="piRestore(\\'' + workerName + '\\',document.getElementById(\\'piOut\\'))">&#x21BA; Restore from GitHub</button>';
   html += '<button class="pi-btn pi-btn-edit" onclick="closeProjInfo();editProjectFlow(' + id + ')">&#x270E; Edit Project</button>';
   html += '</div>';
   html += '<div class="pi-out" id="piOut"></div></div>';
@@ -1574,7 +1574,7 @@ async function piRestore(workerName, out) {
     var commits = await ghR.json();
     if (!Array.isArray(commits) || !commits[0] || !commits[0].sha) throw new Error('No commits found for workers/' + workerName + '.js');
     var sha = commits[0].sha;
-    var msg = (commits[0].commit && commits[0].commit.message) ? commits[0].commit.message.split('\n')[0] : sha.substring(0,8);
+    var msg = (commits[0].commit && commits[0].commit.message) ? commits[0].commit.message.split('\\n')[0] : sha.substring(0,8);
     out.textContent = '⏳ Restoring from ' + sha.substring(0,8) + ': ' + msg;
     var mainMod = workerName === 'asgard' ? 'asgard.js' : 'worker.js';
     var r = await fetch('https://asgard-tools.pgallivan.workers.dev/admin/rollback', {
