@@ -1469,7 +1469,7 @@ function showProjectInfo(id) {
   html += '<div class="pi-modal">';
   html += '<button class="pi-close" onclick="closeProjInfo()">&#x2715;</button>';
   html += '<h2>' + escapeHtml(p.name || 'Untitled') + '</h2>';
-  if (p.status) html += '<span class="tile-status status-' + (p.status).toLowerCase().replace(/\s+/g,'-') + '" style="font-size:11px">' + escapeHtml(p.status) + '</span>';
+  if (p.status) html += '<span class="tile-status status-' + (p.status).toLowerCase().replace(/\\s+/g,'-') + '" style="font-size:11px">' + escapeHtml(p.status) + '</span>';
 
   // Tech stack
   html += '<div class="pi-sec"><div class="pi-sec-title">Tech Stack</div>';
