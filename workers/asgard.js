@@ -2925,6 +2925,12 @@ export default {
     }
 
     if (path === '/' || path === '/chat') {
+      // Server-side auth gate: no cookie → redirect to /login
+      const cookieHdr = request.headers.get('Cookie') || '';
+      const hasCookie = cookieHdr.split(';').map(s=>s.trim()).some(s=>s.startsWith('asgard_pin='));
+      if (!hasCookie) {
+        return new Response(null, { status: 302, headers: { 'Location': '/login', 'Cache-Control': 'no-store' } });
+      }
       const html = HTML
         .replace(/__VERSION__/g, VERSION)
         .replace('__PROJECTS_JSON__', JSON.stringify(PROJECTS))
