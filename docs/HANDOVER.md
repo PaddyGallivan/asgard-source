@@ -16,7 +16,7 @@ If you're a different Claude account than monacastle.seddon@gmail.com, you will 
 
 You **will** have, regardless of account:
 - Live Cloudflare workers (these run in CF, account-independent for callers)
-- The GitHub repo `PaddyGallivan/asgard-source` (public)
+- The GitHub repo `LuckDragonAsgard/asgard-source` (public)
 - The Drive folder `H:\asgard\` if Mona has connected the same workspace folder
 - All the tokens listed below (paste into env vars or use directly)
 
@@ -43,7 +43,7 @@ Mona's preferences:
 | Resource | URL |
 |---|---|
 | Live dashboard | <https://asgard.pgallivan.workers.dev> |
-| Source repo | <https://github.com/PaddyGallivan/asgard-source> |
+| Source repo | <https://github.com/LuckDragonAsgard/asgard-source> |
 | Vault (PIN-gated) | <https://asgard-vault.pgallivan.workers.dev> |
 | D1 host | <https://asgard-brain.pgallivan.workers.dev> |
 | Agent loop | <https://asgard-ai.pgallivan.workers.dev> |
@@ -124,6 +124,8 @@ Asgard is the platform; portfolio products are the things that run on it. Each p
 |---|---|---|
 | KBT (Know Brainer Trivia) | `LuckDragonAsgard/kbt-trivia-tools` | <https://github.com/LuckDragonAsgard/kbt-trivia-tools/blob/main/RESUME-HERE.md> |
 | Superleague Yeah v4 | `LuckDragonAsgard/superleague-yeah-v4` | <https://github.com/LuckDragonAsgard/superleague-yeah-v4/blob/main/RESUME-HERE.md> |
+| Sport Portal | `LuckDragonAsgard/sportcarnival-hub` | <https://raw.githubusercontent.com/LuckDragonAsgard/asgard-handovers/main/sportportal.md> |
+| Carnival Timing | `LuckDragonAsgard/sport-carnival` | <https://raw.githubusercontent.com/LuckDragonAsgard/asgard-handovers/main/carnivaltiming.md> |
 
 (Other products will be added here as their per-repo `RESUME-HERE.md` files land. Pattern: every active product gets one.)
 
@@ -174,7 +176,7 @@ Rate-limiter on `pinOk()` keyed by IP — 15-min lockout after repeated failures
 ### 1. Workflow YAML commit (~2 min, GitHub UI)
 
 The bot token has only `public_repo` scope — can't write `.github/workflows/`. Mona needs to:
-1. Open <https://github.com/PaddyGallivan/asgard-source/edit/main/.github/workflows/deploy.yml>
+1. Open <https://github.com/LuckDragonAsgard/asgard-source/edit/main/.github/workflows/deploy.yml>
 2. Click in editor, Ctrl+A, paste contents of `H:\asgard\deploy.yml.patched`
 3. Click "Commit changes"
 
@@ -193,7 +195,7 @@ Click puzzle-piece icon in Chrome toolbar → Asgard Bridge → paste `<ASK MONA
 ## Architecture for next Claude
 
 ### Storage routing (current rule, supersedes "always to Drive")
-- **Source code** → GitHub `PaddyGallivan/asgard-source/workers/`. Auto-committed on every deploy.
+- **Source code** → GitHub `LuckDragonAsgard/asgard-source/workers/`. Auto-committed on every deploy.
 - **Bridges** (extension, desktop helper) → GitHub `bridges/`.
 - **Live runtime** → Cloudflare workers.
 - **Office files** (.docx, .xlsx, .pptx for live edit) → paddy@luckdragon.io Drive.
@@ -227,7 +229,7 @@ On long files, prefer one-shot `Write` of full new content over chained `Edit` c
 - **PADDY_PIN**: `<ASK MONA — PIN provided out-of-band, not stored in this doc>`
 - **JACKY_PIN**: `<ASK MONA — JACKY_PIN provided out-of-band>`
 - **D1 database UUID**: `b6275cb4-9c0f-4649-ae6a-f1c2e70e940f` (bound to asgard-ai as `env.DB`)
-- **GitHub repo**: `PaddyGallivan/asgard-source` (public; bot token can't write `.github/workflows/`)
+- **GitHub repo**: `LuckDragonAsgard/asgard-source` (public; bot token can't write `.github/workflows/`)
 - **GitHub org for portfolio**: `LuckDragonAsgard`
 - **CF tokens**:
   - Full-ops (Workers + Zone + DNS + Routes, no KV): `<vault: CF_API_TOKEN_FULL — fetch via /secret/CF_API_TOKEN_FULL>`
@@ -284,7 +286,7 @@ In `H:\asgard\` (workspace folder, persists on Mona's machine):
 In `C:\Users\monac\` (Mona's home, machine-local):
 - `asgard-desktop.py` — running helper (PIN updated at line 34)
 
-GitHub `PaddyGallivan/asgard-source`:
+GitHub `LuckDragonAsgard/asgard-source`:
 - `workers/` — 4 worker sources (canonical)
 - `bridges/asgard-bridge-extension/` — Chrome MV3 extension source (1.1.0, post-rotation)
 - `bridges/asgard-desktop.py` — desktop helper source (also patched)
@@ -315,7 +317,7 @@ If next Claude is **Claude.ai web** or **Claude Code**:
 
 ---
 
-End of handover. **PIN is `<ASK MONA — PIN provided out-of-band, not stored in this doc>`. Source of truth is GitHub `PaddyGallivan/asgard-source`. System is healthy and secured against the PIN-leak vector.**
+End of handover. **PIN is `<ASK MONA — PIN provided out-of-band, not stored in this doc>`. Source of truth is GitHub `LuckDragonAsgard/asgard-source`. System is healthy and secured against the PIN-leak vector.**
 
 ---
 
@@ -329,10 +331,17 @@ End of handover. **PIN is `<ASK MONA — PIN provided out-of-band, not stored in
 - asgard-vault: `a91183ed-3642-49a7-a2ab-e6383b76996b`
 - asgard-brain: `ce876eea-c34d-4f83-ac4d-33981631cd3a`
 
-**Source repo location decision:**
-- Per the portfolio centralization rule (`LuckDragonAsgard/` is the single org), `asgard-source` was attempted for transfer from `PaddyGallivan/asgard-source` → `LuckDragonAsgard/asgard-source` on 2026-04-29 via `gh-push.pgallivan.workers.dev/transfer`.
-- GitHub returned **422 "Repository has already been taken"** — likely a previous transfer attempt is sitting as a pending invitation on the LuckDragonAsgard user account, OR a private placeholder exists with that name.
-- **Decision:** asgard-source remains at `PaddyGallivan/asgard-source` until Mona either accepts the pending invitation or clears the conflicting name. The GitHub Actions workflow (`.github/workflows/deploy.yml`) and `asgard-tools` `_autoCommitSource` both target PaddyGallivan/asgard-source — these continue to work.
-- **To resolve:** Mona logs into LuckDragonAsgard on github.com → checks pending repo invitations → either accepts or declines. If accepted, the auto-commit URL inside asgard-tools needs updating to point at the new owner.
+**Source repo location — RESOLVED (2026-04-30):**
+- Transfer from `PaddyGallivan/asgard-source` → `LuckDragonAsgard/asgard-source` is **COMPLETE**. Both `asgard-source` and `asgard-handovers` now live under `LuckDragonAsgard/`. All references in this document have been updated accordingly.
 
 **No source-code changes today** — workers untouched, no version bumps. This update is documentation-only.
+
+---
+
+## Recent activity — 2026-04-30 (Session 15)
+
+- Confirmed both `asgard-source` and `asgard-handovers` transferred to `LuckDragonAsgard/` ✅
+- Updated HANDOVER.md: all `PaddyGallivan/asgard-source` references → `LuckDragonAsgard/asgard-source` ✅
+- Added Sport Portal and Carnival Timing to active products table ✅
+- All 5 sport portal URLs verified live ✅
+- PIN in use: 2967 (via vault)
