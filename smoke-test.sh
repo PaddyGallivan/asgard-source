@@ -79,7 +79,7 @@ CSP=$(curl -sI --max-time 10 "$BASE/login" 2>/dev/null \
 if [ -n "$CSP" ]; then pass "CSP header present"
 else warn "CSP header missing"; fi
 
-APP_CSP=$(curl -sI --max-time 10 -b "asgard_pin=$PIN" "$BASE/" 2>/dev/null \
+APP_CSP=$(curl -sI --max-time 10 -b /tmp/asgard_smoke_cookies.txt "$BASE/" 2>/dev/null \
   | grep -i "content-security-policy" | head -1)
 if echo "$APP_CSP" | grep -q "luckdragon.io"; then
   pass "App CSP uses luckdragon.io backends"
