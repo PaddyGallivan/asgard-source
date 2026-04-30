@@ -7,7 +7,7 @@ const ACCOUNT_ID = 'a6f47c17811ee2f8b6caeb8f38768c20';
 const ALERT_FROM = 'Asgard Watchdog <watchdog@luckdragon.io>';
 const ALERT_TO = ['paddy@luckdragon.io', 'rooney.jaclyn.l@gmail.com'];
 
-// Workers: checked via CF deployments API (avoids *.pgallivan.workers.dev loopback block)
+// Workers: checked via CF deployments API (avoids *.luckdragon.io loopback block)
 const WORKER_CHECKS = [
   { name: 'asgard',        autofix: true  },
   { name: 'asgard-ai',     autofix: false },
@@ -119,7 +119,7 @@ async function tryAutofix(env, name) {
     let bin = '';
     for (const b of bytes) bin += String.fromCharCode(b);
     const code_b64 = btoa(bin);
-    const dr = await fetch('https://asgard-tools.pgallivan.workers.dev/admin/deploy', {
+    const dr = await fetch('https://asgard-tools.luckdragon.io/admin/deploy', {
       method: 'POST',
       headers: { 'X-Pin': env.X_PIN, 'Content-Type': 'application/json' },
       body: JSON.stringify({ worker_name: 'asgard', code_b64, main_module: 'worker.js' }),
@@ -150,7 +150,7 @@ function buildAlertEmail(alerts, now) {
     const action = a.fixResult?.attempted ? (a.fixResult.success ? '✅ Auto-healed' : '❌ Heal failed') : '—';
     return `<tr style="background:${bg}"><td style="padding:10px 14px;font-weight:600">${icon} ${a.name}</td><td style="padding:10px 14px">${status}</td><td style="padding:10px 14px;font-family:monospace;font-size:12px">${detail}</td><td style="padding:10px 14px">${action}</td></tr>`;
   }).join('');
-  return `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;background:#f8fafc;padding:32px"><div style="max-width:640px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08)"><div style="background:#1a1a2e;padding:24px 28px"><h2 style="color:#6366f1;margin:0">⚡ Asgard Watchdog</h2><p style="color:#a0a0cc;margin:6px 0 0;font-size:14px">${now}</p></div><div style="padding:24px 28px"><table style="width:100%;border-collapse:collapse"><thead><tr style="background:#f1f5f9"><th style="padding:10px 14px;text-align:left;font-size:13px">Service</th><th style="padding:10px 14px;text-align:left;font-size:13px">Status</th><th style="padding:10px 14px;text-align:left;font-size:13px">Detail</th><th style="padding:10px 14px;text-align:left;font-size:13px">Action</th></tr></thead><tbody>${rows}</tbody></table><p style="margin-top:24px;font-size:13px;color:#666">Live: <a href="https://asgard-watchdog.pgallivan.workers.dev/" style="color:#6366f1">asgard-watchdog.pgallivan.workers.dev</a></p></div></div></body></html>`;
+  return `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;background:#f8fafc;padding:32px"><div style="max-width:640px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08)"><div style="background:#1a1a2e;padding:24px 28px"><h2 style="color:#6366f1;margin:0">⚡ Asgard Watchdog</h2><p style="color:#a0a0cc;margin:6px 0 0;font-size:14px">${now}</p></div><div style="padding:24px 28px"><table style="width:100%;border-collapse:collapse"><thead><tr style="background:#f1f5f9"><th style="padding:10px 14px;text-align:left;font-size:13px">Service</th><th style="padding:10px 14px;text-align:left;font-size:13px">Status</th><th style="padding:10px 14px;text-align:left;font-size:13px">Detail</th><th style="padding:10px 14px;text-align:left;font-size:13px">Action</th></tr></thead><tbody>${rows}</tbody></table><p style="margin-top:24px;font-size:13px;color:#666">Live: <a href="https://asgard-watchdog.luckdragon.io/" style="color:#6366f1">asgard-watchdog.luckdragon.io</a></p></div></div></body></html>`;
 }
 
 // ─── Status page HTML ─────────────────────────────────────────────────────────
@@ -161,7 +161,7 @@ function buildStatusPage(states) {
     const since = (s.last_change || '').replace('T', ' ').slice(0, 19) + ' UTC';
     return `<tr><td style="padding:10px 16px">${s.endpoint}</td><td style="padding:10px 16px">${badge}</td><td style="padding:10px 16px;color:${(s.consecutive_failures||0)>0?'#dc2626':'#666'}">${s.consecutive_failures||0}</td><td style="padding:10px 16px;color:#666;font-size:13px">${since}</td></tr>`;
   }).join('') || '<tr><td colspan="4" style="padding:16px;color:#666;text-align:center">No data — hit /run to trigger first check</td></tr>';
-  return `<!DOCTYPE html><html><head><title>Asgard Watchdog</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font-family:system-ui,sans-serif;background:#0a0a1a;color:#e0e0f0;padding:0;margin:0}.wrap{max-width:860px;margin:40px auto;padding:0 20px}h1{color:#6366f1;font-size:24px;margin-bottom:4px}.sub{color:#a0a0cc;font-size:14px;margin-bottom:28px}table{width:100%;border-collapse:collapse;background:#111128;border-radius:10px;overflow:hidden}th{background:#1e1e3a;padding:10px 16px;text-align:left;font-size:13px;color:#a0a0cc;font-weight:600}tr:not(:last-child) td{border-bottom:1px solid #2a2a5a}.actions{margin-top:20px;display:flex;gap:12px;font-size:13px}.actions a{color:#6366f1;text-decoration:none;padding:6px 14px;border:1px solid #6366f1;border-radius:6px}.ver{margin-top:32px;color:#444;font-size:12px}</style></head><body><div class="wrap"><h1>⚡ Asgard Watchdog</h1><p class="sub">Checks every 5 min — emails only on state changes</p><table><thead><tr><th>Service</th><th>Status</th><th>Failures</th><th>Last change</th></tr></thead><tbody>${rows}</tbody></table><div class="actions"><a href="/run">▶ Run now</a><a href="/status">{ } JSON</a><a href="https://asgard.pgallivan.workers.dev">🏰 Asgard</a></div><p class="ver">v${VERSION} · asgard-watchdog.pgallivan.workers.dev</p></div></body></html>`;
+  return `<!DOCTYPE html><html><head><title>Asgard Watchdog</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font-family:system-ui,sans-serif;background:#0a0a1a;color:#e0e0f0;padding:0;margin:0}.wrap{max-width:860px;margin:40px auto;padding:0 20px}h1{color:#6366f1;font-size:24px;margin-bottom:4px}.sub{color:#a0a0cc;font-size:14px;margin-bottom:28px}table{width:100%;border-collapse:collapse;background:#111128;border-radius:10px;overflow:hidden}th{background:#1e1e3a;padding:10px 16px;text-align:left;font-size:13px;color:#a0a0cc;font-weight:600}tr:not(:last-child) td{border-bottom:1px solid #2a2a5a}.actions{margin-top:20px;display:flex;gap:12px;font-size:13px}.actions a{color:#6366f1;text-decoration:none;padding:6px 14px;border:1px solid #6366f1;border-radius:6px}.ver{margin-top:32px;color:#444;font-size:12px}</style></head><body><div class="wrap"><h1>⚡ Asgard Watchdog</h1><p class="sub">Checks every 5 min — emails only on state changes</p><table><thead><tr><th>Service</th><th>Status</th><th>Failures</th><th>Last change</th></tr></thead><tbody>${rows}</tbody></table><div class="actions"><a href="/run">▶ Run now</a><a href="/status">{ } JSON</a><a href="https://asgard.luckdragon.io">🏰 Asgard</a></div><p class="ver">v${VERSION} · asgard-watchdog.luckdragon.io</p></div></body></html>`;
 }
 
 // ─── D1 migration ─────────────────────────────────────────────────────────────
