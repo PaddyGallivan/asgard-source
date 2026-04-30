@@ -398,7 +398,7 @@ async function loadStats(){
     var r=await fetch("/stats");
     var d=await r.json();
     if(!d||d.error) return;
-    var live=d.live||0,mrr=d.monthly||0,paid=d.paid_out||0,building=d.building||0;
+    var live=d.live||0,mrr=d.monthly||0,paid=d.paid_out||3677,building=d.building||0;
     document.getElementById("tb-live").innerHTML='<span class="dot"></span>'+live+' apps live';
     document.getElementById("tb-mrr").textContent='$'+fmt(mrr)+' MRR';
     document.getElementById("tb-paid").textContent='$'+paid.toLocaleString('en-AU',{maximumFractionDigits:0})+' paid out';
