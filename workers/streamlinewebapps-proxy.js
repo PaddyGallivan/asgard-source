@@ -1,4 +1,4 @@
-// streamlinewebapps-proxy v27 — earnings disclaimer, strengthened ToS (force majeure, no-guarantee clause)
+// streamlinewebapps-proxy v28 — footer: contact, ABN, AI disclosure, tracking notice; age gate on submit
 const SUPABASE = "https://huvfgenbcaiicatvtxak.supabase.co/functions/v1/streamline";
 const SUPA_REST = "https://huvfgenbcaiicatvtxak.supabase.co/rest/v1";
 const SUPA_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh1dmZnZW5iY2FpaWNhdHZ0eGFrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2MTczNjIsImV4cCI6MjA5MTE5MzM2Mn0.uTgzTKYjJnkFlRUIhGfW4ODKyV24xOdKaX7lxpDuMfc";
@@ -574,7 +574,7 @@ export default {
     // Serve the HTML shell for everything else
     return new Response(HTML, {
       status: 200,
-      headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60", "X-Streamline-Version": "27" }
+      headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60", "X-Streamline-Version": "28" }
     });
   }
 };
@@ -709,6 +709,7 @@ h2{font-family:'Syne',sans-serif;font-size:clamp(26px,3.8vw,42px);font-weight:80
 .field input:focus,.field textarea:focus,.field select:focus{border-color:var(--accent);background:var(--white);box-shadow:0 0 0 3px rgba(79,70,229,.08)}
 .field select option{background:var(--white)}
 .field textarea{min-height:96px;resize:vertical;line-height:1.5}
+.age-check{display:flex;align-items:flex-start;gap:10px;font-size:13px;color:var(--ink-soft);margin-bottom:12px;cursor:pointer;line-height:1.5}.age-check input{margin-top:2px;accent-color:var(--ink);flex-shrink:0}.age-check a{color:var(--accent)}
 .submit-btn{width:100%;padding:13px;background:var(--ink);color:#fff;border-radius:9px;font-size:15px;font-weight:600;margin-top:8px;transition:.15s}
 .submit-btn:hover{background:#2d2d2a;transform:translateY(-1px)}
 .faq-wrap{max-width:620px}
@@ -727,6 +728,7 @@ footer{border-top:1px solid var(--border);padding:36px 40px;background:var(--whi
 .foot-links a{color:var(--ink-2);transition:.15s}
 .foot-links a:hover{color:var(--accent)}
 footer p{font-size:13px;color:var(--ink-3)}
+.foot-small{font-size:11px;color:var(--ink-3);margin-top:6px;max-width:700px;line-height:1.6}.foot-small a{color:var(--ink-3);text-decoration:underline}
 .chat-bubble{position:fixed;bottom:22px;right:22px;z-index:95;width:52px;height:52px;background:var(--ink);border-radius:50%;font-size:20px;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 24px rgba(0,0,0,.2);animation:float 3s ease-in-out infinite;color:#fff;transition:.15s}
 .chat-bubble:hover{transform:scale(1.08)}
 @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
@@ -892,6 +894,7 @@ footer p{font-size:13px;color:var(--ink-3)}
           <select id="f-cat"><option>Education</option><option>Sport</option><option>Health</option><option>Food</option><option>Business</option><option>Entertainment</option><option>Social</option><option>Utility</option></select>
         </div>
         <div class="field"><label>Describe the idea</label><textarea id="f-desc" placeholder="What does it do? Who is it for? Why will people pay for it?" required></textarea></div>
+        <label class="age-check"><input type="checkbox" id="age-confirm"/> I am 18 or older and agree to the <a href="/terms" target="_blank">Terms of Service</a></label>
         <button class="submit-btn" onclick="submitIdea()">Continue to payment →</button>
       </div>
     </div>
@@ -914,8 +917,10 @@ footer p{font-size:13px;color:var(--ink-3)}
       <a href="/privacy">Privacy</a>
       <a href="/terms">Terms</a>
       <a href="/refunds">Refunds</a>
+      <a href="mailto:hello@streamlinewebapps.com">Contact</a>
     </div>
-    <p>Built in Melbourne by Paddy Gallivan · Part of the Asgard ecosystem · v23 · © 2026</p>
+    <p>Luck Dragon Pty Ltd · Melbourne, Australia · <a href="mailto:hello@streamlinewebapps.com">hello@streamlinewebapps.com</a></p>
+    <p class="foot-small">Apps are built using AI tools. Earnings are not guaranteed — see <a href="/terms">Terms</a>. You must be 18+ to submit. This site collects anonymised usage data — see <a href="/privacy">Privacy Policy</a>.</p>
   </div>
 </footer>
 <button class="chat-bubble" id="chat-bubble" onclick="oc()">✦</button>
@@ -1022,6 +1027,7 @@ document.addEventListener("click",function(e){
 function submitIdea(){
   var title=document.getElementById("f-title").value.trim(),name=document.getElementById("f-name").value.trim(),email=document.getElementById("f-email").value.trim(),cat=document.getElementById("f-cat").value,desc=document.getElementById("f-desc").value.trim();
   if(!title||!name||!email||!desc){alert("Please fill in all fields.");return;}
+  if(!document.getElementById("age-confirm").checked){alert("Please confirm you are 18 or older.");return;}
   var btn=document.querySelector(".submit-btn");btn.textContent="Saving...";btn.disabled=true;
   fetch("/submit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:title,name:name,email:email,category:cat,description:desc,tier:selTier})})
   .then(function(r){return r.json()})
