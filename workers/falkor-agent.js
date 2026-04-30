@@ -1,8 +1,11 @@
-// falkor-agent v1.2.0-a2a — Durable Object per user
+// falkor-agent v1.4.0-a2a — Durable Object per user
 // Phase 2 of the Falkor rebuild (formerly Asgard)
 // Persistent WebSocket hub + chat history + per-user memory
 // One DO instance per user (keyed by userId)
+// v1.3.0-a2a: Added falkor-code A2A routing
+// v1.4.0: Haiku model override for sport/KBT queries (prevent Groq hallucinations on structured data)
 
+const BRAIN_URL = 'https://falkor-brain.luckdragon.io';
 
 // ── A2A Sub-agent Registry ────────────────────────────────────────────────────
 const AGENTS = {
@@ -12,6 +15,14 @@ const AGENTS = {
   workflows: 'https://falkor-workflows.luckdragon.io',
   school:    'https://falkor-school.luckdragon.io',
   web:       'https://falkor-web.luckdragon.io',
+  code:      'https://falkor-code.luckdragon.io',
+};
+
+// Models that should be used for specific agent types
+// sport/kbt return structured data — Groq can hallucinate; Haiku is more faithful
+const AGENT_MODEL_OVERRIDES = {
+  sport: 'haiku',
+  kbt:   'haiku',
 };
 
 // Keyword → agent routing (fast, no LLM needed)
@@ -23,6 +34,9 @@ function routeIntent(text) {
   // KBT Trivia
   if (/\b(trivia|kbt|kow|brainer|quiz|question|pub quiz|game|host|players|leaderboard|event tonight|next event)\b/.test(t))
     return { agent: 'kbt', action: 'query' };
+  // Fleet / Code
+  if (/\b(deploy|fix worker|broken worker|fleet|falkor-code|self.heal|redeploy|worker health|which workers|code agent)\b/.test(t))
+    return { agent: 'code', action: 'summary' };
   // School / PE
   if (/\b(pe|physical education|lesson plan|sports day|cross.country|carnival|students|wps|williamstown primary|outdoor|weather for school|athletics|sprint|house points)\b/.test(t))
     return { agent: 'school', action: 'query' };
@@ -43,27 +57,29 @@ async function callSubAgent(agentKey, action, text, pin) {
   const baseUrl = AGENTS[agentKey];
   if (!baseUrl) return null;
   try {
-    let url, body;
     switch (agentKey) {
       case 'sport':
-        return fetch(`${baseUrl}/summary`, { headers: { 'X-Pin': pin } }).then(r=>r.ok?r.json():null);
+        return fetch(`${baseUrl}/summary`, { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null);
       case 'kbt':
-        return fetch(`${baseUrl}/summary`, { headers: { 'X-Pin': pin } }).then(r=>r.ok?r.json():null);
+        return fetch(`${baseUrl}/summary`, { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null);
+      case 'code':
+        return fetch(`${baseUrl}/summary`, { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null);
       case 'brain':
         return fetch(`${baseUrl}/recall`, {
-          method: 'POST', headers: {'Content-Type':'application/json','X-Pin':pin},
-          body: JSON.stringify({query:text, top_k:5, answer:true})
-        }).then(r=>r.ok?r.json():null);
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
+          body: JSON.stringify({ query: text, top_k: 5, answer: true }),
+        }).then(r => r.ok ? r.json() : null);
       case 'workflows':
-        return fetch(`${AGENTS.workflows.replace('falkor-workflows','asgard-ai')}/weather?lat=-37.86&lon=144.9`, {
-          headers:{'X-Pin':pin}}).then(r=>r.ok?r.json():null);
+        return fetch(`https://asgard-ai.luckdragon.io/weather?lat=-37.86&lon=144.9`, {
+          headers: { 'X-Pin': pin },
+        }).then(r => r.ok ? r.json() : null);
       case 'school':
-        return fetch(`${baseUrl}/summary`, { headers: {'X-Pin':pin} }).then(r=>r.ok?r.json():null);
+        return fetch(`${baseUrl}/summary`, { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null);
       case 'web':
         return fetch(`${baseUrl}/search`, {
-          method:'POST', headers:{'Content-Type':'application/json','X-Pin':pin},
-          body: JSON.stringify({query:text})
-        }).then(r=>r.ok?r.json():null);
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
+          body: JSON.stringify({ query: text }),
+        }).then(r => r.ok ? r.json() : null);
       default: return null;
     }
   } catch { return null; }
@@ -121,7 +137,7 @@ export class FalkorAgent {
       const history = await this.getHistory();
       const memory = await this.getMemory();
       return Response.json({
-        version: '1.2.0-a2a',
+        version: '1.4.0-a2a',
         activeSessions: this.sessions.size,
         historyLength: history.length,
         memoryKeys: Object.keys(memory).length,
@@ -161,100 +177,81 @@ export class FalkorAgent {
       }
     });
 
-    server.addEventListener('close', () => {
-      this.sessions.delete(wsId);
-    });
-
-    server.addEventListener('error', () => {
-      this.sessions.delete(wsId);
-    });
+    server.addEventListener('close', () => { this.sessions.delete(wsId); });
+    server.addEventListener('error', () => { this.sessions.delete(wsId); });
 
     return new Response(null, { status: 101, webSocket: client });
   }
 
   async processChat(text, model, ws) {
-    // Load existing history
     const history = await this.getHistory();
-
-    // Load per-user memory facts for system prompt enrichment
     const memory = await this.getMemory();
-    const memoryLines = Object.entries(memory)
-      .map(([k, v]) => `${k}: ${v}`)
-      .join('\n');
-
-    const systemExtra = memoryLines
-      ? '\n\nUser facts you remember:\n' + memoryLines
-      : '';
-
-    // Build context array for history (last 40 messages = 20 exchanges)
+    const memoryLines = Object.entries(memory).map(([k, v]) => `${k}: ${v}`).join('\n');
+    const systemExtra = memoryLines ? '\n\nUser facts you remember:\n' + memoryLines : '';
     const context = history.slice(-40).map(h => ({ role: h.role, content: h.content }));
+    const pin = this.env.AGENT_PIN || '';
 
-    // Broadcast user message to all WS sessions
     this.broadcast({ type: 'user_message', text, model });
 
-    // ── A2A Intent routing: check if a sub-agent can answer directly ──────────
+    // ── A2A Intent routing ────────────────────────────────────────────────────
+    let pendingAgentCtx = '';
     const intent = routeIntent(text);
     if (intent) {
-      const pin = this.env.AGENT_PIN || '';
+      // Override model to haiku for sport/KBT — prevents Groq hallucinating on structured data
+      if (AGENT_MODEL_OVERRIDES[intent.agent]) {
+        model = AGENT_MODEL_OVERRIDES[intent.agent];
+      }
       const agentData = await callSubAgent(intent.agent, intent.action, text, pin);
       if (agentData) {
-        // Inject sub-agent data as context into the prompt instead of routing away
-        // This way the main AI still crafts the response but uses specialist data
-        const agentCtx = '\n\nLive data from falkor-' + intent.agent + ':\n' + JSON.stringify(agentData, null, 2).slice(0, 1500);
-        // Will be picked up by ragContext injection below
-        try {
-          // Also store in brain for memory continuity
-          if (intent.agent === 'sport' || intent.agent === 'kbt') {
-            await fetch('https://falkor-brain.luckdragon.io/remember', {
-              method: 'POST', headers: {'Content-Type':'application/json','X-Pin':pin},
-              body: JSON.stringify({text: 'Live data from ' + intent.agent + ': ' + JSON.stringify(agentData).slice(0,500), category: intent.agent, tags:[intent.agent,'live']})
-            }).catch(()=>{});
-          }
-        } catch {}
-        // Attach to ragContext for prompt injection
-        this._pendingAgentCtx = agentCtx;
+        pendingAgentCtx = '\n\nLive data from falkor-' + intent.agent + ':\n' +
+          JSON.stringify(agentData, null, 2).slice(0, 1500);
+        // Store sport/KBT snapshots in brain for memory continuity
+        if (intent.agent === 'sport' || intent.agent === 'kbt') {
+          fetch(`${BRAIN_URL}/remember`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
+            body: JSON.stringify({
+              text: 'Live data from ' + intent.agent + ': ' + JSON.stringify(agentData).slice(0, 500),
+              category: intent.agent, tags: [intent.agent, 'live'],
+            }),
+          }).catch(() => {});
+        }
       }
     }
 
-    // Fetch relevant context from falkor-brain (RAG)
+    // ── RAG: fetch relevant context from falkor-brain ─────────────────────────
     let ragContext = '';
     try {
-      const ragResp = await fetch(`${brainUrl || 'https://falkor-brain.luckdragon.io'}/recall`, {
+      const ragResp = await fetch(`${BRAIN_URL}/recall`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Pin': this.env.AGENT_PIN || '' },
+        headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
         body: JSON.stringify({ query: text, top_k: 3, answer: false }),
       });
       if (ragResp.ok) {
         const ragData = await ragResp.json();
         const matches = (ragData.matches || []).filter(m => m.score > 0.5);
         if (matches.length > 0) {
-          ragContext = '\n\nRelevant context from memory:\n' + matches.map((m, i) => `${i+1}. [${m.category}] ${m.content}`).join('\n');
+          ragContext = '\n\nRelevant context from memory:\n' +
+            matches.map((m, i) => `${i + 1}. [${m.category}] ${m.content}`).join('\n');
         }
       }
-    } catch (e) { /* brain unavailable — continue without */ }
-    if (this._pendingAgentCtx) { ragContext += this._pendingAgentCtx; this._pendingAgentCtx = null; }
+    } catch { /* brain unavailable — continue without */ }
+    if (pendingAgentCtx) ragContext += pendingAgentCtx;
 
-    // Call asgard-ai router
-    // API format: { message: string, context: [...], model, max_tokens, system }
+    // ── Call asgard-ai router ─────────────────────────────────────────────────
     let reply = '';
     try {
       const aiUrl = this.env.AI_WORKER_URL || 'https://asgard-ai.luckdragon.io';
-      const brainUrl = 'https://falkor-brain.luckdragon.io';
       const resp = await fetch(`${aiUrl}/chat/smart`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Pin': this.env.AGENT_PIN || '',
-        },
+        headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
         body: JSON.stringify({
           message: text,
           context,
-          system: 'You are Falkor, Paddy\'s intelligent personal AI. You have real-time access to AFL/sport data (falkor-sport), KBT trivia (falkor-kbt), PE weather alerts (falkor-workflows), and personal memory (falkor-brain). Use live data in context to give specific, actionable answers.' + systemExtra + ragContext,
+          system: "You are Falkor, Paddy's intelligent personal AI. You have real-time access to AFL/sport data (falkor-sport), KBT trivia (falkor-kbt), PE weather alerts (falkor-workflows), and personal memory (falkor-brain). Use live data in context to give specific, actionable answers." + systemExtra + ragContext,
           model,
           max_tokens: 2048,
         }),
       });
-
       if (resp.ok) {
         const data = await resp.json();
         reply = data.reply || data.content || '';
@@ -266,26 +263,19 @@ export class FalkorAgent {
       reply = '[Connection error: ' + err.message + ']';
     }
 
-    // Save to history (keep last 200 messages = 100 exchanges)
+    // Save to history (keep last 200 messages)
     history.push({ role: 'user', content: text, ts: Date.now() });
     history.push({ role: 'assistant', content: reply, ts: Date.now() });
-    const trimmed = history.slice(-200);
-    await this.state.storage.put('history', JSON.stringify(trimmed));
+    await this.state.storage.put('history', JSON.stringify(history.slice(-200)));
 
-    // Broadcast reply to all WS sessions
     this.broadcast({ type: 'assistant_reply', text: reply, model });
-
     return reply;
   }
 
   broadcast(msg) {
     const payload = JSON.stringify(msg);
     for (const [id, ws] of this.sessions) {
-      try {
-        ws.send(payload);
-      } catch {
-        this.sessions.delete(id);
-      }
+      try { ws.send(payload); } catch { this.sessions.delete(id); }
     }
   }
 
@@ -294,32 +284,23 @@ export class FalkorAgent {
     if (!raw) return [];
     try { return JSON.parse(raw); } catch { return []; }
   }
-
-  async resetHistory() {
-    await this.state.storage.delete('history');
-  }
-
+  async resetHistory() { await this.state.storage.delete('history'); }
   async getMemory() {
     const raw = await this.state.storage.get('memory');
     if (!raw) return {};
     try { return JSON.parse(raw); } catch { return {}; }
   }
-
   async saveMemory(key, value) {
     const memory = await this.getMemory();
     memory[key] = value;
     await this.state.storage.put('memory', JSON.stringify(memory));
   }
-
-  async clearMemory() {
-    await this.state.storage.delete('memory');
-  }
+  async clearMemory() { await this.state.storage.delete('memory'); }
 }
 
 // Router — auth via X-Pin, then dispatch to user's DO instance
 export default {
   async fetch(request, env) {
-    // CORS preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, {
         headers: {
@@ -332,28 +313,22 @@ export default {
 
     const url = new URL(request.url);
 
-    // Auth check (skip for health endpoint)
     if (url.pathname !== '/health') {
       const pin = request.headers.get('X-Pin') || url.searchParams.get('pin');
-      const validPin = env.AGENT_PIN;
-      if (!pin || !validPin || pin !== validPin) {
+      if (!pin || !env.AGENT_PIN || pin !== env.AGENT_PIN) {
         return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-          status: 401,
-          headers: { 'Content-Type': 'application/json' },
+          status: 401, headers: { 'Content-Type': 'application/json' },
         });
       }
     }
 
-    // Health check (no auth needed)
     if (url.pathname === '/health') {
-      return Response.json({ status: 'ok', version: '1.2.0-a2a', worker: 'falkor-agent' });
+      return Response.json({ status: 'ok', version: '1.4.0-a2a', worker: 'falkor-agent' });
     }
 
-    // Route to user's Durable Object (one per user, keyed by userId)
     const userId = request.headers.get('X-User-Id') || url.searchParams.get('uid') || 'paddy';
     const id = env.AGENT.idFromName(userId);
     const stub = env.AGENT.get(id);
-
     return stub.fetch(request);
   },
 };
