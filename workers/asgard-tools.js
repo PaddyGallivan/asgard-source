@@ -222,7 +222,7 @@ async function executeTool(toolName, toolInput, env) {
 
         const metadata = JSON.stringify({
           main_module,
-          keep_bindings: ['secret_text', 'plain_text', 'kv_namespace', 'd1', 'service', 'r2_bucket']
+          keep_bindings: ['secret_text', 'plain_text', 'kv_namespace', 'd1', 'durable_object_namespace', 'service', 'r2_bucket']
         });
 
         const CRLF = String.fromCharCode(13, 10);
