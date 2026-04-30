@@ -1,7 +1,7 @@
 // falkor worker v7.9.2 — Drive references purged, bridge installers point to GitHub
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
-const VERSION = '8.8.0';
+const VERSION = '8.9.0';
 function loginPage(extraHtml, prefillEmail) {
   return '<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Falkor</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:linear-gradient(135deg,#0d0d1f 0%,#1a1a35 100%);display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:-apple-system,system-ui,sans-serif}.card{background:rgba(30,30,53,.95);backdrop-filter:blur(20px);padding:2.5rem 2rem;border-radius:20px;width:340px;text-align:center;border:1px solid rgba(217,119,87,.2);box-shadow:0 25px 60px rgba(0,0,0,.5)}.logo{font-size:3rem;margin-bottom:.5rem;filter:drop-shadow(0 0 20px rgba(217,119,87,.4))}h1{color:#fff;font-size:1.4rem;font-weight:700;margin:.25rem 0 .25rem}.sub{color:#6b6b8a;font-size:.8rem;margin:0 0 1.5rem;letter-spacing:.5px;text-transform:uppercase}.field{position:relative;margin-bottom:1rem}.field label{display:block;text-align:left;font-size:.75rem;color:#8888aa;margin-bottom:.4rem;font-weight:500}input{width:100%;padding:.8rem 1rem;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:#fff;font-size:.95rem;font-family:inherit;outline:none;transition:border .2s}input:focus{border-color:rgba(217,119,87,.6)}button{width:100%;padding:.85rem;background:linear-gradient(135deg,#d97757,#c4603d);color:#fff;border:none;border-radius:10px;font-size:1rem;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .2s;margin-top:.5rem}button:hover{opacity:.9}.err{color:#ef4444;font-size:.82rem;margin:.5rem 0;text-align:left}.locked{color:#f59e0b;font-size:.82rem;margin:.5rem 0}</style></head><body><div class="card"><div class="logo">&#x1F409;</div><h1>Falkor</h1><p class="sub">Luck Dragon Command</p>' + (extraHtml||'') + '<form method=POST action=/login><div class="field"><label>Email address</label><input name=email type=email placeholder="you@example.com" autocomplete=email value="' + (prefillEmail||'') + '" autofocus></div><div class="field"><label>Password</label><input name=password type=password placeholder="Password" autocomplete=current-password></div><button type=submit>Sign in</button></form></div></body></html>';
 }
@@ -628,7 +628,8 @@ const HTML = `<!doctype html>
   .composer { padding: 12px 24px 20px; }
   .composer-inner { max-width: 760px; margin: 0 auto; }
   .composer-box { display: flex; gap: 10px; align-items: flex-end; background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 10px; transition: border-color .15s; }
-  .composer-box:focus-within { border-color: var(--accent); }
+  .composer-box.drag-over { outline: 2px dashed var(--accent); background: rgba(var(--accent-rgb,232,196,77),.08); }
+.composer-box:focus-within { border-color: var(--accent); }
   .composer textarea { flex: 1; background: transparent; border: 0; color: var(--text); font-size: 15px; padding: 8px 10px; resize: none; outline: none; max-height: 220px; line-height: 1.4; font-family: inherit; }
   .composer button { background: var(--accent); border: 0; color: white; font-weight: 600; padding: 10px 16px; border-radius: 10px; cursor: pointer; font-size: 14px; min-height: 38px; }
   .composer button:hover { background: var(--accent-soft); }
@@ -989,6 +990,7 @@ const HTML = `<!doctype html>
           <button class="view-tab" data-view="family">&#x1F3C6; Family</button>
           <button class="view-tab" data-view="memory">&#x1F9E0; Memory</button>
           <button class="view-tab" data-view="infra">&#x26A1; Infra</button>
+          <button class="view-tab" data-view="kbt">&#x1F3AF; KBT</button>
         </div>
       </div>
     </div>
@@ -1005,6 +1007,31 @@ const HTML = `<!doctype html>
     </div>
   </div>
 </div>
+
+<!-- Workflows modal -->
+<div class="modal-overlay" id="workflowsModal" style="display:none">
+  <div class="modal" style="max-width:560px">
+    <button class="modal-close" onclick="closeModal('workflowsModal')">×</button>
+    <h2 style="margin:0 0 16px;color:var(--accent)">⏰ Scheduled Workflows</h2>
+    <div id="wfList" style="margin-bottom:16px"></div>
+    <hr style="border-color:var(--border);margin-bottom:16px">
+    <h3 style="margin:0 0 10px;font-size:14px;color:var(--text2)">New workflow</h3>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <input id="wfName" type="text" placeholder="Workflow name (e.g. Daily briefing)"
+        style="padding:9px;background:var(--bg2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:14px">
+      <select id="wfSchedule" style="padding:9px;background:var(--bg2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:14px">
+        <option value="manual">Manual (run on demand)</option>
+        <option value="daily_morning">Daily — 7am</option>
+        <option value="daily_evening">Daily — 6pm</option>
+        <option value="weekly_monday">Weekly — Monday 8am</option>
+      </select>
+      <textarea id="wfPrompt" rows="3" placeholder="What should Falkor do? e.g. Give me a summary of today&#39;s weather and my top priorities"
+        style="padding:9px;background:var(--bg2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:14px;resize:vertical"></textarea>
+      <button id="wfSaveBtn" style="padding:10px;background:var(--accent);color:var(--bg);border:none;border-radius:7px;font-weight:600;cursor:pointer">+ Save workflow</button>
+    </div>
+  </div>
+</div>
+
 
 <script>
 (function(){try{var cookies=(document.cookie+';').split(';').map(function(s){return s.trim();});var pc=cookies.find(function(s){return s.startsWith('falkor_pin=');});if(pc){localStorage.setItem('falkor.pin.v1',decodeURIComponent(pc.split('=').slice(1).join('=')));}var uc=cookies.find(function(s){return s.startsWith('falkor_user=');});if(uc){localStorage.setItem('falkor.user.v1',uc.split('=')[1]);}}catch(e){}})();
@@ -1396,7 +1423,8 @@ function render() {
     { id: 'settings', name: '⚙ Settings',         action: function(){ openModal('settingsModal'); populateSettings(); } },
     { id: 'stats',    name: '📊 Live stats',      action: function(){ openModal('statsModal'); loadStats(); } },
   { id: 'msgs',     name: '💬 Messages <span id="unreadBadge" style="display:none;background:#e74c3c;color:white;border-radius:999px;padding:1px 6px;font-size:10px;font-weight:700;margin-left:4px">0</span>', action: function(){ sendMessage('Show my unread messages. Use read_messages for any groups I am in.'); } },
-    { id: 'deploy',   name: '🚀 Deploy worker',   action: function(){ openModal('deployModal'); } },
+    { id: 'deploy',   name: '\U0001F680 Deploy worker',   action: function(){ openModal('deployModal'); } },
+    { id: 'workflows', name: '\u23F0 Workflows',        action: function(){ openModal('workflowsModal'); renderWorkflowsModal(); } },
     { id: 'feature',  name: '💡 Suggest feature',  action: function(){ submitFeatureRequest(); } },
     { id: 'bridges',  name: '🔌 Install bridges',  action: function(){ openModal('bridgesModal'); } }
   ];
@@ -1535,6 +1563,9 @@ function render() {
     els.composerWrap.style.display = 'none';
   } else if (currentView === 'infra') {
     renderInfraPanel();
+    els.composerWrap.style.display = 'none';
+  } else if (currentView === 'kbt') {
+    renderKBTPanel();
     els.composerWrap.style.display = 'none';
   } else {
     renderChat();
@@ -2623,18 +2654,29 @@ async function submitFeatureRequest() {
   }
 }
 
-function attachImageFromFile(file) {
+function attachImageFromFile(file) { attachFile(file); }
+function attachFile(file) {
   if (!file) return;
-  if (!file.type.startsWith('image/')) { alert('Not an image: ' + file.type); return; }
-  if (file.size > 5 * 1024 * 1024) { alert('Image too large (>5MB)'); return; }
+  if (file.size > 10 * 1024 * 1024) { alert('File too large (>10MB)'); return; }
   var reader = new FileReader();
-  reader.onload = function(e) {
-    var dataUrl = e.target.result;
-    var b64 = dataUrl.split(',')[1] || '';
-    pendingImage = { base64: b64, name: file.name, dataUrl: dataUrl };
-    renderAttachRow();
-  };
-  reader.readAsDataURL(file);
+  if (file.type.startsWith('image/')) {
+    reader.onload = function(e) {
+      pendingImage = { base64: (e.target.result.split(',')[1]||''), name: file.name, dataUrl: e.target.result };
+      renderAttachRow();
+    };
+    reader.readAsDataURL(file);
+  } else {
+    // Text / PDF / any other file — read as text and prepend to message
+    reader.onload = function(e) {
+      var text = e.target.result || '';
+      var inp = document.getElementById('input');
+      var prefix = '📎 [' + file.name + ']:\n' + text.slice(0, 8000) + (text.length > 8000 ? '\n…(truncated)' : '') + '\n\n';
+      inp.value = prefix + inp.value;
+      inp.focus();
+      inp.dispatchEvent(new Event('input'));
+    };
+    reader.readAsText(file);
+  }
 }
 
 function renderAttachRow() {
@@ -3505,12 +3547,73 @@ document.getElementById('input').addEventListener('paste', function(e){
     }
   }
 });
-window.addEventListener('dragover', function(e){ if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files')) e.preventDefault(); });
+window.addEventListener('dragover', function(e){
+  if (e.dataTransfer && e.dataTransfer.types && Array.from(e.dataTransfer.types).includes('Files')) {
+    e.preventDefault();
+    var cb = document.querySelector('.composer-box');
+    if (cb) cb.classList.add('drag-over');
+  }
+});
+window.addEventListener('dragleave', function(e){
+  var cb = document.querySelector('.composer-box');
+  if (cb && !document.querySelector('.composer-box:hover')) cb.classList.remove('drag-over');
+});
 window.addEventListener('drop', function(e){
+  var cb = document.querySelector('.composer-box');
+  if (cb) cb.classList.remove('drag-over');
   if (!e.dataTransfer || !e.dataTransfer.files || !e.dataTransfer.files.length) return;
   e.preventDefault();
-  attachImageFromFile(e.dataTransfer.files[0]);
+  Array.from(e.dataTransfer.files).forEach(function(f){ attachFile(f); });
 });
+// ─── Workflow builder ────────────────────────────────────────────────────────
+function loadWorkflows() {
+  try { return JSON.parse(localStorage.getItem('falkor_workflows') || '[]'); } catch(e) { return []; }
+}
+function saveWorkflows(wfs) {
+  localStorage.setItem('falkor_workflows', JSON.stringify(wfs));
+}
+function renderWorkflowsModal() {
+  var list = document.getElementById('wfList');
+  if (!list) return;
+  var wfs = loadWorkflows();
+  if (!wfs.length) { list.innerHTML = '<p style="color:var(--text2);font-size:13px;margin:0">No workflows yet — create one below.</p>'; }
+  else {
+    list.innerHTML = wfs.map(function(wf, i) {
+      return '<div style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--bg2);border-radius:7px;margin-bottom:6px">' +
+        '<div style="flex:1"><strong style="font-size:14px">' + escapeHtml(wf.name) + '</strong>' +
+        '<div style="font-size:12px;color:var(--text2)">' + escapeHtml(wf.schedule) + ' · ' + escapeHtml(wf.prompt.slice(0,60)) + (wf.prompt.length>60?'…':'') + '</div></div>' +
+        '<button onclick="runWorkflow(' + i + ')" style="padding:5px 10px;background:var(--accent);color:var(--bg);border:none;border-radius:5px;font-size:12px;cursor:pointer">▶ Run</button>' +
+        '<button onclick="deleteWorkflow(' + i + ')" style="padding:5px 10px;background:var(--bg3,var(--bg));border:1px solid var(--border);border-radius:5px;font-size:12px;cursor:pointer;color:var(--text2)">✕</button>' +
+        '</div>';
+    }).join('');
+  }
+  // Wire save button
+  var btn = document.getElementById('wfSaveBtn');
+  if (btn) {
+    btn.onclick = function() {
+      var name = (document.getElementById('wfName').value||'').trim();
+      var schedule = document.getElementById('wfSchedule').value;
+      var prompt = (document.getElementById('wfPrompt').value||'').trim();
+      if (!name || !prompt) { alert('Name and prompt are required'); return; }
+      var wfs = loadWorkflows();
+      wfs.push({ name: name, schedule: schedule, prompt: prompt, created: Date.now() });
+      saveWorkflows(wfs);
+      document.getElementById('wfName').value = '';
+      document.getElementById('wfPrompt').value = '';
+      renderWorkflowsModal();
+    };
+  }
+}
+function deleteWorkflow(i) {
+  var wfs = loadWorkflows(); wfs.splice(i, 1); saveWorkflows(wfs); renderWorkflowsModal();
+}
+async function runWorkflow(i) {
+  var wfs = loadWorkflows();
+  var wf = wfs[i]; if (!wf) return;
+  closeModal('workflowsModal');
+  currentView = 'chat'; saveView('chat'); render();
+  setTimeout(function(){ send(wf.prompt); }, 200);
+}
 
 // Apply theme on load
 saveTheme(loadTheme());
@@ -3940,3 +4043,117 @@ export default {
     return new Response('Not Found', { status: 404, headers: corsHeaders(request) });
   }
 };
+// ─── KBT Trivia Generator ─────────────────────────────────────────────────────
+function renderKBTPanel() {
+  var c = els.chat;
+  c.innerHTML = '';
+  var div = document.createElement('div');
+  div.style.cssText = 'padding:24px;max-width:700px;margin:0 auto;';
+  div.innerHTML = `
+    <h2 style="color:var(--accent);margin:0 0 4px">🎯 KBT Trivia Generator</h2>
+    <p style="color:var(--text2);margin:0 0 20px;font-size:14px">Kow Brainer Trivia — generate round-ready questions instantly</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+      <div>
+        <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:4px">Category / Topic</label>
+        <input id="kbtTopic" type="text" placeholder="e.g. AFL, 90s Music, Science…"
+          style="width:100%;padding:10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;box-sizing:border-box">
+      </div>
+      <div>
+        <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:4px">Difficulty</label>
+        <select id="kbtDiff" style="width:100%;padding:10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px">
+          <option value="easy">Easy — crowd pleasers</option>
+          <option value="medium" selected>Medium — balanced</option>
+          <option value="hard">Hard — trivia nerds</option>
+          <option value="mixed">Mixed bag</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:4px">Number of questions</label>
+        <select id="kbtCount" style="width:100%;padding:10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px">
+          <option value="5">5 questions</option>
+          <option value="10" selected>10 questions</option>
+          <option value="15">15 questions</option>
+          <option value="20">20 questions</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:4px">Round style</label>
+        <select id="kbtStyle" style="width:100%;padding:10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px">
+          <option value="standard">Standard Q&A</option>
+          <option value="multiple">Multiple choice (4 options)</option>
+          <option value="truefalse">True / False</option>
+          <option value="picture">Picture round descriptions</option>
+        </select>
+      </div>
+    </div>
+    <button id="kbtGenBtn" style="width:100%;padding:12px;background:var(--accent);color:var(--bg);border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:20px">
+      ⚡ Generate Questions
+    </button>
+    <div id="kbtStatus" style="color:var(--text2);font-size:13px;margin-bottom:8px;display:none"></div>
+    <div id="kbtOutput" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:13px;font-weight:600;color:var(--text2)">Generated questions</span>
+        <div style="display:flex;gap:8px">
+          <button id="kbtCopy" style="padding:6px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;cursor:pointer">📋 Copy</button>
+          <button id="kbtNew" style="padding:6px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;cursor:pointer">🔄 Regenerate</button>
+          <button id="kbtChat" style="padding:6px 14px;background:var(--bg3,var(--bg2));border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;cursor:pointer">💬 Edit in chat</button>
+        </div>
+      </div>
+      <pre id="kbtResult" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;white-space:pre-wrap;font-family:inherit;font-size:14px;line-height:1.7;max-height:60vh;overflow-y:auto"></pre>
+    </div>
+  `;
+  c.appendChild(div);
+
+  var pin = loadPin() || '';
+  var lastResult = '';
+
+  async function generate() {
+    var topic = document.getElementById('kbtTopic').value.trim() || 'General Knowledge';
+    var diff = document.getElementById('kbtDiff').value;
+    var count = document.getElementById('kbtCount').value;
+    var style = document.getElementById('kbtStyle').value;
+    var status = document.getElementById('kbtStatus');
+    var outDiv = document.getElementById('kbtOutput');
+    var result = document.getElementById('kbtResult');
+    var btn = document.getElementById('kbtGenBtn');
+
+    var styleDesc = {standard:'Write each as Q: / A:', multiple:'Write each as Q: / Options: A) B) C) D: / Answer:', truefalse:'Write each as statement + True/False answer', picture:'Describe an image that can be shown to players, then give the answer'};
+    var prompt = 'You are a professional trivia host for Kow Brainer Trivia (KBT) events in Australia. Generate ' + count + ' ' + diff + ' trivia questions about "' + topic + '". Style: ' + styleDesc[style] + '. Number each question. Keep answers concise. Add a fun fact after each answer where interesting. Format cleanly for reading aloud.';
+
+    btn.disabled = true; btn.textContent = '⏳ Generating…';
+    status.style.display = 'block'; status.textContent = 'Asking Falkor AI…';
+    outDiv.style.display = 'none';
+
+    try {
+      var r = await fetch('https://asgard-ai.luckdragon.io/chat/smart', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
+        body: JSON.stringify({ message: prompt, model: 'groq' })
+      });
+      var d = await r.json();
+      if (!d.ok) throw new Error(d.error || 'AI error');
+      lastResult = d.reply || '';
+      result.textContent = lastResult;
+      outDiv.style.display = 'block';
+      status.style.display = 'none';
+    } catch(e) {
+      status.textContent = '❌ ' + e.message;
+    }
+    btn.disabled = false; btn.textContent = '⚡ Generate Questions';
+  }
+
+  document.getElementById('kbtGenBtn').addEventListener('click', generate);
+  document.getElementById('kbtNew') && document.getElementById('kbtNew').addEventListener('click', generate);
+  document.getElementById('kbtCopy').addEventListener('click', function(){
+    navigator.clipboard.writeText(lastResult).then(function(){ document.getElementById('kbtCopy').textContent = '✅ Copied!'; setTimeout(function(){ document.getElementById('kbtCopy').textContent = '📋 Copy'; }, 2000); });
+  });
+  document.getElementById('kbtChat').addEventListener('click', function(){
+    currentView = 'chat'; saveView('chat'); render();
+    setTimeout(function(){
+      var inp = document.getElementById('input');
+      if (inp) { inp.value = 'Here are the KBT questions, please help me refine them:\n\n' + lastResult; inp.focus(); }
+    }, 100);
+  });
+}
+
+
