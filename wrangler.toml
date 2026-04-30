@@ -4,15 +4,17 @@ compatibility_date = "2024-09-23"
 
 [durable_objects]
 bindings = [
-  { name = "AGENT", class_name = "FalkorAgent" }
+  { name = "AGENT", class_name = "FalkorAgent", namespace_id = "488a8b7e30e54057a99a38a310bd3b10" }
 ]
 
-[[migrations]]
-tag = "v1"
-new_classes = ["FalkorAgent"]
+# migrations only needed for first deploy (tag v1 already applied)
+# [[migrations]]
+# tag = "v1"
+# new_classes = ["FalkorAgent"]
 
 [vars]
 AI_WORKER_URL = "https://asgard-ai.luckdragon.io"
 
 # Secrets (set via: wrangler secret put AGENT_PIN)
 # AGENT_PIN — same PIN used by asgard.luckdragon.io
+
