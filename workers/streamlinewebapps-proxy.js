@@ -1,23 +1,21 @@
-// streamlinewebapps-proxy v28 — footer: contact, ABN, AI disclosure, tracking notice; age gate on submit
+// streamlinewebapps-proxy v29 — major rebrand: violet+gold palette, how-it-works, testimonials, FAQ, toasts, admin
 const SUPABASE = "https://huvfgenbcaiicatvtxak.supabase.co/functions/v1/streamline";
 const SUPA_REST = "https://huvfgenbcaiicatvtxak.supabase.co/rest/v1";
 const SUPA_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh1dmZnZW5iY2FpaWNhdHZ0eGFrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2MTczNjIsImV4cCI6MjA5MTE5MzM2Mn0.uTgzTKYjJnkFlRUIhGfW4ODKyV24xOdKaX7lxpDuMfc";
-const SUPA_H = {"apikey": SUPA_ANON, "Authorization": "Bearer "+SUPA_ANON, "Content-Type": "application/json", "Prefer": "return=representation"};
-const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,POST,OPTIONS", "Access-Control-Allow-Headers": "Content-Type,Authorization" };
+const SUPA_H = {"apikey": SUPA_ANON, "Authorization": "Bearer "+SUPA_ANON, "Content-Type": "application/json"};
+const CORS = {"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,POST,OPTIONS", "Access-Control-Allow-Headers": "Content-Type,Authorization"};
+const ADMIN_PIN = "535554";
 
-// In-memory rate limiter
 const _rl = new Map();
 function rateOk(ip, key, max, windowMs=60000) {
-  const k = ip+':'+key, now = Date.now();
+  const k = ip+":"+key, now = Date.now();
   let w = _rl.get(k);
   if (!w || now > w.r) w = {c:0, r:now+windowMs};
   w.c++; _rl.set(k,w);
   return w.c <= max;
 }
 
-// API routes that should be proxied to Supabase
 const API_ROUTES = ["/ideas", "/stats", "/vote", "/chat"];
-
 const STRIPE_PRICES = { Standard: "price_1TNvyJAm8bVflPN0GBi8u30C", Priority: "price_1TNvyJAm8bVflPN0Nerezgrs", Equity: "price_1TNvyKAm8bVflPN0rZqZZdgq" };
 
 async function handleSubmit(request, env) {
@@ -27,78 +25,131 @@ async function handleSubmit(request, env) {
   if (!title || !name || !email || !description || !tier) return new Response(JSON.stringify({error:"Missing required fields"}), {status:400, headers:{...CORS,"Content-Type":"application/json"}});
   const priceId = STRIPE_PRICES[tier];
   if (!priceId) return new Response(JSON.stringify({error:"Invalid tier"}), {status:400, headers:{...CORS,"Content-Type":"application/json"}});
-  const stripeKey = env.STRIPE_SK;
-  if (!stripeKey) return new Response(JSON.stringify({error:"Payment system unavailable"}), {status:503, headers:{...CORS,"Content-Type":"application/json"}});
+
+  let submissionId;
   try {
-    // 1. Save submission to DB first (pre-payment record)
-    let subId = null;
-    try {
-      const subR = await fetch(SUPA_REST+"/streamline_submissions", {
-        method:"POST", headers:SUPA_H,
-        body: JSON.stringify({title,name,email,phone:phone||null,category:category||"Utility",description,tier,status:"pending"})
-      });
-      const subData = await subR.json();
-      if (Array.isArray(subData) && subData[0]?.id) subId = subData[0].id;
-    } catch(e) { /* non-fatal */ }
-
-    // 2. Create Stripe checkout
-    const params = new URLSearchParams();
-    params.set("mode","payment");
-    params.set("line_items[0][price]", priceId);
-    params.set("line_items[0][quantity]","1");
-    params.set("success_url","https://streamlinewebapps.com/?success=1");
-    params.set("cancel_url","https://streamlinewebapps.com/");
-    params.set("customer_email", email);
-    params.set("metadata[tier]", tier);
-    params.set("metadata[title]", title.slice(0,500));
-    params.set("metadata[name]", name.slice(0,200));
-    params.set("metadata[email]", email.slice(0,200));
-    params.set("metadata[category]", (category||"Utility").slice(0,100));
-    params.set("metadata[description]", description.slice(0,500));
-    if (phone) params.set("metadata[phone]", phone.slice(0,50));
-    if (subId) params.set("metadata[sub_id]", String(subId));
-    const r = await fetch("https://api.stripe.com/v1/checkout/sessions", {
-      method:"POST",
-      headers:{"Authorization":"Basic "+btoa(stripeKey+":"),"Content-Type":"application/x-www-form-urlencoded"},
-      body:params.toString()
+    const dbRes = await fetch(SUPA_REST+"/streamline_submissions", {
+      method: "POST",
+      headers: {...SUPA_H, "Prefer": "return=representation"},
+      body: JSON.stringify({ title, name, email, phone: phone||"", category: category||"Utility", description, tier, status: "awaiting_payment" })
     });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error?.message || "Stripe error");
+    const dbData = await dbRes.json();
+    submissionId = Array.isArray(dbData) ? dbData[0]?.id : dbData?.id;
+  } catch(e) {}
 
-    // 3. Update submission with stripe session ID
-    if (subId && data.id) {
-      await fetch(SUPA_REST+`/streamline_submissions?id=eq.${subId}`, {
-        method:"PATCH",
-        headers:{"apikey":SUPA_ANON,"Authorization":"Bearer "+SUPA_ANON,"Content-Type":"application/json"},
-        body: JSON.stringify({stripe_session_id: data.id, status:"awaiting_payment"})
-      }).catch(()=>{});
+  const stripeBody = new URLSearchParams({
+    "line_items[0][price]": priceId, "line_items[0][quantity]": "1", "mode": "payment",
+    "success_url": "https://www.streamlinewebapps.com/?success=1",
+    "cancel_url": "https://www.streamlinewebapps.com/?cancelled=1",
+    "customer_email": email,
+    "metadata[title]": title, "metadata[name]": name, "metadata[email]": email,
+    "metadata[category]": category||"Utility", "metadata[description]": description.slice(0,500),
+    "metadata[tier]": tier, "metadata[submission_id]": submissionId ? String(submissionId) : ""
+  });
+
+  let checkoutUrl;
+  try {
+    const sr = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+      method: "POST",
+      headers: {"Authorization": "Bearer "+env.STRIPE_SK, "Content-Type": "application/x-www-form-urlencoded"},
+      body: stripeBody.toString()
+    });
+    const sd = await sr.json();
+    checkoutUrl = sd.url;
+    if (!checkoutUrl) throw new Error(sd.error?.message || "No checkout URL");
+    if (submissionId && sd.id) {
+      await fetch(SUPA_REST+"/streamline_submissions?id=eq."+submissionId, {
+        method: "PATCH", headers: SUPA_H, body: JSON.stringify({ stripe_session_id: sd.id })
+      });
     }
-
-    return new Response(JSON.stringify({checkout: data.url}), {headers:{...CORS,"Content-Type":"application/json"}});
   } catch(e) {
-    return new Response(JSON.stringify({error: e.message||"Payment system unavailable"}), {status:500, headers:{...CORS,"Content-Type":"application/json"}});
+    return new Response(JSON.stringify({error: e.message||"Payment setup failed"}), {status:500, headers:{...CORS,"Content-Type":"application/json"}});
   }
+
+  if (env.RESEND_KEY && checkoutUrl) {
+    const firstName = name.split(" ")[0];
+    fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {"Authorization": "Bearer "+env.RESEND_KEY, "Content-Type": "application/json"},
+      body: JSON.stringify({
+        from: "Streamline <noreply@luckdragon.io>",
+        to: [email],
+        subject: "Complete your submission: \""+title+"\"",
+        html: "<div style='font-family:Inter,sans-serif;max-width:560px;margin:0 auto;padding:40px 24px'>"+
+          "<div style='width:40px;height:40px;background:linear-gradient(135deg,#6d28d9,#7c3aed);border-radius:10px;display:flex;align-items:center;justify-content:center;margin-bottom:24px'>"+
+          "<span style='color:#fff;font-weight:800;font-size:18px'>S</span></div>"+
+          "<h1 style='font-size:24px;font-weight:800;color:#1e1b4b;margin:0 0 8px'>You&#39;re one step away, "+firstName+"</h1>"+
+          "<p style='color:#4c4885;font-size:15px;line-height:1.6;margin:0 0 28px'>Your idea <strong style='color:#1e1b4b'>"+title+"</strong> is saved. Complete your payment to start the build.</p>"+
+          "<a href='"+checkoutUrl+"' style='display:inline-block;background:#6d28d9;color:#fff;padding:14px 28px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px;margin-bottom:28px'>Complete Payment &rarr;</a>"+
+          "<p style='color:#9490c0;font-size:13px;margin:0'>Tier: "+tier+" &middot; Category: "+(category||"Utility")+"<br>Once confirmed, we&#39;ll be in touch within 48 hours.</p>"+
+          "<hr style='border:none;border-top:1px solid #e0ddf5;margin:28px 0'>"+
+          "<p style='color:#9490c0;font-size:12px;margin:0'>Streamline &middot; Melbourne, Australia &middot; <a href='https://www.streamlinewebapps.com' style='color:#6d28d9'>streamlinewebapps.com</a></p></div>"
+      })
+    }).catch(()=>{});
+  }
+
+  return new Response(JSON.stringify({checkout: checkoutUrl}), {headers:{...CORS,"Content-Type":"application/json"}});
 }
 
 async function handleAnalytics(request) {
-  try {
-    const body = await request.json();
-    const { event, data, page } = body;
-    if (!event) return new Response(JSON.stringify({ok:false}), {headers:{...CORS,"Content-Type":"application/json"}});
-    const ip = request.headers.get("CF-Connecting-IP") || null;
-    const ua = request.headers.get("User-Agent") || null;
-    const h = {...SUPA_H, "Prefer":"return=minimal"};
-    delete h["Prefer"]; // avoid Prefer header on inserts from anon
-    await fetch(SUPA_REST+"/streamline_analytics", {
-      method:"POST",
-      headers:{"apikey":SUPA_ANON,"Authorization":"Bearer "+SUPA_ANON,"Content-Type":"application/json"},
-      body: JSON.stringify({event, data: data||{page:page||"/"}, ip_address:ip, user_agent:ua})
-    });
-    return new Response(JSON.stringify({ok:true}), {headers:{...CORS,"Content-Type":"application/json"}});
-  } catch(e) {
-    return new Response(JSON.stringify({ok:false}), {headers:{...CORS,"Content-Type":"application/json"}});
-  }
+  let body;
+  try { body = await request.json(); } catch(e) { return new Response("ok", {headers: CORS}); }
+  await fetch(SUPA_REST+"/streamline_analytics", {
+    method: "POST", headers: SUPA_H,
+    body: JSON.stringify({ event: body.event||"pageview", meta: JSON.stringify(body.meta||{}) })
+  }).catch(()=>{});
+  return new Response("ok", {headers: CORS});
 }
+
+async function handleAdminData(request) {
+  const url = new URL(request.url);
+  if (url.searchParams.get("pin") !== ADMIN_PIN) return new Response(JSON.stringify({error:"Unauthorized"}), {status:401, headers:{...CORS,"Content-Type":"application/json"}});
+  const [subs, ideas] = await Promise.all([
+    fetch(SUPA_REST+"/streamline_submissions?order=created_at.desc&limit=100", {headers: SUPA_H}).then(r=>r.json()).catch(()=>[]),
+    fetch(SUPA_REST+"/streamline_ideas?order=created_at.desc&limit=100", {headers: SUPA_H}).then(r=>r.json()).catch(()=>[])
+  ]);
+  return new Response(JSON.stringify({subs, ideas}), {headers:{...CORS,"Content-Type":"application/json"}});
+}
+
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    const path = url.pathname;
+
+    if (request.method === "OPTIONS") return new Response(null, {status:204, headers:CORS});
+    if (path === "/health") return new Response(JSON.stringify({ok:true,version:29}), {headers:{...CORS,"Content-Type":"application/json"}});
+    if (path === "/privacy") return new Response(PRIVACY_HTML, {headers:{"Content-Type":"text/html;charset=utf-8","Cache-Control":"public,max-age=86400"}});
+    if (path === "/terms") return new Response(TERMS_HTML, {headers:{"Content-Type":"text/html;charset=utf-8","Cache-Control":"public,max-age=86400"}});
+    if (path === "/refunds") return new Response(REFUNDS_HTML, {headers:{"Content-Type":"text/html;charset=utf-8","Cache-Control":"public,max-age=86400"}});
+    if (path === "/admin") return new Response(ADMIN_HTML, {headers:{"Content-Type":"text/html;charset=utf-8"}});
+    if (path === "/admin/data") return handleAdminData(request);
+    if (path === "/analytics" && request.method === "POST") return handleAnalytics(request);
+
+    if (path === "/submit" && request.method === "POST") {
+      const ip = request.headers.get("CF-Connecting-IP")||"";
+      if (!rateOk(ip, "sub", 5)) return new Response(JSON.stringify({error:"Too many requests"}), {status:429, headers:{...CORS,"Content-Type":"application/json"}});
+      return handleSubmit(request, env);
+    }
+
+    if (API_ROUTES.includes(path)) {
+      const ip = request.headers.get("CF-Connecting-IP")||"";
+      if (path === "/chat" && !rateOk(ip, "chat", 20)) return new Response(JSON.stringify({error:"Too many requests"}), {status:429, headers:{...CORS,"Content-Type":"application/json"}});
+      if (path === "/vote" && !rateOk(ip, "vote", 30)) return new Response(JSON.stringify({error:"Too many requests"}), {status:429, headers:{...CORS,"Content-Type":"application/json"}});
+      const target = SUPABASE+path+url.search;
+      const h = new Headers(request.headers); h.delete("host");
+      try {
+        const pr = await fetch(target, {method:request.method, headers:h, body:["GET","HEAD"].includes(request.method)?undefined:request.body, redirect:"follow"});
+        const rh = new Headers(pr.headers);
+        Object.entries(CORS).forEach(([k,v])=>rh.set(k,v));
+        rh.set("Cache-Control","no-cache");
+        return new Response(pr.body, {status:pr.status, headers:rh});
+      } catch(e) { return new Response(JSON.stringify({error:"Upstream error"}), {status:502, headers:{...CORS,"Content-Type":"application/json"}}); }
+    }
+
+    return new Response(HTML, {status:200, headers:{"Content-Type":"text/html;charset=utf-8","Cache-Control":"public,s-maxage=300,stale-while-revalidate=60"}});
+  }
+};
+
 
 const PRIVACY_HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Privacy Policy — Streamline</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -516,461 +567,722 @@ footer p{font-size:13px;color:var(--ink-3);margin:0}
 </footer>
 </body></html>`;
 
-export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
-    const path = url.pathname;
+const ADMIN_HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Streamline Admin</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:Inter,sans-serif;background:#0f0e1a;color:#e8e6fa;min-height:100vh;padding:32px}
+h1{font-size:24px;font-weight:800;margin-bottom:24px;color:#fff}
+h2{font-size:16px;font-weight:700;margin-bottom:16px;color:#a78bfa}
+.login{max-width:360px;margin:80px auto;background:#1a1830;border:1px solid #2d2a50;border-radius:16px;padding:40px}
+.login h1{text-align:center;margin-bottom:8px}
+.login p{text-align:center;color:#9490c0;font-size:14px;margin-bottom:28px}
+input{width:100%;padding:11px 14px;background:#0f0e1a;border:1px solid #2d2a50;border-radius:9px;color:#fff;font-size:15px;margin-bottom:14px;outline:none}
+input:focus{border-color:#6d28d9}
+button{width:100%;padding:12px;background:linear-gradient(135deg,#6d28d9,#7c3aed);color:#fff;border-radius:9px;font-size:15px;font-weight:600;cursor:pointer;border:none}
+.dash{display:none}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px}
+.stat-box{background:#1a1830;border:1px solid #2d2a50;border-radius:12px;padding:20px}
+.stat-box .val{font-size:28px;font-weight:800;color:#a78bfa;font-family:Syne,sans-serif}
+.stat-box .lbl{font-size:12px;color:#9490c0;margin-top:4px}
+table{width:100%;border-collapse:collapse;background:#1a1830;border-radius:12px;overflow:hidden;margin-bottom:32px}
+th{padding:12px 16px;text-align:left;font-size:12px;font-weight:700;color:#9490c0;letter-spacing:.05em;text-transform:uppercase;border-bottom:1px solid #2d2a50;background:#12112b}
+td{padding:12px 16px;font-size:13px;border-bottom:1px solid #1e1c3a;vertical-align:top}
+tr:last-child td{border-bottom:none}
+.badge{padding:2px 8px;border-radius:5px;font-size:11px;font-weight:600}
+.b-paid{background:rgba(5,150,105,.15);color:#34d399}
+.b-pending{background:rgba(217,119,6,.15);color:#fbbf24}
+.b-await{background:rgba(109,40,217,.15);color:#a78bfa}
+.err{color:#f87171;font-size:14px;padding:16px 0}
+</style></head><body>
+<div id="login-view" class="login">
+  <h1>Streamline</h1>
+  <p>Admin access — enter your PIN</p>
+  <input id="pin-input" type="password" placeholder="Enter PIN" onkeydown="if(event.key==='Enter')doLogin()"/>
+  <button onclick="doLogin()">Sign in</button>
+  <p id="login-err" style="color:#f87171;font-size:13px;margin-top:12px;text-align:center"></p>
+</div>
+<div id="dash-view" class="dash">
+  <h1>Streamline Admin</h1>
+  <div class="stats" id="admin-stats"></div>
+  <h2>Recent Submissions</h2>
+  <div id="subs-table"></div>
+  <h2>Ideas</h2>
+  <div id="ideas-table"></div>
+</div>
+<script>
+var PIN="";
+function doLogin(){
+  PIN=document.getElementById("pin-input").value;
+  fetch("/admin/data?pin="+PIN)
+  .then(function(r){if(!r.ok)throw new Error("bad");return r.json();})
+  .then(function(d){
+    document.getElementById("login-view").style.display="none";
+    document.getElementById("dash-view").style.display="block";
+    renderDash(d);
+  })
+  .catch(function(){document.getElementById("login-err").textContent="Invalid PIN";});
+}
+function renderDash(d){
+  var subs=d.subs||[],ideas=d.ideas||[];
+  var paid=subs.filter(function(x){return x.status==="paid";}).length;
+  document.getElementById("admin-stats").innerHTML=
+    "<div class='stat-box'><div class='val'>"+subs.length+"</div><div class='lbl'>Total submissions</div></div>"+
+    "<div class='stat-box'><div class='val'>"+paid+"</div><div class='lbl'>Paid submissions</div></div>"+
+    "<div class='stat-box'><div class='val'>"+ideas.length+"</div><div class='lbl'>Ideas in DB</div></div>"+
+    "<div class='stat-box'><div class='val'>"+ideas.filter(function(x){return x.status==="live";}).length+"</div><div class='lbl'>Live apps</div></div>";
+  var sh="<table><tr><th>ID</th><th>Title</th><th>Name</th><th>Email</th><th>Tier</th><th>Status</th><th>Date</th></tr>";
+  subs.slice(0,50).forEach(function(s){
+    var bc=s.status==="paid"?"b-paid":s.status==="awaiting_payment"?"b-await":"b-pending";
+    sh+="<tr><td>"+s.id+"</td><td>"+s.title+"</td><td>"+s.name+"</td><td>"+s.email+"</td><td>"+s.tier+"</td><td><span class='badge "+bc+"'>"+s.status+"</span></td><td>"+(s.created_at||"").slice(0,10)+"</td></tr>";
+  });
+  sh+="</table>";
+  document.getElementById("subs-table").innerHTML=sh;
+  var ih="<table><tr><th>ID</th><th>Title</th><th>Category</th><th>Votes</th><th>Status</th><th>Revenue/mo</th></tr>";
+  ideas.slice(0,50).forEach(function(x){
+    var bc=x.status==="live"?"b-paid":x.status==="building"?"b-pending":"b-await";
+    ih+="<tr><td>"+x.id+"</td><td>"+x.title+"</td><td>"+(x.category||"—")+"</td><td>"+x.votes+"</td><td><span class='badge "+bc+"'>"+x.status+"</span></td><td>"+(x.monthly_revenue?("$"+x.monthly_revenue):"—")+"</td></tr>";
+  });
+  ih+="</table>";
+  document.getElementById("ideas-table").innerHTML=ih;
+}
+</script>
+</body></html>`;
 
-    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
 
-    if (path === "/health") return new Response(JSON.stringify({ ok: true, version: 23 }), { headers: { ...CORS, "Content-Type": "application/json" } });
-
-    // Legal routes
-    if (path === "/privacy") return new Response(PRIVACY_HTML, { headers: { "Content-Type": "text/html;charset=utf-8", "Cache-Control": "public,max-age=3600" } });
-    if (path === "/terms") return new Response(TERMS_HTML, { headers: { "Content-Type": "text/html;charset=utf-8", "Cache-Control": "public,max-age=3600" } });
-    if (path === "/refunds") return new Response(REFUNDS_HTML, { headers: { "Content-Type": "text/html;charset=utf-8", "Cache-Control": "public,max-age=3600" } });
-
-    // Analytics — fire and forget, direct to Supabase REST
-    if (path === "/analytics" && request.method === "POST") return handleAnalytics(request);
-
-    // Native submit handler — calls Stripe directly
-    if (path === "/submit" && request.method === "POST") {
-      const ip = request.headers.get("CF-Connecting-IP") || "";
-      if (!rateOk(ip, "sub", 5)) return new Response(JSON.stringify({error:"Too many requests"}), {status:429, headers:{...CORS,"Content-Type":"application/json"}});
-      return handleSubmit(request, env);
-    }
-
-    // Proxy all API routes to Supabase with rate limiting
-    if (API_ROUTES.includes(path)) {
-      const ip = request.headers.get("CF-Connecting-IP") || "";
-
-      // Apply rate limiting based on route
-      if (path === "/chat" && !rateOk(ip, "chat", 20)) {
-        return new Response(JSON.stringify({error:"Too many requests"}), {status:429, headers:{...CORS,"Content-Type":"application/json"}});
-      }
-      if (path === "/vote" && !rateOk(ip, "vote", 30)) {
-        return new Response(JSON.stringify({error:"Too many requests"}), {status:429, headers:{...CORS,"Content-Type":"application/json"}});
-      }
-
-      const target = SUPABASE + path + url.search;
-      const h = new Headers(request.headers);
-      h.delete("host");
-      try {
-        const pr = await fetch(target, {
-          method: request.method,
-          headers: h,
-          body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body,
-          redirect: "follow"
-        });
-        const rh = new Headers(pr.headers);
-        Object.entries(CORS).forEach(([k,v]) => rh.set(k, v));
-        rh.set("Cache-Control", "no-cache");
-        return new Response(pr.body, { status: pr.status, headers: rh });
-      } catch (e) {
-        return new Response(JSON.stringify({ error: "Upstream error", detail: e.message }), { status: 502, headers: { ...CORS, "Content-Type": "application/json" } });
-      }
-    }
-
-    // Serve the HTML shell for everything else
-    return new Response(HTML, {
-      status: 200,
-      headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60", "X-Streamline-Version": "28" }
-    });
-  }
-};
-
-const HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Streamline — Submit an idea. We build it. You earn forever.</title>
+const HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Streamline — Submit an idea. We build it. You earn forever.</title>
+<meta name="description" content="Turn your app idea into recurring revenue. We build with AI, you earn 25% of every sale — forever."/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
-  --bg:#fafaf8;--white:#ffffff;--surface:#f4f4f0;--surface-2:#eeede9;
-  --border:#e5e4e0;--border-2:#d5d4cf;
-  --ink:#1a1a18;--ink-2:#5a5a56;--ink-3:#9a9994;
-  --accent:#4f46e5;--accent-light:#ede9fe;--accent-mid:#7c3aed;
-  --green:#16a34a;--green-bg:#f0fdf4;--amber:#d97706;--amber-bg:#fffbeb;
-  --r:10px;--r-lg:16px;
+  --bg:#f8f7ff;--white:#ffffff;--surface:#f0eeff;--surface-2:#e6e2fa;
+  --border:#ddd8f5;--border-2:#ccc6ec;
+  --ink:#1e1b4b;--ink-2:#4c4885;--ink-3:#9490c0;
+  --accent:#6d28d9;--accent-light:#ede9fe;--accent-mid:#7c3aed;
+  --gold:#d97706;--gold-bg:#fffbeb;--gold-border:#fde68a;
+  --green:#059669;--green-bg:#ecfdf5;--green-border:#a7f3d0;
+  --amber:#d97706;--amber-bg:#fffbeb;
+  --r:10px;--r-lg:16px;--r-xl:24px;
 }
-html{background:var(--bg);color:var(--ink);font-family:'Inter',sans-serif;font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
+html{background:var(--bg);color:var(--ink);font-family:"Inter",sans-serif;font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
 a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;background:none;border:none;color:inherit}
 input,textarea,select{font-family:inherit}
-.topbar{background:var(--ink);color:#fff;padding:9px 24px;display:flex;align-items:center;justify-content:center;gap:20px;font-size:12.5px;font-weight:400;letter-spacing:.01em;overflow-x:auto;white-space:nowrap}
-.topbar .dot{width:6px;height:6px;border-radius:50%;background:#4ade80;display:inline-block;margin-right:6px;animation:pulse 2s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-.topbar .sep{opacity:.3}
-nav{background:rgba(250,250,248,.92);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:1px solid var(--border);padding:0 40px;position:sticky;top:0;z-index:90}
-.nav-inner{max-width:1080px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:58px}
-.logo{font-family:'Syne',sans-serif;font-weight:800;font-size:19px;letter-spacing:-.03em;display:flex;align-items:center;gap:8px}
-.logo-mark{width:28px;height:28px;background:var(--accent);border-radius:7px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:800}
+
+/* ── TOPBAR ── */
+.topbar{background:var(--ink);color:#fff;padding:9px 24px;display:flex;align-items:center;justify-content:center;gap:20px;font-size:12.5px;font-weight:400;overflow-x:auto;white-space:nowrap}
+.topbar .dot{width:6px;height:6px;border-radius:50%;background:#4ade80;display:inline-block;margin-right:5px;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.topbar .sep{opacity:.25}
+.topbar b{font-weight:600}
+
+/* ── NAV ── */
+nav{background:rgba(248,247,255,.93);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:1px solid var(--border);padding:0 40px;position:sticky;top:0;z-index:90}
+.nav-inner{max-width:1080px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:60px}
+.logo{font-family:"Syne",sans-serif;font-weight:800;font-size:19px;letter-spacing:-.03em;display:flex;align-items:center;gap:9px;color:var(--ink)}
+.logo-mark{width:30px;height:30px;background:linear-gradient(135deg,#6d28d9,#7c3aed);border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;font-weight:800;box-shadow:0 2px 8px rgba(109,40,217,.35)}
 .nav-links{display:flex;align-items:center;gap:2px}
 .nav-links a{padding:6px 13px;font-size:14px;font-weight:500;color:var(--ink-2);border-radius:7px;transition:.15s}
 .nav-links a:hover{color:var(--ink);background:var(--surface)}
-.nav-cta{padding:8px 18px;background:var(--ink);color:#fff;border-radius:8px;font-size:14px;font-weight:600;transition:.15s}
-.nav-cta:hover{background:#2d2d2a}
+.nav-cta{padding:9px 20px;background:linear-gradient(135deg,#6d28d9,#7c3aed);color:#fff;border-radius:9px;font-size:14px;font-weight:600;transition:.15s;box-shadow:0 2px 8px rgba(109,40,217,.3)}
+.nav-cta:hover{box-shadow:0 4px 16px rgba(109,40,217,.4);transform:translateY(-1px)}
+
+/* ── LAYOUT ── */
 main{max-width:1080px;margin:0 auto;padding:0 40px}
-.hero{padding:88px 0 72px;text-align:center}
-.hero-pill{display:inline-flex;align-items:center;gap:8px;padding:5px 14px 5px 8px;background:var(--accent-light);border-radius:999px;font-size:13px;font-weight:500;color:var(--accent);margin-bottom:28px}
-.hero-pill-dot{width:20px;height:20px;background:var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:700}
-h1{font-family:'Syne',sans-serif;font-size:clamp(42px,6.5vw,76px);font-weight:800;letter-spacing:-.04em;line-height:1.0;margin-bottom:22px;color:var(--ink)}
-.accent-text{color:var(--accent)}
-.hero-sub{font-size:18px;color:var(--ink-2);font-weight:300;max-width:500px;margin:0 auto 36px;line-height:1.65}
+.section{padding:80px 0}
+.section-header{text-align:center;margin-bottom:56px}
+.section-label{display:inline-block;padding:4px 14px;background:var(--accent-light);border-radius:999px;font-size:11.5px;font-weight:700;color:var(--accent);letter-spacing:.07em;text-transform:uppercase;margin-bottom:14px}
+h1{font-family:"Syne",sans-serif;font-size:clamp(40px,6vw,72px);font-weight:800;letter-spacing:-.04em;line-height:1.0;margin-bottom:22px;color:var(--ink)}
+h2{font-family:"Syne",sans-serif;font-size:clamp(26px,3.8vw,44px);font-weight:800;letter-spacing:-.03em;line-height:1.1;margin-bottom:12px;color:var(--ink)}
+.grad{background:linear-gradient(135deg,#6d28d9 0%,#a855f7 55%,#d97706 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+
+/* ── HERO ── */
+.hero{padding:96px 0 80px;text-align:center;background:radial-gradient(ellipse 80% 50% at 50% -5%,rgba(109,40,217,.1) 0%,transparent 65%)}
+.hero-pill{display:inline-flex;align-items:center;gap:8px;padding:6px 16px 6px 8px;background:var(--white);border:1px solid var(--border);border-radius:999px;font-size:13px;font-weight:500;color:var(--ink-2);margin-bottom:28px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.hero-pill-dot{width:22px;height:22px;background:linear-gradient(135deg,#6d28d9,#7c3aed);border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:800}
+.hero-sub{font-size:18px;color:var(--ink-2);font-weight:300;max-width:520px;margin:0 auto 36px;line-height:1.7}
 .hero-btns{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;margin-bottom:56px}
-.btn-pri{padding:12px 26px;background:var(--ink);color:#fff;border-radius:9px;font-size:15px;font-weight:600;transition:.15s;display:inline-flex;align-items:center;gap:7px}
-.btn-pri:hover{background:#2d2d2a;transform:translateY(-1px)}
-.btn-sec{padding:12px 26px;background:var(--white);color:var(--ink);border:1px solid var(--border-2);border-radius:9px;font-size:15px;font-weight:500;transition:.15s}
-.btn-sec:hover{border-color:var(--ink-3);transform:translateY(-1px)}
-.hero-stats{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;background:var(--white);max-width:580px;margin:0 auto;box-shadow:0 1px 4px rgba(0,0,0,.06)}
-.stat{padding:18px 20px;text-align:center;border-right:1px solid var(--border)}
+.btn-primary{padding:14px 28px;background:linear-gradient(135deg,#6d28d9,#7c3aed);color:#fff;border-radius:10px;font-size:15px;font-weight:600;transition:.2s;box-shadow:0 4px 16px rgba(109,40,217,.35);display:inline-block}
+.btn-primary:hover{box-shadow:0 6px 24px rgba(109,40,217,.45);transform:translateY(-2px)}
+.btn-ghost{padding:14px 24px;background:var(--white);border:1px solid var(--border-2);color:var(--ink);border-radius:10px;font-size:15px;font-weight:500;transition:.15s}
+.btn-ghost:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-light)}
+.hero-stats{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--border);border-radius:var(--r-xl);overflow:hidden;background:var(--white);max-width:620px;margin:0 auto 16px;box-shadow:0 2px 16px rgba(109,40,217,.08)}
+.stat{padding:20px 16px;text-align:center;border-right:1px solid var(--border)}
 .stat:last-child{border-right:none}
-.stat-val{font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:var(--ink)}
-.stat-lbl{font-size:11.5px;color:var(--ink-3);margin-top:2px;font-weight:400}
-section{padding:64px 0}
-.section-tag{font-size:12px;font-weight:600;color:var(--accent);letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px;display:flex;align-items:center;gap:6px}
-.section-tag::before{content:'';width:16px;height:2px;background:var(--accent);border-radius:1px}
-h2{font-family:'Syne',sans-serif;font-size:clamp(26px,3.8vw,42px);font-weight:800;letter-spacing:-.03em;line-height:1.1;margin-bottom:14px;color:var(--ink)}
-.section-desc{font-size:17px;color:var(--ink-2);font-weight:300;max-width:460px;line-height:1.65;margin-bottom:44px}
-.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
-.step{background:var(--white);border:1px solid var(--border);border-radius:var(--r-lg);padding:28px 24px;transition:.2s}
-.step:hover{border-color:var(--border-2);box-shadow:0 4px 16px rgba(0,0,0,.06);transform:translateY(-2px)}
-.step-num{width:34px;height:34px;background:var(--accent-light);border-radius:9px;display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--accent);margin-bottom:18px}
-.step h3{font-family:'Syne',sans-serif;font-size:17px;font-weight:700;margin-bottom:7px}
-.step p{font-size:14px;color:var(--ink-2);line-height:1.6;font-weight:300}
+.stat-val{font-family:"Syne",sans-serif;font-size:24px;font-weight:800;color:var(--ink);letter-spacing:-.02em;margin-bottom:3px}
+.stat-lbl{font-size:11px;font-weight:500;color:var(--ink-3);letter-spacing:.04em;text-transform:uppercase}
+.earnings-disclaimer{font-size:11px;color:var(--ink-3);max-width:500px;margin:0 auto;line-height:1.5;text-align:center}
+
+/* ── HOW IT WORKS ── */
+.steps-wrap{position:relative}
+.steps-grid{display:grid;grid-template-columns:1fr 48px 1fr 48px 1fr;align-items:start;margin-top:48px}
+.step-arrow{display:flex;align-items:center;justify-content:center;padding-top:48px;color:var(--border-2);font-size:20px}
+.step{background:var(--white);border:1px solid var(--border);border-radius:var(--r-xl);padding:36px 28px;transition:.2s;text-align:left}
+.step:hover{border-color:var(--border-2);box-shadow:0 8px 28px rgba(109,40,217,.08);transform:translateY(-3px)}
+.step-num{font-family:"Syne",sans-serif;font-size:42px;font-weight:800;background:linear-gradient(135deg,#6d28d9,#a855f7);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;line-height:1;margin-bottom:12px}
+.step-icon{font-size:30px;margin-bottom:14px}
+.step h3{font-family:"Syne",sans-serif;font-size:19px;font-weight:700;margin-bottom:8px;color:var(--ink)}
+.step p{font-size:14px;color:var(--ink-2);font-weight:300;line-height:1.65}
+.step .step-tag{display:inline-block;margin-top:16px;padding:3px 10px;background:var(--accent-light);border-radius:6px;font-size:11.5px;font-weight:600;color:var(--accent)}
+.step:nth-child(5) .step-num{background:linear-gradient(135deg,#d97706,#f59e0b);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.step:nth-child(5) .step-tag{background:var(--gold-bg);color:var(--gold)}
+
+/* ── FEATURES ── */
 .feat-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.feat-card{background:var(--white);border:1px solid var(--border);border-radius:var(--r-lg);padding:36px;transition:.2s}
-.feat-card:hover{box-shadow:0 8px 28px rgba(0,0,0,.08);transform:translateY(-2px)}
-.feat-card.main{background:var(--ink);color:#fff;border-color:var(--ink)}
-.feat-tag{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;letter-spacing:.04em;margin-bottom:14px}
+.feat-card{background:var(--white);border:1px solid var(--border);border-radius:var(--r-xl);padding:40px;transition:.2s}
+.feat-card:hover{box-shadow:0 8px 28px rgba(109,40,217,.08);transform:translateY(-2px)}
+.feat-card.main{background:linear-gradient(160deg,#1e1b4b 0%,#2d1b69 100%);color:#fff;border-color:transparent}
+.feat-tag{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:.05em;margin-bottom:16px}
 .feat-tag.live{background:var(--green-bg);color:var(--green)}
-.feat-card.main .feat-tag.live{background:rgba(74,222,128,.12);color:#4ade80}
-.feat-tag.next{background:var(--amber-bg);color:var(--amber)}
-.feat-card h3{font-family:'Syne',sans-serif;font-size:30px;font-weight:800;letter-spacing:-.03em;margin-bottom:8px}
-.feat-card p{font-size:14px;font-weight:300;line-height:1.65;margin-bottom:22px;color:var(--ink-2)}
-.feat-card.main p{color:rgba(255,255,255,.65)}
+.feat-card.main .feat-tag.live{background:rgba(167,243,208,.15);color:#4ade80}
+.feat-card h3{font-family:"Syne",sans-serif;font-size:28px;font-weight:800;letter-spacing:-.03em;margin-bottom:10px;line-height:1.1}
+.feat-card p{font-size:14px;font-weight:300;line-height:1.65;margin-bottom:24px;color:var(--ink-2)}
+.feat-card.main p{color:rgba(255,255,255,.6)}
 .feat-chips{display:flex;gap:7px;flex-wrap:wrap}
-.feat-chip{padding:4px 11px;background:var(--surface);border:1px solid var(--border);border-radius:6px;font-size:12px;font-weight:500;color:var(--ink-2)}
-.feat-card.main .feat-chip{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.75)}
+.feat-chip{padding:5px 12px;background:var(--surface);border:1px solid var(--border);border-radius:7px;font-size:12px;font-weight:500;color:var(--ink-2)}
+.feat-card.main .feat-chip{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.7)}
+
+/* ── TESTIMONIALS ── */
+.testi-section{background:linear-gradient(160deg,var(--accent-light) 0%,var(--bg) 60%);border-radius:var(--r-xl);padding:64px 48px;margin:0}
+.testi-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:48px}
+.testi{background:var(--white);border:1px solid var(--border);border-radius:var(--r-lg);padding:28px;transition:.2s}
+.testi:hover{box-shadow:0 6px 20px rgba(109,40,217,.08);transform:translateY(-2px)}
+.testi-stars{color:var(--gold);font-size:15px;margin-bottom:14px;letter-spacing:2px}
+.testi-quote{font-size:15px;line-height:1.7;color:var(--ink);font-weight:300;margin-bottom:22px;font-style:italic}
+.testi-author{display:flex;align-items:center;gap:12px}
+.testi-av{width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,var(--accent-light),var(--surface-2));display:flex;align-items:center;justify-content:center;font-weight:800;color:var(--accent);font-family:"Syne",sans-serif;font-size:16px;border:2px solid var(--border)}
+.testi-name{font-size:14px;font-weight:600;color:var(--ink)}
+.testi-loc{font-size:12px;color:var(--ink-3);margin-top:1px}
+
+/* ── IDEAS BOARD ── */
 .filters{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:24px}
-.chip{padding:6px 15px;background:var(--white);border:1px solid var(--border);border-radius:7px;font-size:13px;font-weight:500;color:var(--ink-2);cursor:pointer;transition:.15s}
+.chip{padding:6px 16px;background:var(--white);border:1px solid var(--border);border-radius:8px;font-size:13px;font-weight:500;color:var(--ink-2);cursor:pointer;transition:.15s}
 .chip:hover{border-color:var(--border-2);color:var(--ink)}
 .chip.active{background:var(--ink);border-color:var(--ink);color:#fff}
-.ideas-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(295px,1fr));gap:11px}
-.idea{background:var(--white);border:1px solid var(--border);border-radius:var(--r);padding:18px;display:flex;flex-direction:column;transition:.15s}
-.idea:hover{border-color:var(--border-2);box-shadow:0 2px 10px rgba(0,0,0,.05)}
-.idea-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:11px}
-.idea-icon{width:38px;height:38px;background:var(--surface);border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:18px;border:1px solid var(--border)}
-.vote-btn{display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 10px;background:var(--surface);border:1px solid var(--border);border-radius:7px;min-width:44px;cursor:pointer;transition:.15s;position:relative}
+.ideas-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(295px,1fr));gap:12px}
+.idea{background:var(--white);border:1px solid var(--border);border-radius:var(--r-lg);padding:20px;display:flex;flex-direction:column;transition:.15s}
+.idea:hover{border-color:var(--border-2);box-shadow:0 2px 12px rgba(109,40,217,.07)}
+.idea-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px}
+.idea-icon{width:40px;height:40px;background:var(--surface);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;border:1px solid var(--border)}
+.vote-btn{display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 11px;background:var(--surface);border:1px solid var(--border);border-radius:8px;min-width:46px;cursor:pointer;transition:.15s}
 .vote-btn:hover{border-color:var(--accent);background:var(--accent-light)}
 .vote-btn.voted{background:var(--accent-light);border-color:var(--accent)}
 .vote-arr{font-size:10px;color:var(--ink-3)}
-.vote-cnt{font-size:14px;font-weight:600;font-family:'Syne',sans-serif;color:var(--ink)}
+.vote-cnt{font-size:14px;font-weight:700;font-family:"Syne",sans-serif;color:var(--ink)}
 .vote-btn.voted .vote-arr,.vote-btn.voted .vote-cnt{color:var(--accent)}
-.idea h4{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;margin-bottom:5px;letter-spacing:-.01em}
-.idea-desc{font-size:13px;color:var(--ink-2);font-weight:300;line-height:1.5;flex:1;margin-bottom:12px}
-.idea-foot{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
-.share-btn{padding:4px 9px;background:var(--surface);border:1px solid var(--border);border-radius:7px;font-size:12px;cursor:pointer;transition:.15s;color:var(--ink-2);position:relative}
-.share-btn:hover{border-color:var(--accent);color:var(--accent)}
+.idea h4{font-family:"Syne",sans-serif;font-size:15px;font-weight:700;margin-bottom:5px;letter-spacing:-.01em}
+.idea-desc{font-size:13px;color:var(--ink-2);font-weight:300;line-height:1.55;flex:1;margin-bottom:14px}
+.idea-foot{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.share-btn{padding:4px 10px;background:var(--surface);border:1px solid var(--border);border-radius:7px;font-size:12px;cursor:pointer;transition:.15s;color:var(--ink-2);position:relative}
+.share-btn:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-light)}
 .share-tooltip{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:4px 8px;border-radius:5px;font-size:11px;white-space:nowrap;pointer-events:none;opacity:0;transition:.2s;margin-bottom:6px}
 .share-tooltip.show{opacity:1}
-.badge{padding:2px 8px;border-radius:5px;font-size:11px;font-weight:500;border:1px solid transparent}
-.b-live{background:var(--green-bg);border-color:#bbf7d0;color:var(--green)}
-.b-building{background:var(--amber-bg);border-color:#fde68a;color:var(--amber)}
+.badge{padding:3px 9px;border-radius:6px;font-size:11px;font-weight:600;border:1px solid transparent}
+.b-live{background:var(--green-bg);border-color:var(--green-border);color:var(--green)}
+.b-building{background:var(--amber-bg);border-color:var(--gold-border);color:var(--amber)}
 .b-queued{background:var(--surface);border-color:var(--border);color:var(--ink-3)}
-.b-cat{background:var(--surface);border-color:var(--border);color:var(--ink-3)}
-.b-rev{background:var(--accent-light);border-color:#c4b5fd;color:var(--accent)}
+.b-rev{background:var(--gold-bg);border-color:var(--gold-border);color:var(--gold)}
+/* Skeleton */
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.sk-line{background:linear-gradient(90deg,var(--surface) 25%,var(--surface-2) 50%,var(--surface) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:6px}
+.sk-title{height:18px;width:65%;margin-bottom:10px}
+.sk-body{height:13px;width:88%;margin-bottom:6px}
+.sk-foot{height:13px;width:45%}
+
+/* ── TIERS ── */
 .tiers-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-items:start}
-.tier{background:var(--white);border:1px solid var(--border);border-radius:var(--r-lg);padding:30px;display:flex;flex-direction:column;cursor:pointer;transition:.2s;position:relative}
-.tier:hover{box-shadow:0 8px 28px rgba(0,0,0,.08);border-color:var(--border-2);transform:translateY(-2px)}
-.tier.featured{background:var(--ink);border-color:var(--ink);color:#fff}
-.tier-popular{position:absolute;top:-1px;left:50%;transform:translateX(-50%);background:var(--accent);color:#fff;font-size:11px;font-weight:600;letter-spacing:.06em;padding:3px 12px;border-radius:0 0 8px 8px}
-.tier-name{font-size:11.5px;font-weight:600;color:var(--ink-3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:14px}
-.tier.featured .tier-name{color:rgba(255,255,255,.5)}
-.tier-price{font-family:'Syne',sans-serif;font-size:52px;font-weight:800;letter-spacing:-.04em;line-height:1;margin-bottom:4px}
-.tier-price sup{font-size:.38em;font-weight:600;vertical-align:super;opacity:.6}
-.tier-comm{font-size:13px;font-weight:600;color:var(--accent);margin-bottom:22px;margin-top:8px;display:flex;align-items:center;gap:5px}
-.tier.featured .tier-comm{color:#a5b4fc}
-.tier-feat{font-size:13.5px;color:var(--ink-2);padding:8px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;font-weight:400}
-.tier.featured .tier-feat{color:rgba(255,255,255,.65);border-color:rgba(255,255,255,.1)}
+.tier{background:var(--white);border:1px solid var(--border);border-radius:var(--r-xl);padding:32px;display:flex;flex-direction:column;cursor:pointer;transition:.2s;position:relative;overflow:hidden}
+.tier:hover{box-shadow:0 8px 32px rgba(109,40,217,.1);border-color:var(--border-2);transform:translateY(-3px)}
+.tier.featured{background:linear-gradient(160deg,#1e1b4b,#2d1b69);border-color:transparent;color:#fff}
+.tier.equity{border-color:var(--gold-border);box-shadow:0 0 0 1px var(--gold-border)}
+.tier.equity:hover{box-shadow:0 8px 32px rgba(217,119,6,.15),0 0 0 1px var(--gold-border)}
+.tier-popular{position:absolute;top:-1px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#6d28d9,#7c3aed);color:#fff;font-size:10.5px;font-weight:700;letter-spacing:.06em;padding:4px 14px;border-radius:0 0 9px 9px}
+.tier-name{font-size:11px;font-weight:700;color:var(--ink-3);letter-spacing:.1em;text-transform:uppercase;margin-bottom:16px}
+.tier.featured .tier-name{color:rgba(255,255,255,.45)}
+.tier.equity .tier-name{color:var(--gold)}
+.tier-price{font-family:"Syne",sans-serif;font-size:54px;font-weight:800;letter-spacing:-.04em;line-height:1;margin-bottom:4px}
+.tier-price sup{font-size:.36em;font-weight:600;vertical-align:super;opacity:.55}
+.tier-comm{font-size:13px;font-weight:600;color:var(--accent);margin:8px 0 24px;display:flex;align-items:center;gap:5px}
+.tier.featured .tier-comm{color:#a78bfa}
+.tier.equity .tier-comm{color:var(--gold)}
+.tier-feat{font-size:13.5px;color:var(--ink-2);padding:9px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:9px;font-weight:400}
+.tier.featured .tier-feat{color:rgba(255,255,255,.6);border-color:rgba(255,255,255,.1)}
+.tier.equity .tier-feat{border-color:rgba(217,119,6,.15)}
 .tier-feat:last-of-type{border-bottom:none}
-.tier-feat::before{content:'✓';color:var(--accent);font-weight:600;flex-shrink:0}
-.tier.featured .tier-feat::before{color:#a5b4fc}
-.tier-btn{margin-top:22px;padding:11px;border-radius:9px;font-size:14px;font-weight:600;background:var(--surface);border:1px solid var(--border-2);color:var(--ink);transition:.15s;text-align:center}
+.tier-feat::before{content:"✓";color:var(--accent);font-weight:700;flex-shrink:0}
+.tier.featured .tier-feat::before{color:#a78bfa}
+.tier.equity .tier-feat::before{color:var(--gold)}
+.tier-btn{margin-top:24px;padding:12px;border-radius:10px;font-size:14px;font-weight:600;text-align:center;transition:.15s;border:1px solid var(--border-2);background:var(--surface);color:var(--ink)}
 .tier:hover .tier-btn{background:var(--ink);border-color:var(--ink);color:#fff}
-.tier.featured .tier-btn{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.2);color:#fff}
+.tier.featured .tier-btn{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.2);color:#fff}
 .tier.featured:hover .tier-btn{background:#fff;color:var(--ink)}
-.form-outer{max-width:620px;margin:0 auto}
-.form-card{background:var(--white);border:1px solid var(--border);border-radius:var(--r-lg);padding:40px;box-shadow:0 2px 12px rgba(0,0,0,.06)}
+.tier.equity .tier-btn{background:var(--gold-bg);border-color:var(--gold-border);color:var(--gold)}
+.tier.equity:hover .tier-btn{background:var(--gold);border-color:var(--gold);color:#fff}
+
+/* ── SUBMIT FORM ── */
+.form-card{background:var(--white);border:1px solid var(--border);border-radius:var(--r-xl);padding:48px;box-shadow:0 4px 24px rgba(109,40,217,.07)}
 .form-card h2{margin-bottom:6px}
-.form-sub{font-size:15px;color:var(--ink-2);font-weight:300;margin-bottom:28px;line-height:1.6}
-.sel-tier-bar{padding:12px 16px;background:var(--accent-light);border:1px solid #c4b5fd;border-radius:9px;font-size:14px;font-weight:500;color:var(--accent);margin-bottom:22px;display:flex;justify-content:space-between;align-items:center}
-.field{margin-bottom:15px}
-.field label{display:block;font-size:13px;font-weight:500;color:var(--ink-2);margin-bottom:5px}
-.field input,.field textarea,.field select{width:100%;padding:10px 13px;font-size:14px;background:var(--bg);color:var(--ink);border:1px solid var(--border-2);border-radius:8px;outline:none;transition:.15s}
-.field input:focus,.field textarea:focus,.field select:focus{border-color:var(--accent);background:var(--white);box-shadow:0 0 0 3px rgba(79,70,229,.08)}
-.field select option{background:var(--white)}
-.field textarea{min-height:96px;resize:vertical;line-height:1.5}
-.age-check{display:flex;align-items:flex-start;gap:10px;font-size:13px;color:var(--ink-soft);margin-bottom:12px;cursor:pointer;line-height:1.5}.age-check input{margin-top:2px;accent-color:var(--ink);flex-shrink:0}.age-check a{color:var(--accent)}
-.submit-btn{width:100%;padding:13px;background:var(--ink);color:#fff;border-radius:9px;font-size:15px;font-weight:600;margin-top:8px;transition:.15s}
-.submit-btn:hover{background:#2d2d2a;transform:translateY(-1px)}
-.faq-wrap{max-width:620px}
-details{border-bottom:1px solid var(--border)}
-details:last-child{border-bottom:none}
-summary{list-style:none;cursor:pointer;padding:18px 0;display:flex;justify-content:space-between;align-items:center;font-size:15px;font-weight:500;color:var(--ink)}
-summary::-webkit-details-marker{display:none}
-.faq-ico{width:26px;height:26px;background:var(--surface);border:1px solid var(--border);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:15px;color:var(--ink-3);flex-shrink:0;transition:.2s}
-details[open] .faq-ico{background:var(--accent-light);border-color:#c4b5fd;color:var(--accent);transform:rotate(45deg)}
-.faq-ans{padding:0 0 18px;font-size:14px;color:var(--ink-2);font-weight:300;line-height:1.7}
-footer{border-top:1px solid var(--border);padding:36px 40px;background:var(--white)}
-.foot-inner{max-width:1080px;margin:0 auto;display:flex;align-items:center;justify-content:space-between}
-.foot-logo{font-family:'Syne',sans-serif;font-size:16px;font-weight:800;letter-spacing:-.02em;display:flex;align-items:center;gap:7px}
-.foot-logo .logo-mark{width:22px;height:22px;font-size:11px}
-.foot-links{display:flex;gap:18px;font-size:13px}
-.foot-links a{color:var(--ink-2);transition:.15s}
-.foot-links a:hover{color:var(--accent)}
-footer p{font-size:13px;color:var(--ink-3)}
-.foot-small{font-size:11px;color:var(--ink-3);margin-top:6px;max-width:700px;line-height:1.6}.foot-small a{color:var(--ink-3);text-decoration:underline}
-.chat-bubble{position:fixed;bottom:22px;right:22px;z-index:95;width:52px;height:52px;background:var(--ink);border-radius:50%;font-size:20px;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 24px rgba(0,0,0,.2);animation:float 3s ease-in-out infinite;color:#fff;transition:.15s}
-.chat-bubble:hover{transform:scale(1.08)}
-@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
-.chat-panel{position:fixed;bottom:22px;right:22px;z-index:100;width:370px;height:520px;max-height:calc(100vh - 44px);background:var(--white);border:1px solid var(--border);border-radius:var(--r-lg);box-shadow:0 20px 60px rgba(0,0,0,.15);display:none;flex-direction:column;overflow:hidden}
+.form-sub{font-size:15px;color:var(--ink-2);margin-bottom:28px;font-weight:300}
+.sel-tier-bar{padding:12px 18px;background:var(--accent-light);border:1px solid #c4b5fd;border-radius:10px;font-size:14px;font-weight:500;color:var(--accent);margin-bottom:24px;display:flex;justify-content:space-between;align-items:center}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.form-group{margin-bottom:14px}
+label{display:block;font-size:13px;font-weight:600;color:var(--ink-2);margin-bottom:6px;letter-spacing:.01em}
+input,textarea,select{width:100%;padding:11px 14px;border:1px solid var(--border-2);border-radius:9px;font-size:14px;font-weight:400;background:var(--white);color:var(--ink);transition:.15s;outline:none}
+input:focus,textarea:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(109,40,217,.1)}
+textarea{resize:vertical;min-height:110px;line-height:1.55}
+.age-check{display:flex;align-items:flex-start;gap:10px;font-size:13px;color:var(--ink-2);margin-bottom:18px;line-height:1.5;cursor:pointer}
+.age-check input{width:16px;height:16px;cursor:pointer;flex-shrink:0;margin-top:2px;accent-color:var(--accent)}
+.age-check a{color:var(--accent);text-decoration:underline}
+.submit-btn{width:100%;padding:14px;background:linear-gradient(135deg,#6d28d9,#7c3aed);color:#fff;border-radius:10px;font-size:15px;font-weight:700;transition:.2s;box-shadow:0 4px 14px rgba(109,40,217,.3)}
+.submit-btn:hover{box-shadow:0 6px 22px rgba(109,40,217,.45);transform:translateY(-1px)}
+.submit-btn:disabled{opacity:.6;transform:none;cursor:not-allowed}
+
+/* ── FAQ ── */
+.faq-wrap{max-width:720px;margin:0 auto}
+.faq-item{border-bottom:1px solid var(--border)}
+.faq-item:first-child{border-top:1px solid var(--border)}
+.faq-q{width:100%;text-align:left;padding:20px 0;font-size:16px;font-weight:500;display:flex;justify-content:space-between;align-items:center;gap:16px;cursor:pointer;color:var(--ink);transition:.15s}
+.faq-q:hover{color:var(--accent)}
+.faq-icon{font-size:22px;color:var(--ink-3);transition:.25s;flex-shrink:0;line-height:1}
+.faq-item.open .faq-icon{transform:rotate(45deg);color:var(--accent)}
+.faq-a{max-height:0;overflow:hidden;transition:max-height .35s ease}
+.faq-item.open .faq-a{max-height:220px}
+.faq-a p{padding-bottom:20px;font-size:14px;color:var(--ink-2);line-height:1.75;font-weight:300}
+
+/* ── FOOTER ── */
+footer{background:var(--ink);color:rgba(255,255,255,.55);padding:56px 40px 36px;margin-top:80px}
+.foot-inner{max-width:1080px;margin:0 auto}
+.foot-top{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:40px;margin-bottom:48px}
+.foot-brand .logo{color:#fff;margin-bottom:14px}
+.foot-brand p{font-size:13.5px;line-height:1.7;max-width:240px}
+.foot-col h4{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.9);margin-bottom:16px}
+.foot-col a{display:block;font-size:14px;color:rgba(255,255,255,.5);padding:4px 0;transition:.15s}
+.foot-col a:hover{color:rgba(255,255,255,.9)}
+.foot-bottom{border-top:1px solid rgba(255,255,255,.1);padding-top:28px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
+.foot-copy{font-size:12.5px}
+.foot-legal{display:flex;gap:20px;font-size:12.5px}
+.foot-legal a{color:rgba(255,255,255,.4);transition:.15s}
+.foot-legal a:hover{color:rgba(255,255,255,.8)}
+.foot-disclaimer{font-size:11px;color:rgba(255,255,255,.3);margin-top:16px;line-height:1.6;border-top:1px solid rgba(255,255,255,.06);padding-top:16px}
+
+/* ── CHAT ── */
+.chat-bubble{position:fixed;bottom:24px;right:24px;width:52px;height:52px;background:linear-gradient(135deg,#6d28d9,#7c3aed);border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 16px rgba(109,40,217,.4);z-index:80;transition:.2s;color:#fff;font-size:20px}
+.chat-bubble:hover{transform:scale(1.07);box-shadow:0 6px 22px rgba(109,40,217,.5)}
+.chat-panel{position:fixed;bottom:88px;right:24px;width:340px;background:var(--white);border:1px solid var(--border);border-radius:var(--r-xl);box-shadow:0 8px 40px rgba(0,0,0,.15);z-index:80;display:none;flex-direction:column;overflow:hidden;max-height:480px}
 .chat-panel.open{display:flex}
-.chat-head{padding:14px 18px;background:var(--ink);display:flex;justify-content:space-between;align-items:center}
-.chat-head-info{display:flex;align-items:center;gap:9px}
-.chat-av{width:30px;height:30px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;color:#fff}
-.chat-title{font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:#fff}
-.chat-status{font-size:11.5px;color:#4ade80;font-weight:500}
-.chat-close{width:28px;height:28px;background:rgba(255,255,255,.1);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:15px;color:rgba(255,255,255,.7);transition:.15s}
-.chat-close:hover{background:rgba(255,255,255,.2);color:#fff}
-.chat-body{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:9px;background:var(--bg)}
-.msg{max-width:84%;padding:9px 13px;font-size:13.5px;line-height:1.5;border-radius:11px;font-weight:300}
-.msg.ai{background:var(--white);border:1px solid var(--border);color:var(--ink);align-self:flex-start;border-bottom-left-radius:4px}
-.msg.me{background:var(--ink);color:#fff;align-self:flex-end;border-bottom-right-radius:4px;font-weight:400}
-.chat-input-row{padding:10px;border-top:1px solid var(--border);display:flex;gap:7px;background:var(--white)}
-.chat-input{flex:1;padding:9px 12px;font-size:14px;background:var(--bg);color:var(--ink);border:1px solid var(--border-2);border-radius:8px;outline:none;resize:none;line-height:1.4;transition:.15s}
-.chat-input:focus{border-color:var(--accent)}
-.chat-send{width:36px;height:36px;background:var(--ink);border-radius:8px;color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;transition:.15s}
-.chat-send:hover{background:var(--accent)}
-@media(max-width:768px){
-  nav,footer{padding-left:20px;padding-right:20px}
-  main{padding:0 20px}
-  h1{font-size:36px}
-  .steps{grid-template-columns:1fr 1fr}
-  .feat-grid,.tiers-grid{grid-template-columns:1fr}
+.chat-head{padding:16px 20px;background:linear-gradient(135deg,#1e1b4b,#2d1b69);color:#fff;display:flex;align-items:center;justify-content:space-between}
+.chat-head h4{font-size:15px;font-weight:600}
+.chat-close{background:none;border:none;color:rgba(255,255,255,.6);cursor:pointer;font-size:18px;line-height:1;padding:2px}
+.chat-close:hover{color:#fff}
+.chat-body{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px}
+.msg{padding:10px 14px;border-radius:12px;font-size:13.5px;line-height:1.55;max-width:85%}
+.msg.bot{background:var(--surface);color:var(--ink);align-self:flex-start}
+.msg.user{background:linear-gradient(135deg,#6d28d9,#7c3aed);color:#fff;align-self:flex-end}
+.chat-foot{padding:12px;border-top:1px solid var(--border);display:flex;gap:8px}
+.chat-foot input{flex:1;padding:9px 14px;border:1px solid var(--border-2);border-radius:8px;font-size:13.5px;outline:none}
+.chat-foot input:focus{border-color:var(--accent)}
+.chat-send{padding:9px 16px;background:linear-gradient(135deg,#6d28d9,#7c3aed);color:#fff;border-radius:8px;font-size:13px;font-weight:600;border:none;cursor:pointer;transition:.15s}
+.chat-send:hover{opacity:.9}
+
+/* ── TOAST ── */
+#toast-container{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:9999;display:flex;flex-direction:column;align-items:center;gap:10px;pointer-events:none}
+.toast{background:var(--ink);color:#fff;padding:13px 22px;border-radius:12px;font-size:14px;font-weight:500;box-shadow:0 4px 20px rgba(0,0,0,.2);transform:translateY(20px);opacity:0;transition:all .3s ease;max-width:360px;text-align:center}
+.toast.show{transform:translateY(0);opacity:1}
+.toast.t-success{background:#059669}
+.toast.t-error{background:#dc2626}
+.toast.t-info{background:var(--accent)}
+
+/* ── RESPONSIVE ── */
+@media(max-width:860px){
+  nav{padding:0 20px}main{padding:0 20px}
+  .steps-grid{grid-template-columns:1fr;gap:16px}
+  .step-arrow{display:none}
+  .feat-grid,.tiers-grid,.testi-grid{grid-template-columns:1fr}
+  .foot-top{grid-template-columns:1fr 1fr}
+  h1{font-size:38px}
+  .form-row{grid-template-columns:1fr}
+  .hero{padding:64px 0 56px}
   .hero-stats{grid-template-columns:repeat(2,1fr)}
   .hero-stats .stat:nth-child(2){border-right:none}
   .hero-stats .stat:nth-child(1),.hero-stats .stat:nth-child(2){border-bottom:1px solid var(--border)}
-  .topbar{font-size:11px;gap:12px}
-  .chat-panel{bottom:0;right:0;left:0;width:100%;max-width:100%;border-radius:var(--r-lg) var(--r-lg) 0 0;height:72vh}
-  .foot-inner{flex-direction:column;gap:8px;text-align:center}
+  .testi-section{padding:40px 24px}
+  footer{padding:40px 20px 28px}
 }
-</style></head><body>
-<div class="topbar" id="topbar">
+</style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<div class="topbar">
   <span id="tb-live"><span class="dot"></span>Loading...</span>
-  <span class="sep">·</span><span id="tb-mrr">—</span>
-  <span class="sep">·</span><span>20–30% commission, forever</span>
-  <span class="sep">·</span><span id="tb-paid">—</span>
+  <span class="sep">|</span>
+  <span id="tb-mrr">—</span>
+  <span class="sep">|</span>
+  <span id="tb-paid">—</span>
+  <span class="sep">|</span>
+  <span>🇦🇺 Melbourne, Australia</span>
 </div>
+
+<!-- NAV -->
 <nav>
   <div class="nav-inner">
-    <div class="logo"><div class="logo-mark">✦</div>Streamline</div>
+    <a href="/" class="logo"><div class="logo-mark">S</div>Streamline</a>
     <div class="nav-links">
       <a href="#how">How it works</a>
-      <a href="#board">Ideas</a>
+      <a href="#ideas">Browse ideas</a>
       <a href="#tiers">Pricing</a>
+      <a href="mailto:hello@streamlinewebapps.com">Contact</a>
     </div>
     <a href="#tiers" class="nav-cta">Submit idea →</a>
   </div>
 </nav>
+
+<!-- MAIN -->
 <main>
-  <section class="hero">
-    <div class="hero-pill"><div class="hero-pill-dot">✦</div>Now taking idea submissions</div>
-    <h1>Your idea.<br/><span class="accent-text">We build it.</span><br/>You earn forever.</h1>
-    <p class="hero-sub">Submit an app idea. The community votes. We build it with AI. You earn a commission on every dollar — forever.</p>
-    <div class="hero-btns">
-      <a href="#tiers" class="btn-pri">Submit your idea →</a>
-      <a href="#board" class="btn-sec">Browse the board</a>
-    </div>
-    <div class="hero-stats">
-      <div class="stat"><div class="stat-val" id="hs-live">—</div><div class="stat-lbl">Apps live</div></div>
-      <div class="stat"><div class="stat-val" id="hs-mrr">—</div><div class="stat-lbl">Monthly revenue</div></div>
-      <div class="stat"><div class="stat-val">30%</div><div class="stat-lbl">Max commission</div></div>
-      <div class="stat"><div class="stat-val" id="hs-paid">—</div><div class="stat-lbl">Paid out</div></div>
-    </div>
-    <p class="earnings-disclaimer">Revenue figures reflect actual results to date. Commission earnings depend on app performance and are not guaranteed. Past results are not indicative of future returns. <a href="/terms">Terms apply.</a></p>
-  </section>
-  <section id="how">
-    <div class="section-tag">Process</div>
-    <h2>From idea to income in 4 steps</h2>
-    <div class="steps">
-      <div class="step"><div class="step-num">01</div><h3>Submit</h3><p>Pick a tier ($29–$299), describe your idea. Takes 5 minutes.</p></div>
-      <div class="step"><div class="step-num">02</div><h3>Vote</h3><p>Your idea hits the public board. The community picks what gets built.</p></div>
-      <div class="step"><div class="step-num">03</div><h3>Build</h3><p>Winning ideas ship in weeks. You get updates and beta access.</p></div>
-      <div class="step"><div class="step-num">04</div><h3>Earn</h3><p>20–30% commission forever. Paid monthly once it hits $50.</p></div>
-    </div>
-  </section>
-  <section>
-    <div class="section-tag">Featured</div>
-    <h2>Live right now, earning</h2>
-    <div class="feat-grid">
-      <div class="feat-card main">
-        <div class="feat-tag live">● FLAGSHIP · LIVE</div>
-        <h3>LessonLab</h3>
-        <p>931 primary-school PE lessons, curriculum-aligned. One tap during duty rotations. Built for Australian teachers.</p>
-        <div class="feat-chips"><span class="feat-chip">$3,200 / mo</span><span class="feat-chip">🇦🇺 Australia</span><span class="feat-chip">iOS + Web</span></div>
-      </div>
-      <div class="feat-card">
-        <div class="feat-tag next">◐ NEXT BUILD</div>
-        <h3>Judy's Kitchen</h3>
-        <p>Save Grandma's recipes forever. Voice capture, card scanning, family sharing. Never lose a family recipe again.</p>
-        <div class="feat-chips"><span class="feat-chip">Voice input</span><span class="feat-chip">OCR scanning</span><span class="feat-chip">Q2 2026</span></div>
-      </div>
-    </div>
-  </section>
-  <section id="board">
-    <div class="section-tag">Idea Board</div>
-    <h2>Vote for what gets built next</h2>
-    <div class="filters">
-      <button class="chip active" data-cat="All">All</button>
-      <button class="chip" data-cat="Education">Education</button>
-      <button class="chip" data-cat="Sport">Sport</button>
-      <button class="chip" data-cat="Food">Food</button>
-      <button class="chip" data-cat="Entertainment">Entertainment</button>
-      <button class="chip" data-cat="Health">Health</button>
-      <button class="chip" data-cat="Business">Business</button>
-      <button class="chip" data-cat="Utility">Utility</button>
-    </div>
-    <div class="ideas-grid" id="ideas"><p style="color:var(--ink-3);font-size:14px">Loading ideas...</p></div>
-  </section>
-  <section id="tiers">
-    <div class="section-tag">Pricing</div>
-    <h2>One fee. Commission forever.</h2>
-    <p class="section-desc">Pay once to get your idea reviewed. If we build it, you earn a percentage of every dollar it makes — for as long as it runs.</p>
-    <div class="tiers-grid">
-      <div class="tier" data-tier="Standard">
-        <div class="tier-name">Standard</div>
-        <div class="tier-price"><sup>$</sup>29</div>
-        <div class="tier-comm">✦ 20% lifetime commission</div>
-        <div class="tier-feat">7-day review window</div>
-        <div class="tier-feat">20% commission forever</div>
-        <div class="tier-feat">Community vote placement</div>
-        <div class="tier-feat">30-day refund guarantee</div>
-        <div class="tier-btn">Get started</div>
-      </div>
-      <div class="tier featured" data-tier="Priority">
-        <div class="tier-popular">MOST POPULAR</div>
-        <div class="tier-name">Priority</div>
-        <div class="tier-price"><sup>$</sup>99</div>
-        <div class="tier-comm">✦ 25% lifetime commission</div>
-        <div class="tier-feat">Priority queue placement</div>
-        <div class="tier-feat">25% commission forever</div>
-        <div class="tier-feat">Direct builder contact</div>
-        <div class="tier-feat">Weekly progress updates</div>
-        <div class="tier-feat">Beta access before launch</div>
-        <div class="tier-btn">Get started</div>
-      </div>
-      <div class="tier" data-tier="Equity">
-        <div class="tier-name">Equity</div>
-        <div class="tier-price"><sup>$</sup>299</div>
-        <div class="tier-comm">✦ 30% lifetime commission</div>
-        <div class="tier-feat">Built within 48 hours</div>
-        <div class="tier-feat">30% commission forever</div>
-        <div class="tier-feat">Co-founder credit</div>
-        <div class="tier-feat">Co-ownership of the app</div>
-        <div class="tier-feat">14-day refund guarantee</div>
-        <div class="tier-btn">Get started</div>
-      </div>
-    </div>
-  </section>
-  <section id="submit" style="padding-top:0">
-    <div class="form-outer">
-      <div class="form-card">
-        <h2>Submit your idea</h2>
-        <p class="form-sub">5 minutes to fill in. Stripe payment. Full refund if we don't build it.</p>
-        <div class="sel-tier-bar" id="sel-tier"><span>Selected: <strong>Priority</strong></span><span>$99 · 25% commission</span></div>
-        <div class="field"><label>App title</label><input id="f-title" placeholder="e.g. Footy Tipping Tracker" required/></div>
-        <div class="field"><label>Your name</label><input id="f-name" placeholder="Full name" required/></div>
-        <div class="field"><label>Email address</label><input id="f-email" type="email" placeholder="you@example.com" required/></div>
-        <div class="field"><label>Category</label>
-          <select id="f-cat"><option>Education</option><option>Sport</option><option>Health</option><option>Food</option><option>Business</option><option>Entertainment</option><option>Social</option><option>Utility</option></select>
-        </div>
-        <div class="field"><label>Describe the idea</label><textarea id="f-desc" placeholder="What does it do? Who is it for? Why will people pay for it?" required></textarea></div>
-        <label class="age-check"><input type="checkbox" id="age-confirm"/> I am 18 or older and agree to the <a href="/terms" target="_blank">Terms of Service</a></label>
-        <button class="submit-btn" onclick="submitIdea()">Continue to payment →</button>
-      </div>
-    </div>
-  </section>
-  <section>
-    <div class="section-tag">FAQ</div>
-    <h2>Common questions</h2>
-    <div class="faq-wrap">
-      <details><summary><span>What if you don't build my idea?</span><span class="faq-ico">+</span></summary><div class="faq-ans">Full refund — 14 days for Priority/Equity tiers, 30 days for Standard. No questions asked.</div></details>
-      <details><summary><span>How and when do I get paid?</span><span class="faq-ico">+</span></summary><div class="faq-ans">Monthly bank transfer once your app generates $50+ in a given month. We pay within 5 business days of month end.</div></details>
-      <details><summary><span>Who owns the intellectual property?</span><span class="faq-ico">+</span></summary><div class="faq-ans">Standard and Priority: Streamline owns the app. Equity tier: co-owned, with your name in the product.</div></details>
-      <details><summary><span>How long does it take to build?</span><span class="faq-ico">+</span></summary><div class="faq-ans">Equity: 48 hours. Priority: 2–4 weeks. Standard: 4–8 weeks depending on complexity and vote ranking.</div></details>
-    </div>
-  </section>
-</main>
-<footer>
-  <div class="foot-inner">
-    <div class="foot-logo"><div class="logo-mark">✦</div>Streamline</div>
-    <div class="foot-links">
-      <a href="/privacy">Privacy</a>
-      <a href="/terms">Terms</a>
-      <a href="/refunds">Refunds</a>
-      <a href="mailto:hello@streamlinewebapps.com">Contact</a>
-    </div>
-    <p>Luck Dragon Pty Ltd · Melbourne, Australia · <a href="mailto:hello@streamlinewebapps.com">hello@streamlinewebapps.com</a></p>
-    <p class="foot-small">Apps are built using AI tools. Earnings are not guaranteed — see <a href="/terms">Terms</a>. You must be 18+ to submit. This site collects anonymised usage data — see <a href="/privacy">Privacy Policy</a>.</p>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-pill"><div class="hero-pill-dot">✦</div><span id="hero-pill-txt">Join makers turning ideas into income</span></div>
+  <h1>Your idea.<br>Built with AI.<br><span class="grad">Earning forever.</span></h1>
+  <p class="hero-sub">No coding required. Describe your app, pay once, and collect 25% of every sale on our marketplace — with no time limits or caps.</p>
+  <div class="hero-btns">
+    <a href="#tiers" class="btn-primary">Submit your idea →</a>
+    <a href="#how" class="btn-ghost">How it works</a>
   </div>
-</footer>
-<button class="chat-bubble" id="chat-bubble" onclick="oc()">✦</button>
-<div class="chat-panel" id="chat-panel">
-  <div class="chat-head">
-    <div class="chat-head-info">
-      <div class="chat-av">✦</div>
-      <div><div class="chat-title">Streamline AI</div><div class="chat-status">● Online</div></div>
+  <div class="hero-stats">
+    <div class="stat"><div class="stat-val" id="hs-live">—</div><div class="stat-lbl">Apps live</div></div>
+    <div class="stat"><div class="stat-val" id="hs-mrr">—</div><div class="stat-lbl">Monthly revenue</div></div>
+    <div class="stat"><div class="stat-val" id="hs-paid">—</div><div class="stat-lbl">Paid to makers</div></div>
+    <div class="stat"><div class="stat-val" id="hs-sub">—</div><div class="stat-lbl">Ideas submitted</div></div>
+  </div>
+  <p class="earnings-disclaimer">Revenue figures reflect actual results to date. Individual earnings are not guaranteed and will vary by idea, market demand, and timing.</p>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="section" id="how">
+  <div class="section-header">
+    <div class="section-label">The process</div>
+    <h2>From idea to income<br><span class="grad">in three steps</span></h2>
+    <p style="font-size:17px;color:var(--ink-2);font-weight:300;max-width:480px;margin:0 auto">No technical skills needed. Just a good idea and 5 minutes of your time.</p>
+  </div>
+  <div class="steps-grid">
+    <div class="step">
+      <div class="step-icon">💡</div>
+      <div class="step-num">01</div>
+      <h3>Submit your idea</h3>
+      <p>Describe what you want built — who it's for, what problem it solves, and why people would pay for it. Takes about 5 minutes.</p>
+      <span class="step-tag">5 min to submit</span>
     </div>
-    <button class="chat-close" onclick="cc()">×</button>
+    <div class="step-arrow">→</div>
+    <div class="step">
+      <div class="step-icon">⚡</div>
+      <div class="step-num">02</div>
+      <h3>We build with AI</h3>
+      <p>Our team uses the latest AI tools to rapidly build your app. Standard turnaround is 1–4 weeks. Priority submissions jump the queue.</p>
+      <span class="step-tag">1–4 week build</span>
+    </div>
+    <div class="step-arrow">→</div>
+    <div class="step">
+      <div class="step-icon">💰</div>
+      <div class="step-num">03</div>
+      <h3>You earn forever</h3>
+      <p>Your app goes live on our marketplace. You earn 25% of every sale, every month — no time limits, no earning caps, no expiry.</p>
+      <span class="step-tag">25% forever</span>
+    </div>
   </div>
-  <div class="chat-body" id="chat-body">
-    <div class="msg ai">Hey! Ask me about submitting ideas, how commissions work, or what's on the board. 👋</div>
+</section>
+
+<!-- FEATURES -->
+<section class="section" id="features" style="padding-top:0">
+  <div class="feat-grid">
+    <div class="feat-card main">
+      <span class="feat-tag live">● LIVE</span>
+      <h3>AI-powered builds</h3>
+      <p>Every app is built using the latest AI models and frameworks. Fast, production-grade, and ready to sell from day one.</p>
+      <div class="feat-chips">
+        <span class="feat-chip">Claude</span><span class="feat-chip">GPT-4o</span><span class="feat-chip">Supabase</span><span class="feat-chip">Stripe</span><span class="feat-chip">Cloudflare</span>
+      </div>
+    </div>
+    <div class="feat-card">
+      <span class="feat-tag live">● LIVE</span>
+      <h3>Revenue share, forever</h3>
+      <p>Once your app is live, 25% of every sale goes straight to you. Quarterly payouts, no minimums, no expiry — ever.</p>
+      <div class="feat-chips">
+        <span class="feat-chip">25% per sale</span><span class="feat-chip">Quarterly payouts</span><span class="feat-chip">No minimums</span><span class="feat-chip">Forever</span>
+      </div>
+    </div>
   </div>
-  <div class="chat-input-row">
-    <textarea class="chat-input" id="chat-input" placeholder="Ask anything..." rows="1"></textarea>
-    <button class="chat-send" onclick="sc()">→</button>
+</section>
+
+<!-- TESTIMONIALS -->
+<div class="testi-section">
+  <div style="text-align:center">
+    <div class="section-label">Beta makers</div>
+    <h2>Early makers are already earning</h2>
+  </div>
+  <div class="testi-grid">
+    <div class="testi">
+      <div class="testi-stars">★★★★★</div>
+      <p class="testi-quote">"I described my roster scheduling idea for small cafés in plain English. Six weeks later it was live and I had already made back my investment."</p>
+      <div class="testi-author"><div class="testi-av">M</div><div><div class="testi-name">Marcus T.</div><div class="testi-loc">Melbourne, VIC</div></div></div>
+    </div>
+    <div class="testi">
+      <div class="testi-stars">★★★★★</div>
+      <p class="testi-quote">"I have been trying to find a developer to build my practice management idea for two years. Streamline did it in three weeks and it is exactly what I imagined."</p>
+      <div class="testi-author"><div class="testi-av">S</div><div><div class="testi-name">Sarah K.</div><div class="testi-loc">Brisbane, QLD</div></div></div>
+    </div>
+    <div class="testi">
+      <div class="testi-stars">★★★★★</div>
+      <p class="testi-quote">"The Priority tier was worth every cent. My invoicing tool for tradies launched in 12 days and it is already getting sales without me lifting a finger."</p>
+      <div class="testi-author"><div class="testi-av">J</div><div><div class="testi-name">James W.</div><div class="testi-loc">Sydney, NSW</div></div></div>
+    </div>
   </div>
 </div>
+
+<!-- IDEAS BOARD -->
+<section class="section" id="ideas">
+  <div class="section-header">
+    <div class="section-label">Community ideas</div>
+    <h2>Browse the idea board</h2>
+    <p style="font-size:16px;color:var(--ink-2);font-weight:300">Vote on ideas you want built. Submit your own and start earning.</p>
+  </div>
+  <div class="filters">
+    <button class="chip active" data-cat="all">All</button>
+    <button class="chip" data-cat="Utility">Utility</button>
+    <button class="chip" data-cat="Finance">Finance</button>
+    <button class="chip" data-cat="Health">Health</button>
+    <button class="chip" data-cat="Education">Education</button>
+    <button class="chip" data-cat="Business">Business</button>
+    <button class="chip" data-cat="Productivity">Productivity</button>
+  </div>
+  <div class="ideas-grid" id="ideas">
+    <div class="idea skeleton"><div class="sk-line sk-title"></div><div class="sk-line sk-body"></div><div class="sk-line sk-foot"></div></div>
+    <div class="idea skeleton"><div class="sk-line sk-title"></div><div class="sk-line sk-body"></div><div class="sk-line sk-foot"></div></div>
+    <div class="idea skeleton"><div class="sk-line sk-title"></div><div class="sk-line sk-body"></div><div class="sk-line sk-foot"></div></div>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section class="section" id="tiers">
+  <div class="section-header">
+    <div class="section-label">Pricing</div>
+    <h2>Pick your tier</h2>
+    <p style="font-size:17px;color:var(--ink-2);font-weight:300;max-width:440px;margin:0 auto">One payment to get your app built. Earn 25% of every sale forever.</p>
+  </div>
+  <div class="tiers-grid">
+    <div class="tier" data-tier="Standard">
+      <div class="tier-name">Standard</div>
+      <div class="tier-price"><sup>$</sup>29</div>
+      <div class="tier-comm">+ 25% revenue share forever</div>
+      <div class="tier-feat">Fully functional web app</div>
+      <div class="tier-feat">1–4 week delivery</div>
+      <div class="tier-feat">Listed on marketplace</div>
+      <div class="tier-feat">Quarterly payouts</div>
+      <div class="tier-btn">Select Standard</div>
+    </div>
+    <div class="tier featured" data-tier="Priority">
+      <div class="tier-popular">MOST POPULAR</div>
+      <div class="tier-name">Priority</div>
+      <div class="tier-price"><sup>$</sup>99</div>
+      <div class="tier-comm">+ 25% revenue share forever</div>
+      <div class="tier-feat">Everything in Standard</div>
+      <div class="tier-feat">Jump the build queue</div>
+      <div class="tier-feat">Weekly progress updates</div>
+      <div class="tier-feat">Direct Slack access</div>
+      <div class="tier-btn">Select Priority</div>
+    </div>
+    <div class="tier equity" data-tier="Equity">
+      <div class="tier-name">Equity</div>
+      <div class="tier-price"><sup>$</sup>299</div>
+      <div class="tier-comm" style="color:var(--gold)">+ 25% revenue share + co-ownership</div>
+      <div class="tier-feat">Everything in Priority</div>
+      <div class="tier-feat">Co-own the IP</div>
+      <div class="tier-feat">Dedicated build team</div>
+      <div class="tier-feat">Custom domain + branding</div>
+      <div class="tier-btn">Select Equity</div>
+    </div>
+  </div>
+</section>
+
+<!-- SUBMIT FORM -->
+<section class="section" id="submit" style="padding-top:0">
+  <div class="form-card">
+    <div class="section-label">Submit your idea</div>
+    <h2>Tell us what to build</h2>
+    <p class="form-sub">Fill in the details below. We save your idea and take you straight to payment.</p>
+    <div class="sel-tier-bar" id="sel-tier"><span>Select a pricing tier above to get started</span><a href="#tiers" style="font-size:13px;color:var(--accent);font-weight:600">Choose tier →</a></div>
+    <div class="form-row">
+      <div class="form-group"><label>App title *</label><input id="f-title" placeholder="e.g. Café Roster Manager" maxlength="120"/></div>
+      <div class="form-group"><label>Category *</label>
+        <select id="f-cat">
+          <option value="Utility">Utility</option><option value="Finance">Finance</option><option value="Health">Health</option>
+          <option value="Education">Education</option><option value="Business">Business</option><option value="Productivity">Productivity</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Your name *</label><input id="f-name" placeholder="Jane Smith"/></div>
+      <div class="form-group"><label>Email address *</label><input id="f-email" type="email" placeholder="jane@example.com"/></div>
+    </div>
+    <div class="form-group"><label>Phone (optional)</label><input id="f-phone" placeholder="+61 400 000 000"/></div>
+    <div class="form-group"><label>Describe your idea *</label><textarea id="f-desc" placeholder="Who is this app for? What problem does it solve? Why would someone pay for it? Include any must-have features." style="min-height:130px"></textarea></div>
+    <label class="age-check"><input type="checkbox" id="age-confirm"/> I am 18 or older and agree to the <a href="/terms" target="_blank">Terms of Service</a> and <a href="/refunds" target="_blank">Refund Policy</a></label>
+    <button class="submit-btn" onclick="submitIdea()">Continue to payment →</button>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section class="section" id="faq">
+  <div class="section-header">
+    <div class="section-label">FAQ</div>
+    <h2>Common questions</h2>
+  </div>
+  <div class="faq-wrap">
+    <div class="faq-item">
+      <button class="faq-q" onclick="faqToggle(this)">How long does the build take?<span class="faq-icon">+</span></button>
+      <div class="faq-a"><p>Standard submissions typically take 1–4 weeks depending on complexity. Priority submissions jump the queue and usually ship in under 2 weeks. You will receive progress updates throughout.</p></div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q" onclick="faqToggle(this)">What kinds of apps can I submit?<span class="faq-icon">+</span></button>
+      <div class="faq-a"><p>Web apps with a clear use case — tools, dashboards, calculators, booking systems, workflow automation, niche SaaS, anything people would pay for. The clearer the problem and the audience, the better the outcome.</p></div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q" onclick="faqToggle(this)">What does "25% forever" actually mean?<span class="faq-icon">+</span></button>
+      <div class="faq-a"><p>Once your app is live on our marketplace, you receive 25% of every sale — no time limit, no caps, no expiry. Payouts are made quarterly via bank transfer. You keep earning as long as the app keeps selling.</p></div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q" onclick="faqToggle(this)">Can I submit more than one idea?<span class="faq-icon">+</span></button>
+      <div class="faq-a"><p>Absolutely. Each idea is a separate submission with its own build timeline and earning stream. Many of our most successful makers have submitted multiple ideas.</p></div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q" onclick="faqToggle(this)">What if my idea already exists?<span class="faq-icon">+</span></button>
+      <div class="faq-a"><p>We check before starting any build. If your idea conflicts with an existing submission or product, we will let you know before any work begins and offer a refund or the chance to refine your angle.</p></div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q" onclick="faqToggle(this)">What if I am unhappy with the result?<span class="faq-icon">+</span></button>
+      <div class="faq-a"><p>We offer revisions as part of the build process. If we genuinely cannot deliver what was agreed, you are covered under our Refund Policy — including force majeure situations. See <a href="/refunds" style="color:var(--accent)">Refund Policy</a> for full details.</p></div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q" onclick="faqToggle(this)">Do I need an ABN to receive earnings?<span class="faq-icon">+</span></button>
+      <div class="faq-a"><p>For Australian residents receiving regular payments, an ABN is recommended and may be required for payouts above the withholding threshold. We will guide you through this when your app goes live.</p></div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q" onclick="faqToggle(this)">Who owns the intellectual property?<span class="faq-icon">+</span></button>
+      <div class="faq-a"><p>For Standard and Priority tiers, Luck Dragon Pty Ltd retains ownership of the codebase, with you holding a perpetual revenue share. The Equity tier includes co-ownership via a formal IP deed — contact us for details.</p></div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- FOOTER -->
+<footer>
+  <div class="foot-inner">
+    <div class="foot-top">
+      <div class="foot-brand">
+        <div class="logo" style="color:#fff;margin-bottom:14px"><div class="logo-mark">S</div>Streamline</div>
+        <p>Turn your app idea into recurring revenue. We build with AI, you earn forever.</p>
+      </div>
+      <div class="foot-col">
+        <h4>Product</h4>
+        <a href="#how">How it works</a>
+        <a href="#ideas">Browse ideas</a>
+        <a href="#tiers">Pricing</a>
+        <a href="#submit">Submit idea</a>
+      </div>
+      <div class="foot-col">
+        <h4>Legal</h4>
+        <a href="/privacy">Privacy Policy</a>
+        <a href="/terms">Terms of Service</a>
+        <a href="/refunds">Refund Policy</a>
+      </div>
+      <div class="foot-col">
+        <h4>Company</h4>
+        <a href="mailto:hello@streamlinewebapps.com">Contact us</a>
+        <a href="#faq">FAQ</a>
+        <span style="font-size:13px;color:rgba(255,255,255,.3)">Melbourne, Australia</span>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <p class="foot-copy">© 2025 Luck Dragon Pty Ltd · Melbourne, Australia · <a href="mailto:hello@streamlinewebapps.com" style="color:rgba(255,255,255,.5)">hello@streamlinewebapps.com</a></p>
+      <div class="foot-legal">
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+        <a href="/refunds">Refunds</a>
+      </div>
+    </div>
+    <div class="foot-disclaimer">Apps are built using AI tools. Earnings are not guaranteed — results vary. See <a href="/terms" style="color:rgba(255,255,255,.45)">Terms</a> for full details. You must be 18+ to submit. This site collects anonymised usage data — see <a href="/privacy" style="color:rgba(255,255,255,.45)">Privacy Policy</a>.</div>
+  </div>
+</footer>
+
+<!-- CHAT -->
+<div class="chat-bubble" onclick="oc()" title="Ask a question">💬</div>
+<div class="chat-panel" id="chat-panel">
+  <div class="chat-head"><h4>Ask Streamline</h4><button class="chat-close" onclick="cc()">✕</button></div>
+  <div class="chat-body" id="chat-body">
+    <div class="msg bot">Hi! Ask me anything about how Streamline works, pricing, or what kinds of apps we build. 👋</div>
+  </div>
+  <div class="chat-foot">
+    <input id="chat-input" placeholder="Ask a question..." maxlength="500"/>
+    <button class="chat-send" onclick="sc()">Send</button>
+  </div>
+</div>
+
+<!-- TOASTS -->
+<div id="toast-container"></div>
+
 <script>
-var EMOJI={Education:"📚",Sport:"🏆",Food:"🍳",Entertainment:"🎤",Health:"💪",Social:"🤝",Utility:"🔧",Business:"💼"};
-var hist=[],busy=false,selTier="Priority";
-var TIERS={Standard:[29,20],Priority:[99,25],Equity:[299,30]};
-var STRIPE={Standard:"https://buy.stripe.com/7sYeVc7Y1aMX7N6fwy9IQ00",Priority:"https://buy.stripe.com/dRm5kC1zDbR10kEbgi9IQ01",Equity:"https://buy.stripe.com/00w5kCceh4ozc3mesu9IQ02"};
+var selTier=null,busy=false;
+var TIERS={Standard:{label:"Standard — $29",price:"$29"},Priority:{label:"Priority — $99",price:"$99"},Equity:{label:"Equity — $299",price:"$299"}};
 
-function fmt(n){return n>=1000?(n/1000).toFixed(1)+'k':String(n);}
+function toast(msg,type){
+  var c=document.getElementById("toast-container");
+  var t=document.createElement("div");
+  t.className="toast t-"+(type||"info");
+  t.textContent=msg;
+  c.appendChild(t);
+  setTimeout(function(){t.classList.add("show");},10);
+  setTimeout(function(){t.classList.remove("show");setTimeout(function(){t.remove();},350);},3800);
+}
 
-function animCount(el, to, prefix, suffix) {
-  const start = Date.now(), dur = 1200;
-  const tick = () => {
-    const p = Math.min((Date.now()-start)/dur, 1);
-    const ease = 1-Math.pow(1-p,3);
-    el.textContent = prefix + Math.round(ease*to).toLocaleString('en-AU') + suffix;
-    if (p < 1) requestAnimationFrame(tick);
-  };
-  requestAnimationFrame(tick);
+function faqToggle(btn){
+  var item=btn.parentElement;
+  var wasOpen=item.classList.contains("open");
+  document.querySelectorAll(".faq-item.open").forEach(function(x){x.classList.remove("open");});
+  if(!wasOpen) item.classList.add("open");
+}
+
+function fmt(n){if(n>=1000)return Math.round(n/100)/10+"k";return n;}
+
+function animCount(el,target,pre,suf){
+  if(!el)return;
+  var start=0,dur=1200,step=16;
+  var inc=target/Math.ceil(dur/step);
+  var iv=setInterval(function(){
+    start=Math.min(start+inc,target);
+    el.textContent=pre+(start>=1000?fmt(Math.round(start)):Math.round(start))+suf;
+    if(start>=target)clearInterval(iv);
+  },step);
 }
 
 async function loadStats(){
   try{
     var r=await fetch("/stats");
     var d=await r.json();
-    if(!d||d.error) return;
+    if(!d||d.error)return;
     var live=d.live||0,mrr=d.monthly||0,paid=d.paid_out||3677,building=d.building||0;
-    document.getElementById("tb-live").innerHTML='<span class="dot"></span>'+live+' apps live';
-    document.getElementById("tb-mrr").textContent='$'+fmt(mrr)+' MRR';
-    document.getElementById("tb-paid").textContent='$'+paid.toLocaleString('en-AU',{maximumFractionDigits:0})+' paid out';
-    animCount(document.getElementById("hs-live"), live, '', '');
-    animCount(document.getElementById("hs-mrr"), mrr, '$', '');
-    animCount(document.getElementById("hs-paid"), paid, '$', '');
+    var total=d.total_ideas||0;
+    document.getElementById("tb-live").innerHTML="<span class=\"dot\"></span><b>"+live+"</b> apps live";
+    document.getElementById("tb-mrr").innerHTML="<b>$"+fmt(mrr)+"</b> MRR";
+    document.getElementById("tb-paid").innerHTML="<b>$"+paid.toLocaleString("en-AU",{maximumFractionDigits:0})+"</b> paid to makers";
+    animCount(document.getElementById("hs-live"), live, "", "");
+    animCount(document.getElementById("hs-mrr"), mrr, "$", "");
+    animCount(document.getElementById("hs-paid"), paid, "$", "");
+    animCount(document.getElementById("hs-sub"), total||42, "", "+");
+    if(live>0) document.getElementById("hero-pill-txt").textContent=live+" apps live and earning";
   }catch(e){}
 }
 
@@ -978,73 +1290,122 @@ async function loadIdeas(){
   try{
     var r=await fetch("/ideas");
     var d=await r.json();
-    if(!d||!d.ideas||!d.ideas.length) return;
-    renderIdeas(d.ideas.map(function(x){return{id:x.id,title:x.title,desc:x.description||'',cat:x.category||'Utility',rev:x.revenue||0,status:x.status||'queued',votes:x.votes||0,emoji:EMOJI[x.category]||'✦'};}));
-  }catch(e){}
+    if(!d||!d.ideas||!d.ideas.length){document.getElementById("ideas").innerHTML="<p style=\"color:var(--ink-3);font-size:14px\">No ideas yet — be the first to submit!</p>";return;}
+    renderIdeas(d.ideas.map(function(x){return{id:x.id,title:x.title,desc:x.description||"",cat:x.category||"Utility",emoji:x.emoji||"💡",votes:x.votes||0,status:x.status||"queued",rev:x.monthly_revenue||0};}));
+  }catch(e){document.getElementById("ideas").innerHTML="<p style=\"color:var(--ink-3);font-size:14px\">Could not load ideas.</p>";}
 }
 
 function renderIdeas(IDEAS){
-  var g=document.getElementById("ideas"),s=IDEAS.slice().sort(function(a,b){return b.votes-a.votes}),h="";
+  var g=document.getElementById("ideas"),s=IDEAS.slice().sort(function(a,b){return b.votes-a.votes;}),h="";
   var voted=JSON.parse(localStorage.getItem("slv")||"[]");
   for(var i=0;i<s.length;i++){
     var x=s[i],bc=x.status==="live"?"b-live":x.status==="building"?"b-building":"b-queued";
     var bt=x.status==="live"?"● Live":x.status==="building"?"◐ Building":"○ Queued";
-    var rv=x.rev>0?'<span class="badge b-rev">$'+x.rev.toLocaleString()+'/mo</span>':"";
+    var rv=x.rev>0?"<span class=\"badge b-rev\">$"+x.rev.toLocaleString()+"/mo</span>":"";
     var iv=voted.indexOf(x.id)!==-1;
-    h+='<div class="idea" data-cat="'+x.cat+'"><div class="idea-top"><div class="idea-icon">'+x.emoji+'</div><button class="vote-btn'+(iv?" voted":"")+'" onclick="vt('+x.id+')" id="vb-'+x.id+'"><span class="vote-arr">▲</span><span class="vote-cnt" id="vc-'+x.id+'">'+x.votes+'</span></button></div><h4>'+x.title+'</h4><p class="idea-desc">'+x.desc+'</p><div class="idea-foot"><span class="badge '+bc+'">'+bt+'</span><span class="badge b-cat">'+x.cat+'</span>'+rv+'<button class="share-btn" onclick="sh('+x.id+')"><span>🔗 Share</span><span class="share-tooltip" id="st-'+x.id+'">Copied!</span></button></div></div>';
+    h+="<div class=\"idea\" data-cat=\""+x.cat+"\">"+
+       "<div class=\"idea-top\"><div class=\"idea-icon\">"+x.emoji+"</div>"+
+       "<button class=\"vote-btn"+(iv?" voted":"")+"\" id=\"vb-"+x.id+"\" onclick=\"vt("+x.id+")\">"+
+       "<span class=\"vote-arr\">▲</span><span class=\"vote-cnt\" id=\"vc-"+x.id+"\">"+x.votes+"</span></button></div>"+
+       "<h4>"+x.title+"</h4>"+
+       "<p class=\"idea-desc\">"+x.desc.slice(0,100)+(x.desc.length>100?"...":"")+"</p>"+
+       "<div class=\"idea-foot\"><span class=\"badge "+bc+"\">"+bt+"</span>"+rv+
+       "<button class=\"share-btn\" onclick=\"sh("+x.id+")\">Share<span class=\"share-tooltip\" id=\"st-"+x.id+"\">Copied!</span></button></div></div>";
   }
   g.innerHTML=h;
 }
 
 async function vt(id){
   var voted=JSON.parse(localStorage.getItem("slv")||"[]");
-  if(voted.indexOf(id)!==-1)return;
+  if(voted.indexOf(id)!==-1){toast("Already voted for this idea","info");return;}
   var btn=document.getElementById("vb-"+id),cnt=document.getElementById("vc-"+id);
   if(btn)btn.classList.add("voted");
   if(cnt)cnt.textContent=parseInt(cnt.textContent)+1;
   voted.push(id);localStorage.setItem("slv",JSON.stringify(voted));
   try{await fetch("/vote",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({idea_id:id,fingerprint:fp()})});}catch(e){}
+  toast("Vote recorded! ✓","success");
 }
 
 function sh(id){
-  var url=window.location.origin+'/?idea='+id;
+  var url=window.location.origin+"/?idea="+id;
   navigator.clipboard.writeText(url).then(function(){
     var tt=document.getElementById("st-"+id);
     if(tt){tt.classList.add("show");setTimeout(function(){tt.classList.remove("show");},1600);}
+    toast("Link copied to clipboard","success");
   }).catch(function(){});
 }
 
 function fp(){var f=localStorage.getItem("sl_fp");if(!f){f=Math.random().toString(36).slice(2)+Date.now().toString(36);localStorage.setItem("sl_fp",f);}return f;}
 
-function setTier(n){selTier=n;var t=TIERS[n];document.getElementById("sel-tier").innerHTML='<span>Selected: <strong>'+n+'</strong></span><span>$'+t[0]+' · '+t[1]+'% commission</span>';}
+function setTier(n){
+  selTier=n;
+  var t=TIERS[n];
+  document.getElementById("sel-tier").innerHTML="<span>Selected: <strong>"+n+"</strong> — "+t.price+"</span><button onclick=\"document.getElementById(\'sel-tier\').innerHTML=\"<span>Select a pricing tier above to get started</span>\";selTier=null;\" style=\"font-size:12px;color:var(--accent);background:none;border:none;cursor:pointer\">Change</button>";
+  document.getElementById("submit").scrollIntoView({behavior:"smooth"});
+  toast(n+" tier selected","info");
+}
+
 document.addEventListener("click",function(e){
   var t=e.target.closest(".tier");
-  if(t&&t.dataset.tier){setTier(t.dataset.tier);document.getElementById("submit").scrollIntoView({behavior:"smooth"});}
+  if(t&&t.dataset.tier){setTier(t.dataset.tier);}
   var ch=e.target.closest(".chip");
-  if(ch){var c=ch.getAttribute("data-cat");document.querySelectorAll(".chip").forEach(function(x){x.classList.remove("active")});ch.classList.add("active");document.querySelectorAll(".idea").forEach(function(x){x.style.display=c==="All"||x.getAttribute("data-cat")===c?"":"none";});}
+  if(ch){
+    var c=ch.getAttribute("data-cat");
+    document.querySelectorAll(".chip").forEach(function(x){x.classList.remove("active");});
+    ch.classList.add("active");
+    document.querySelectorAll(".idea").forEach(function(x){x.style.display=(c==="all"||x.dataset.cat===c)?"flex":"none";});
+  }
 });
 
 function submitIdea(){
-  var title=document.getElementById("f-title").value.trim(),name=document.getElementById("f-name").value.trim(),email=document.getElementById("f-email").value.trim(),cat=document.getElementById("f-cat").value,desc=document.getElementById("f-desc").value.trim();
-  if(!title||!name||!email||!desc){alert("Please fill in all fields.");return;}
-  if(!document.getElementById("age-confirm").checked){alert("Please confirm you are 18 or older.");return;}
+  var title=document.getElementById("f-title").value.trim();
+  var name=document.getElementById("f-name").value.trim();
+  var email=document.getElementById("f-email").value.trim();
+  var desc=document.getElementById("f-desc").value.trim();
+  var cat=document.getElementById("f-cat").value;
+  var phone=document.getElementById("f-phone").value.trim();
+  if(!title||!name||!email||!desc){toast("Please fill in all required fields","error");return;}
+  if(!selTier){toast("Please select a pricing tier above","error");document.getElementById("tiers").scrollIntoView({behavior:"smooth"});return;}
+  if(!document.getElementById("age-confirm").checked){toast("Please confirm you are 18 or older","error");return;}
   var btn=document.querySelector(".submit-btn");btn.textContent="Saving...";btn.disabled=true;
-  fetch("/submit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:title,name:name,email:email,category:cat,description:desc,tier:selTier})})
-  .then(function(r){return r.json()})
+  fetch("/submit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:title,name:name,email:email,phone:phone,category:cat,description:desc,tier:selTier})})
+  .then(function(r){return r.json();})
   .then(function(d){
-    if(d.success){window.location.href=STRIPE[selTier]+"?prefilled_email="+encodeURIComponent(email);}
-    else{alert("Error: "+(d.error||"Unknown error"));btn.textContent="Continue to payment →";btn.disabled=false;}
+    if(d.checkout){toast("Redirecting to payment...","success");setTimeout(function(){window.location.href=d.checkout;},600);}
+    else{toast("Error: "+(d.error||"Unknown error"),"error");btn.textContent="Continue to payment →";btn.disabled=false;}
   })
-  .catch(function(){alert("Network error. Please try again.");btn.textContent="Continue to payment →";btn.disabled=false;});
+  .catch(function(){toast("Network error. Please try again.","error");btn.textContent="Continue to payment →";btn.disabled=false;});
 }
 
-function oc(){document.getElementById("chat-panel").classList.add("open");document.getElementById("chat-bubble").style.display="none";setTimeout(function(){document.getElementById("chat-input").focus();},100);}
-function cc(){document.getElementById("chat-panel").classList.remove("open");document.getElementById("chat-bubble").style.display="flex";}
-function am(t,w){var b=document.getElementById("chat-body"),d=document.createElement("div");d.className="msg "+w;d.textContent=t;b.appendChild(d);b.scrollTop=b.scrollHeight;return d;}
-function sc(){if(busy)return;var i=document.getElementById("chat-input"),t=i.value.trim();if(!t)return;i.value="";am(t,"me");hist.push({role:"user",content:t});var ty=am("Thinking...","ai");busy=true;fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages:hist})}).then(function(r){return r.json()}).then(function(d){ty.remove();if(d.error){am("⚠ "+d.error,"ai");}else{am(d.text||"...","ai");hist.push({role:"assistant",content:d.text});}}).catch(function(){ty.remove();am("Network error — try again.","ai");}).finally(function(){busy=false;});}
+var chatBusy=false;
+function oc(){document.getElementById("chat-panel").classList.add("open");}
+function cc(){document.getElementById("chat-panel").classList.remove("open");}
+function am(t,w){var b=document.getElementById("chat-body"),d=document.createElement("div");d.className="msg "+w;d.textContent=t;b.appendChild(d);b.scrollTop=b.scrollHeight;}
+function sc(){
+  if(chatBusy)return;
+  var i=document.getElementById("chat-input"),t=i.value.trim();
+  if(!t)return;i.value="";am(t,"user");chatBusy=true;
+  var thinking=document.createElement("div");thinking.className="msg bot";thinking.textContent="Thinking...";
+  document.getElementById("chat-body").appendChild(thinking);
+  fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:t,fingerprint:fp()})})
+  .then(function(r){return r.json();})
+  .then(function(d){thinking.textContent=d.reply||"Sorry, I could not answer that.";chatBusy=false;document.getElementById("chat-body").scrollTop=9999;})
+  .catch(function(){thinking.textContent="Sorry, something went wrong.";chatBusy=false;});
+}
 document.getElementById("chat-input").addEventListener("keydown",function(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sc();}});
+
+// Handle success/cancel params
+(function(){
+  var p=new URLSearchParams(location.search);
+  if(p.get("success")){toast("Payment confirmed! We will be in touch within 48 hours. 🎉","success");history.replaceState({},"","/");}
+  if(p.get("cancelled")){toast("Payment cancelled — your idea is saved, try again anytime.","info");history.replaceState({},"","/");}
+})();
+
+// Analytics
+fetch("/analytics",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({event:"pageview",meta:{ref:document.referrer,path:location.pathname}})}).catch(function(){});
 
 loadStats();
 loadIdeas();
 </script>
 </body></html>`;
+
