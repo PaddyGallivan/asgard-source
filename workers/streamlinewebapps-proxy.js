@@ -1,4 +1,4 @@
-// streamlinewebapps-proxy v26 — fix: await DB writes (waitUntil not needed; fire-and-forget was dropping)
+// streamlinewebapps-proxy v27 — earnings disclaimer, strengthened ToS (force majeure, no-guarantee clause)
 const SUPABASE = "https://huvfgenbcaiicatvtxak.supabase.co/functions/v1/streamline";
 const SUPA_REST = "https://huvfgenbcaiicatvtxak.supabase.co/rest/v1";
 const SUPA_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh1dmZnZW5iY2FpaWNhdHZ0eGFrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2MTczNjIsImV4cCI6MjA5MTE5MzM2Mn0.uTgzTKYjJnkFlRUIhGfW4ODKyV24xOdKaX7lxpDuMfc";
@@ -314,6 +314,7 @@ footer p{font-size:13px;color:var(--ink-3);margin:0}
   <section>
     <h2>4. Commission Payments</h2>
     <p>Once your app launches and generates revenue, we calculate your commission monthly. Payments are sent via bank transfer when your balance reaches $50 AUD in a given month, within 5 business days of month end.</p>
+    <p><strong>No guarantee of earnings.</strong> Commission payments are contingent on the app generating revenue. Streamline does not guarantee that any app will generate revenue, reach the $50 AUD payment threshold, or continue operating indefinitely. Revenue figures displayed on our website reflect actual historical results and are not a promise or projection of future earnings. Individual results will vary significantly.</p>
     <p>You are responsible for declaring commission income for tax purposes in your jurisdiction.</p>
   </section>
 
@@ -353,16 +354,23 @@ footer p{font-size:13px;color:var(--ink-3);margin:0}
 
   <section>
     <h2>9. Limitation of Liability</h2>
-    <p>To the extent permitted by law, Luck Dragon and Streamline are not liable for indirect, incidental, or consequential damages, including lost profits or revenue.</p>
+    <p>To the extent permitted by law, Luck Dragon and Streamline are not liable for indirect, incidental, or consequential damages, including lost profits or revenue. Our total liability to you for any claim arising from these Terms or your use of Streamline shall not exceed the amount you paid to submit your idea.</p>
+    <p>Nothing in these Terms excludes, restricts, or modifies any right or remedy you may have under the Australian Consumer Law, including any consumer guarantee that cannot be excluded by law.</p>
   </section>
 
   <section>
-    <h2>10. Changes to Terms</h2>
+    <h2>10. Force Majeure</h2>
+    <p>Streamline will not be in breach of these Terms if we are unable to perform our obligations due to circumstances beyond our reasonable control, including but not limited to: natural disasters, acts of government, pandemic, significant technical failure, or third-party platform outages (including AI model providers, payment processors, or cloud infrastructure).</p>
+    <p>If a force majeure event prevents us from building your idea within the refund window for your tier, we will notify you and offer either: (a) an extended build timeline with your consent, or (b) a full refund of your submission fee.</p>
+  </section>
+
+  <section>
+    <h2>11. Changes to Terms</h2>
     <p>We may update these Terms at any time. Continued use of Streamline constitutes acceptance of updated Terms.</p>
   </section>
 
   <section>
-    <h2>11. Contact</h2>
+    <h2>12. Contact</h2>
     <p>For questions about these Terms, contact us at hello@streamlinewebapps.com.</p>
   </section>
 </main>
@@ -566,7 +574,7 @@ export default {
     // Serve the HTML shell for everything else
     return new Response(HTML, {
       status: 200,
-      headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60", "X-Streamline-Version": "26" }
+      headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60", "X-Streamline-Version": "27" }
     });
   }
 };
@@ -786,6 +794,7 @@ footer p{font-size:13px;color:var(--ink-3)}
       <div class="stat"><div class="stat-val">30%</div><div class="stat-lbl">Max commission</div></div>
       <div class="stat"><div class="stat-val" id="hs-paid">—</div><div class="stat-lbl">Paid out</div></div>
     </div>
+    <p class="earnings-disclaimer">Revenue figures reflect actual results to date. Commission earnings depend on app performance and are not guaranteed. Past results are not indicative of future returns. <a href="/terms">Terms apply.</a></p>
   </section>
   <section id="how">
     <div class="section-tag">Process</div>
