@@ -1,4 +1,4 @@
-// streamlinewebapps-proxy v23 — cache control, rate limiting, legal pages, share button, counter animation, footer links
+// streamlinewebapps-proxy v24 — native /submit handler (Stripe direct, no Supabase hop)
 const SUPABASE = "https://huvfgenbcaiicatvtxak.supabase.co/functions/v1/streamline";
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,POST,OPTIONS", "Access-Control-Allow-Headers": "Content-Type,Authorization" };
 
@@ -13,7 +13,46 @@ function rateOk(ip, key, max, windowMs=60000) {
 }
 
 // API routes that should be proxied to Supabase
-const API_ROUTES = ["/ideas", "/stats", "/vote", "/chat", "/submit", "/analytics"];
+const API_ROUTES = ["/ideas", "/stats", "/vote", "/chat", "/analytics"];
+
+const STRIPE_PRICES = { Standard: "price_1TNvyJAm8bVflPN0GBi8u30C", Priority: "price_1TNvyJAm8bVflPN0Nerezgrs", Equity: "price_1TNvyKAm8bVflPN0rZqZZdgq" };
+
+async function handleSubmit(request, env) {
+  let body;
+  try { body = await request.json(); } catch(e) { return new Response(JSON.stringify({error:"Invalid JSON"}), {status:400, headers:{...CORS,"Content-Type":"application/json"}}); }
+  const { title, name, email, phone, category, description, tier } = body;
+  if (!title || !name || !email || !description || !tier) return new Response(JSON.stringify({error:"Missing required fields"}), {status:400, headers:{...CORS,"Content-Type":"application/json"}});
+  const priceId = STRIPE_PRICES[tier];
+  if (!priceId) return new Response(JSON.stringify({error:"Invalid tier"}), {status:400, headers:{...CORS,"Content-Type":"application/json"}});
+  const stripeKey = env.STRIPE_SK;
+  if (!stripeKey) return new Response(JSON.stringify({error:"Payment system unavailable"}), {status:503, headers:{...CORS,"Content-Type":"application/json"}});
+  try {
+    const params = new URLSearchParams();
+    params.set("mode","payment");
+    params.set("line_items[0][price]", priceId);
+    params.set("line_items[0][quantity]","1");
+    params.set("success_url","https://streamlinewebapps.com/?success=1");
+    params.set("cancel_url","https://streamlinewebapps.com/");
+    params.set("customer_email", email);
+    params.set("metadata[tier]", tier);
+    params.set("metadata[title]", title.slice(0,500));
+    params.set("metadata[name]", name.slice(0,200));
+    params.set("metadata[email]", email.slice(0,200));
+    params.set("metadata[category]", (category||"Utility").slice(0,100));
+    params.set("metadata[description]", description.slice(0,500));
+    if (phone) params.set("metadata[phone]", phone.slice(0,50));
+    const r = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+      method:"POST",
+      headers:{"Authorization":"Basic "+btoa(stripeKey+":"),"Content-Type":"application/x-www-form-urlencoded"},
+      body:params.toString()
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error?.message || "Stripe error");
+    return new Response(JSON.stringify({checkout: data.url}), {headers:{...CORS,"Content-Type":"application/json"}});
+  } catch(e) {
+    return new Response(JSON.stringify({error: e.message||"Payment system unavailable"}), {status:500, headers:{...CORS,"Content-Type":"application/json"}});
+  }
+}
 
 const PRIVACY_HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Privacy Policy — Streamline</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -437,14 +476,18 @@ export default {
     if (path === "/terms") return new Response(TERMS_HTML, { headers: { "Content-Type": "text/html;charset=utf-8", "Cache-Control": "public,max-age=3600" } });
     if (path === "/refunds") return new Response(REFUNDS_HTML, { headers: { "Content-Type": "text/html;charset=utf-8", "Cache-Control": "public,max-age=3600" } });
 
+    // Native submit handler — calls Stripe directly
+    if (path === "/submit" && request.method === "POST") {
+      const ip = request.headers.get("CF-Connecting-IP") || "";
+      if (!rateOk(ip, "sub", 5)) return new Response(JSON.stringify({error:"Too many requests"}), {status:429, headers:{...CORS,"Content-Type":"application/json"}});
+      return handleSubmit(request, env);
+    }
+
     // Proxy all API routes to Supabase with rate limiting
     if (API_ROUTES.includes(path)) {
       const ip = request.headers.get("CF-Connecting-IP") || "";
 
       // Apply rate limiting based on route
-      if (path === "/submit" && !rateOk(ip, "sub", 5)) {
-        return new Response(JSON.stringify({error:"Too many requests"}), {status:429, headers:{...CORS,"Content-Type":"application/json"}});
-      }
       if (path === "/chat" && !rateOk(ip, "chat", 20)) {
         return new Response(JSON.stringify({error:"Too many requests"}), {status:429, headers:{...CORS,"Content-Type":"application/json"}});
       }
@@ -474,7 +517,7 @@ export default {
     // Serve the HTML shell for everything else
     return new Response(HTML, {
       status: 200,
-      headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60", "X-Streamline-Version": "23" }
+      headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60", "X-Streamline-Version": "24" }
     });
   }
 };
