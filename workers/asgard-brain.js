@@ -207,7 +207,7 @@ async function toolD1Write({ sql, params = [] }, env) {
 }
 
 async function toolWorkerCall({ worker, path = "/health", method = "GET", body, gatekeeper }, env) {
-  const url = worker.startsWith("http") ? worker + path : `https://${worker}.pgallivan.workers.dev${path}`;
+  const url = worker.startsWith("http") ? worker + path : `https://${worker}.luckdragon.io${path}`;
   const headers = { "Content-Type": "application/json" };
   if (gatekeeper && env.GATEKEEPER_KEY) headers["X-Gatekeeper"] = env.GATEKEEPER_KEY;
   const opts = { method, headers, signal: AbortSignal.timeout(8000) };
@@ -222,7 +222,7 @@ async function toolWorkerCall({ worker, path = "/health", method = "GET", body, 
 // ---- capture helper: fire-and-forget POST to asgard-comms /v1/capture ----
 async function captureEvent(env, payload) {
   try {
-    const url = 'https://asgard-comms.pgallivan.workers.dev/v1/capture';
+    const url = 'https://asgard-comms.luckdragon.io/v1/capture';
     const pin = env.PADDY_PIN || env.JACKY_PIN || '';
     const r = await fetch(url, {
       method: 'POST',
@@ -285,7 +285,7 @@ async function toolCfDeploy({ name, code, bindings = [] }, env) {
         project: name,
         event: "deploy",
         summary: `cf_deploy ${wasNew ? "created" : "updated"} worker ${name}`,
-        url: `https://${name}.pgallivan.workers.dev/`,
+        url: `https://${name}.luckdragon.io/`,
         source: "asgard-brain/cf_deploy",
         notify: false,
       });
@@ -340,7 +340,7 @@ async function toolCfSubdomainEnable({ name, enabled = true }, env) {
 }
 
 async function toolSlackSend({ channel, message, priority = "NORMAL" }, env) {
-  const r = await fetch("https://comms-hub.pgallivan.workers.dev/api/messages", {
+  const r = await fetch("https://comms-hub.luckdragon.io/api/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ source: "asgard-brain", type: "message", message, channel, priority })
@@ -350,7 +350,7 @@ async function toolSlackSend({ channel, message, priority = "NORMAL" }, env) {
 }
 
 async function toolCraftsmanBuild({ task, context, worker_name }, env) {
-  const r = await fetch("https://craftsman.pgallivan.workers.dev/api/build", {
+  const r = await fetch("https://craftsman.luckdragon.io/api/build", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ task, context, worker_name })
