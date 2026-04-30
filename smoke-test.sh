@@ -7,7 +7,7 @@
 set -uo pipefail
 
 TARGET="${1:-prod}"
-PIN="${ASGARD_PIN:-2967}"
+PIN="${ASGARD_PIN:-535554}"
 
 if [ "$TARGET" = "staging" ]; then
   BASE="https://asgard-staging.luckdragon.io"
@@ -74,15 +74,17 @@ else
   fail "POST /login -- got $LOGIN_CODE"
 fi
 
-CSP=$(curl -sI --max-time 10 -b "asgard_pin=$PIN" "$BASE/" 2>/dev/null \
+CSP=$(curl -sI --max-time 10 "$BASE/login" 2>/dev/null \
   | grep -i "content-security-policy" | head -1)
 if [ -n "$CSP" ]; then pass "CSP header present"
 else warn "CSP header missing"; fi
 
-if echo "$CSP" | grep -q "luckdragon.io"; then
-  pass "CSP uses luckdragon.io backends"
+APP_CSP=$(curl -sI --max-time 10 -b "asgard_pin=$PIN" "$BASE/" 2>/dev/null \
+  | grep -i "content-security-policy" | head -1)
+if echo "$APP_CSP" | grep -q "luckdragon.io"; then
+  pass "App CSP uses luckdragon.io backends"
 else
-  warn "CSP may still reference old backend URLs"
+  warn "App CSP may not reference luckdragon.io backends"
 fi
 
 echo ""
