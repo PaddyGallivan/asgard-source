@@ -1,10 +1,12 @@
 export default {
-  async fetch(request) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === '/health') {
-      return Response.json({ status: 'ok', version: '1.1.0', worker: 'falkor-ui' });
+      return new Response(JSON.stringify({status:'ok',version:'1.2.0',worker:'falkor-ui'}), {
+        headers: {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}
+      });
     }
-    return new Response(`<!DOCTYPE html>
+    const HTML = `<!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
@@ -67,14 +69,6 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .composer-inner:focus-within{border-color:var(--accent)}
 .composer-inner.drag-over{border-color:var(--accent2);background:rgba(108,99,255,.08)}
 textarea{background:none;border:none;color:var(--text);flex:1;font-size:14px;line-height:1.5;outline:none;resize:none;max-height:160px;font-family:inherit}
-.mic-btn{background:none;border:1px solid var(--border);border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--text);transition:all .2s;}
-.mic-btn:hover{background:var(--border);}
-.mic-btn.recording{background:#e74c3c22;border-color:#e74c3c;animation:pulse 1s infinite;}
-.mic-btn.wake{background:#3498db22;border-color:#3498db;}
-.speak-btn{background:none;border:1px solid var(--border);border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--muted);transition:all .2s;}
-.speak-btn:hover{background:var(--border);}
-.speak-btn.on{color:var(--accent);border-color:var(--accent);}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
 .send-btn{background:var(--accent);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:16px;padding:7px 12px;transition:opacity .15s;flex-shrink:0;line-height:1}
 .send-btn:hover{opacity:.85}.send-btn:disabled{opacity:.35;cursor:not-allowed}
 .attach-row{font-size:12px;color:var(--accent2);padding:4px 4px 0;display:flex;align-items:center;gap:8px}
@@ -98,6 +92,30 @@ textarea{background:none;border:none;color:var(--text);flex:1;font-size:14px;lin
 .sport-table{width:100%;border-collapse:collapse;font-size:13px}
 .sport-table th{text-align:left;padding:6px 8px;color:var(--muted);border-bottom:1px solid var(--border)}
 .sport-table td{padding:7px 8px;border-bottom:1px solid var(--border)}
+/* ── Voice ── */
+.voice-overlay{position:fixed;inset:0;background:rgba(10,10,14,.92);z-index:200;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;backdrop-filter:blur(6px)}
+.voice-dragon{font-size:64px;line-height:1;filter:drop-shadow(0 0 24px rgba(108,99,255,.6))}
+.voice-status{font-size:15px;color:var(--accent2);letter-spacing:.03em;min-height:22px}
+.voice-transcript{font-size:14px;color:var(--muted);max-width:500px;text-align:center;min-height:40px;line-height:1.5;padding:0 24px}
+.voice-reply{font-size:14px;color:var(--text);max-width:500px;text-align:center;min-height:40px;line-height:1.5;padding:0 24px}
+.waveform{display:flex;align-items:center;gap:3px;height:48px}
+.waveform-bar{width:4px;background:var(--accent);border-radius:2px;transition:height .1s ease;min-height:4px}
+@keyframes pulse-ring{0%{transform:scale(1);opacity:.7}100%{transform:scale(1.6);opacity:0}}
+.voice-mic-btn{width:72px;height:72px;border-radius:50%;border:none;cursor:pointer;font-size:28px;position:relative;display:flex;align-items:center;justify-content:center;transition:background .2s}
+.voice-mic-btn.idle{background:var(--accent)}
+.voice-mic-btn.listening{background:#ef4444}
+.voice-mic-btn.listening::before{content:'';position:absolute;inset:-8px;border-radius:50%;border:2px solid #ef4444;animation:pulse-ring .9s ease-out infinite}
+.voice-mic-btn.processing{background:var(--border);cursor:not-allowed}
+.voice-mic-btn.speaking{background:var(--success)}
+.voice-close{position:absolute;top:24px;right:24px;background:none;border:none;color:var(--muted);font-size:24px;cursor:pointer;padding:8px}
+.voice-close:hover{color:var(--text)}
+.voice-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:4px 6px;border-radius:6px;line-height:1;transition:color .15s}
+.voice-btn:hover{color:var(--accent2)}
+.voice-btn.active{color:var(--accent)}
+/* ── Toast ── */
+.toast-container{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:300;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none}
+.toast{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:10px 18px;font-size:13px;color:var(--text);box-shadow:0 4px 20px rgba(0,0,0,.4);animation:toast-in .2s ease;max-width:360px;text-align:center}
+@keyframes toast-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 </style>
 </head>
 <body>
@@ -106,9 +124,9 @@ textarea{background:none;border:none;color:var(--text);flex:1;font-size:14px;lin
 const { useState, useEffect, useRef, useCallback } = React;
 
 const AGENT_URL = 'https://falkor-agent.luckdragon.io';
-const AI_URL    = 'https://asgard-ai.luckdragon.io';
 const SPORT_URL = 'https://falkor-sport.luckdragon.io';
 const AUTH_URL  = 'https://asgard.luckdragon.io';
+const AI_URL    = 'https://asgard-ai.luckdragon.io';
 const MODELS = [
   { key: 'groq-fast',  label: '⚡ Groq Fast' },
   { key: 'groq',       label: '🧠 Groq 70B' },
@@ -125,6 +143,8 @@ const LS = {
   setModel: v => localStorage.setItem('falkor.model', v),
   theme:  () => localStorage.getItem('falkor.theme') || 'dark',
   setTheme: v => localStorage.setItem('falkor.theme', v),
+  voice:  () => localStorage.getItem('falkor.voice') !== 'off',
+  setVoice: v => localStorage.setItem('falkor.voice', v ? 'on' : 'off'),
 };
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
 function renderMD(text) {
@@ -134,6 +154,90 @@ function renderMD(text) {
     .replace(/\\*\\*([^*]+)\\*\\*/g,'<strong>$1</strong>')
     .replace(/\\*([^*]+)\\*/g,'<em>$1</em>')
     .replace(/\\n/g,'<br>');
+}
+
+// ── Toast ──────────────────────────────────────────────────────
+let _toastId = 0;
+let _setToasts = null;
+function toast(msg, duration) {
+  if (!_setToasts) return;
+  var d = duration || 3000;
+  var id = ++_toastId;
+  _setToasts(function(prev) { return prev.concat([{ id: id, msg: msg }]); });
+  setTimeout(function() { _setToasts(function(prev) { return prev.filter(function(t) { return t.id !== id; }); }); }, d);
+}
+function ToastContainer() {
+  const [toasts, setToasts] = useState([]);
+  useEffect(() => { _setToasts = setToasts; return () => { _setToasts = null; }; }, []);
+  if (!toasts.length) return null;
+  return (
+    <div className="toast-container">
+      {toasts.map(t => <div key={t.id} className="toast">{t.msg}</div>)}
+    </div>
+  );
+}
+
+// ── Voice Waveform ─────────────────────────────────────────────
+function VoiceWaveform({ analyserRef, active }) {
+  const barsRef = useRef([]);
+  const rafRef = useRef(null);
+  const NUM_BARS = 18;
+
+  useEffect(() => {
+    if (!active || !analyserRef.current) {
+      barsRef.current.forEach(b => { if(b) b.style.height = '4px'; });
+      return;
+    }
+    const analyser = analyserRef.current;
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    function draw() {
+      analyser.getByteFrequencyData(data);
+      const step = Math.floor(data.length / NUM_BARS);
+      barsRef.current.forEach((bar, i) => {
+        if (!bar) return;
+        const v = data[i * step] / 255;
+        bar.style.height = Math.max(4, v * 44) + 'px';
+      });
+      rafRef.current = requestAnimationFrame(draw);
+    }
+    draw();
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [active]);
+
+  return (
+    <div className="waveform">
+      {Array.from({length: NUM_BARS}, (_, i) => (
+        <div key={i} className="waveform-bar" ref={el => barsRef.current[i] = el} style={{height:'4px'}}/>
+      ))}
+    </div>
+  );
+}
+
+// ── Voice Modal ────────────────────────────────────────────────
+function VoiceModal({ voiceState, transcript, reply, analyserRef, onMicClick, onClose }) {
+  const statusMap = {
+    idle:       '🎙️ Tap mic to speak',
+    listening:  '🔴 Listening…',
+    processing: '⚙️ Processing…',
+    speaking:   '🔊 Speaking…',
+  };
+  return (
+    <div className="voice-overlay">
+      <button className="voice-close" onClick={onClose}>✕</button>
+      <div className="voice-dragon">🐉</div>
+      <div className="voice-status">{statusMap[voiceState] || ''}</div>
+      <VoiceWaveform analyserRef={analyserRef} active={voiceState==='listening'||voiceState==='speaking'} />
+      {transcript && <div className="voice-transcript">"{transcript}"</div>}
+      {reply && <div className="voice-reply">{reply}</div>}
+      <button
+        className={'voice-mic-btn ' + voiceState}
+        onClick={onMicClick}
+        disabled={voiceState==='processing'||voiceState==='speaking'}
+      >
+        {voiceState==='listening' ? '⏹' : voiceState==='speaking' ? '🔊' : '🎤'}
+      </button>
+    </div>
+  );
 }
 
 // ── Login ──────────────────────────────────────────────────────
@@ -173,7 +277,7 @@ function LoginScreen({ onLogin }) {
 }
 
 // ── Settings ───────────────────────────────────────────────────
-function SettingsPanel({ onClose, theme, onThemeToggle }) {
+function SettingsPanel({ onClose, theme, onThemeToggle, voiceEnabled, onVoiceToggle }) {
   const [status, setStatus] = useState(null);
   useEffect(() => {
     fetch(\`\${AGENT_URL}/status\`,{headers:{'X-Pin':LS.pin()}}).then(r=>r.json()).then(setStatus).catch(()=>{});
@@ -184,6 +288,9 @@ function SettingsPanel({ onClose, theme, onThemeToggle }) {
         <div className="settings-title">⚙️ Settings</div>
         <hr className="divider"/>
         <div className="setting-row"><span className="setting-label">Theme (light)</span><div className={\`toggle \${theme==='light'?'on':''}\`} onClick={onThemeToggle}/></div>
+        <div className="setting-row"><span className="setting-label">🎙️ Voice replies</span><div className={\`toggle \${voiceEnabled?'on':''}\`} onClick={onVoiceToggle}/></div>
+        <div className="setting-row"><span className="setting-label" style={{fontSize:12,color:'var(--muted)'}}>Say "Hey Falkor" to activate voice</span></div>
+        <hr className="divider"/>
         <div className="setting-row"><span className="setting-label">Agent</span><span className="setting-val">falkor-agent.luckdragon.io</span></div>
         {status&&<><div className="setting-row"><span className="setting-label">Version</span><span className="setting-val">v{status.version}</span></div>
         <div className="setting-row"><span className="setting-label">History</span><span className="setting-val">{status.historyLength} msgs</span></div>
@@ -333,7 +440,7 @@ function SportPanel({ pin }) {
               return (
                 <div key={g.id} style={{background:'var(--panel)',border:'1px solid var(--border)',borderRadius:'10px',padding:'12px 16px'}}>
                   <div style={{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}}>
-                    {[g.home,g.away].map((team,ti)=>(
+                    {[g.home,g.away].map((team)=>(
                       <button key={team} onClick={()=>!done&&tip(String(g.id),team)}
                         style={{flex:1,padding:'8px',borderRadius:'8px',cursor:done?'default':'pointer',fontSize:'13px',
                           border:\`2px solid \${myTip===team?'var(--accent)':'var(--border)'}\`,
@@ -408,18 +515,25 @@ function App(){
   const [sidebarOpen,setSidebarOpen]=useState(false);
   const [attachment,setAttachment]=useState(null);
   const [dragOver,setDragOver]=useState(false);
-  const [isRecording,setIsRecording]=useState(false);
-  const [autoSpeak,setAutoSpeak]=useState(()=>localStorage.getItem('falkor.autoSpeak')==='true');
-  const [wakeActive,setWakeActive]=useState(false);
-  const recorderRef=useRef(null);
+  const [voiceEnabled,setVoiceEnabledS]=useState(LS.voice);
+  const [showVoice,setShowVoice]=useState(false);
+  const [voiceState,setVoiceState]=useState('idle');
+  const [voiceTranscript,setVoiceTranscript]=useState('');
+  const [voiceReply,setVoiceReply]=useState('');
+  const analyserRef=useRef(null);
+  const audioCtxRef=useRef(null);
+  const mediaRecorderRef=useRef(null);
   const chunksRef=useRef([]);
-  const wakeRef=useRef(null);
-  const audioRef=useRef(null);
+  const silenceTimerRef=useRef(null);
   const wsRef=useRef(null);
   const endRef=useRef(null);
   const taRef=useRef(null);
   const reconnTimer=useRef(null);
   const activeConvo=convos.find(c=>c.id===activeId);
+  const voiceEnabledRef=useRef(voiceEnabled);
+  const showVoiceRef=useRef(showVoice);
+  useEffect(()=>{voiceEnabledRef.current=voiceEnabled;},[voiceEnabled]);
+  useEffect(()=>{showVoiceRef.current=showVoice;},[showVoice]);
 
   useEffect(()=>{document.documentElement.setAttribute('data-theme',theme);LS.setTheme(theme);},[theme]);
   useEffect(()=>{LS.setConvos(convos);},[convos]);
@@ -439,7 +553,7 @@ function App(){
           setTyping(false);
           const m={id:uid(),role:'assistant',content:msg.text,ts:Date.now()};
           setConvos(prev=>prev.map(c=>c.id===activeId?{...c,messages:[...(c.messages||[]),m]}:c));
-          speakText(msg.text);
+          if(voiceEnabledRef.current && !showVoiceRef.current) speakText(msg.text);
         }
       }catch{}
     };
@@ -448,251 +562,16 @@ function App(){
   },[user,activeId]);
 
   useEffect(()=>{if(user)connectWS();return()=>{clearTimeout(reconnTimer.current);wsRef.current?.close();};},[user]);
-
-  // ── TTS: speak assistant reply ──────────────────────────────────────────
-  async function speakText(text) {
-    if (!text || !autoSpeak) return;
-    try {
-      const res = await fetch(`${AI_URL}/speak`, {
-        method: 'POST',
-        headers: {'Content-Type':'application/json','X-Pin':LS.pin()},
-        body: JSON.stringify({ text: text.slice(0,500), provider:'openai', voice:'onyx' }),
-      });
-      if (!res.ok) return;
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      if (audioRef.current) { audioRef.current.pause(); URL.revokeObjectURL(audioRef.current.src); }
-      const a = new Audio(url);
-      audioRef.current = a;
-      a.play().catch(()=>{});
-    } catch(e) { console.error('TTS error', e); }
-  }
-
-  // ── STT: record + transcribe ───────────────────────────────────────────
-  async function startRecording() {
-    if (!navigator.mediaDevices?.getUserMedia) { alert('Microphone not supported'); return; }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      chunksRef.current = [];
-      const mr = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm' });
-      recorderRef.current = mr;
-      mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-      mr.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop());
-        setIsRecording(false);
-        const blob = new Blob(chunksRef.current, { type: mr.mimeType });
-        if (blob.size < 1000) return; // too short
-        const fd = new FormData();
-        fd.append('audio', blob, 'audio.webm');
-        try {
-          const res = await fetch(`${AI_URL}/stt`, { method:'POST', headers:{'X-Pin':LS.pin()}, body:fd });
-          const d = await res.json();
-          if (d.text) {
-            setInput(prev => prev ? prev + ' ' + d.text : d.text);
-            if (taRef.current) { taRef.current.style.height='auto'; taRef.current.style.height=Math.min(taRef.current.scrollHeight,160)+'px'; taRef.current.focus(); }
-          }
-        } catch(e) { console.error('STT error', e); }
-      };
-      mr.start(200);
-      setIsRecording(true);
-      // Auto-stop after 30s
-      setTimeout(()=>{ if(recorderRef.current?.state==='recording') recorderRef.current.stop(); }, 30000);
-    } catch(e) { console.error('Mic error', e); alert('Could not access microphone'); }
-  }
-
-  function stopRecording() {
-    if (recorderRef.current?.state === 'recording') recorderRef.current.stop();
-  }
-
-  function toggleRecording() {
-    if (isRecording) stopRecording(); else startRecording();
-  }
-
-  function toggleAutoSpeak() {
-    setAutoSpeak(s => { localStorage.setItem('falkor.autoSpeak', !s); return !s; });
-  }
-
-  // ── Wake word: "Hey Falkor" via browser SpeechRecognition ──────────────
-  useEffect(() => {
-    if (!user) return;
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return;
-    const sr = new SR();
-    sr.continuous = true;
-    sr.interimResults = false;
-    sr.lang = 'en-AU';
-    wakeRef.current = sr;
-    sr.onresult = (e) => {
-      const t = e.results[e.results.length-1][0].transcript.toLowerCase();
-      if (t.includes('hey falkor') || t.includes('hey falcon')) {
-        setWakeActive(true);
-        startRecording();
-        setTimeout(() => setWakeActive(false), 500);
-      }
-    };
-    sr.onerror = () => {};
-    sr.onend = () => { try { sr.start(); } catch{} };
-    try { sr.start(); } catch {}
-    return () => { try { sr.stop(); } catch {} };
-  }, [user]);
   useEffect(()=>{localStorage.setItem('falkor.activeId',activeId);},[activeId]);
 
-  function handleLogin(u){localStorage.setItem('falkor.user',JSON.stringify(u));setUser(u);}
-
-  function newConvo(){
-    const id=uid(),h=new Date().getHours();
-    const g=h<12?'Morning':h<17?'Afternoon':'Evening';
-    setConvos(prev=>[{id,title:\`\${g} chat\`,messages:[],createdAt:Date.now()},...prev]);
-    setActiveId(id);setSidebarOpen(false);setView('chat');
-  }
-  function delConvo(e,id){e.stopPropagation();setConvos(prev=>prev.filter(c=>c.id!==id));if(activeId===id)setActiveId('');}
-  function setModel(m){setModelS(m);LS.setModel(m);}
-  function toggleTheme(){setThemeS(t=>t==='dark'?'light':'dark');}
-
-  async function sendMsg(){
-    let text=input.trim();
-    if(!text&&!attachment)return;
-    if(attachment){text=attachment.prefix+text;setAttachment(null);}
-    setInput('');
-    if(taRef.current)taRef.current.style.height='auto';
-    let cid=activeId;
-    if(!cid){
-      const id=uid();
-      setConvos(prev=>[{id,title:text.slice(0,40)||'New chat',messages:[],createdAt:Date.now()},...prev]);
-      setActiveId(id);cid=id;
-    }
-    const um={id:uid(),role:'user',content:text,ts:Date.now()};
-    setConvos(prev=>prev.map(c=>c.id===cid?{...c,title:c.messages.length===0?text.slice(0,40):c.title,messages:[...(c.messages||[]),um]}:c));
-    setTyping(true);
-    if(wsRef.current&&wsRef.current.readyState===1){
-      wsRef.current.send(JSON.stringify({type:'chat',text,model}));
-    } else {
-      try{
-        const res=await fetch(\`\${AGENT_URL}/chat\`,{method:'POST',headers:{'Content-Type':'application/json','X-Pin':LS.pin()},body:JSON.stringify({text,model})});
-        const d=await res.json();
-        setTyping(false);
-        const rm={id:uid(),role:'assistant',content:d.reply||'[No reply]',ts:Date.now()};
-        setConvos(prev=>prev.map(c=>c.id===cid?{...c,messages:[...(c.messages||[]),rm]}:c));
-      }catch{
-        setTyping(false);
-        const em={id:uid(),role:'assistant',content:'[Connection error]',ts:Date.now()};
-        setConvos(prev=>prev.map(c=>c.id===cid?{...c,messages:[...(c.messages||[]),em]}:c));
-      }
-    }
-  }
-
-  function onKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg();}}
-  function onTAChange(e){setInput(e.target.value);e.target.style.height='auto';e.target.style.height=Math.min(e.target.scrollHeight,160)+'px';}
-  function processFile(file){
-    if(file.size>10*1024*1024){alert('File too large (>10MB)');return;}
-    const r=new FileReader();
-    if(file.type.startsWith('image/')){
-      r.onload=e=>setAttachment({name:file.name,type:'image',dataUrl:e.target.result,prefix:''});
-      r.readAsDataURL(file);
-    } else {
-      r.onload=e=>{const t=e.target.result||'';setAttachment({name:file.name,type:'text',prefix:\`📎 [\${file.name}]:\\n\${t.slice(0,8000)}\${t.length>8000?'\\n…(truncated)':''}\\n\\n\`});};
-      r.readAsText(file);
-    }
-  }
-
-  if(!user)return <LoginScreen onLogin={handleLogin}/>;
-  const msgs=activeConvo?.messages||[];
-  const wsCls=wsState==='connected'?'connected':wsState==='connecting'?'connecting':'';
-
-  return(
-    <div className="app">
-      {sidebarOpen&&<div className="sidebar-scrim" onClick={()=>setSidebarOpen(false)}/>}
-      <div className={\`sidebar \${sidebarOpen?'open':''}\`}>
-        <div className="sidebar-top">
-          <span className="logo-text">🐉 Falkor</span>
-          <button className="icon-btn" onClick={()=>setSidebarOpen(false)}>✕</button>
-        </div>
-        <button className="btn new-chat-btn" onClick={newConvo}>+ New chat</button>
-        <div style={{padding:'4px 6px 0'}}>
-          <div className={\`convo-item\${view==='sport'?' active':''}\`} onClick={()=>{setView('sport');setSidebarOpen(false);}}>🏈 AFL &amp; Sport</div>
-        </div>
-        <hr style={{border:'none',borderTop:'1px solid var(--border)',margin:'4px 12px'}}/>
-        <div className="convo-list">
-          {convos.length===0&&<div style={{padding:'16px',color:'var(--muted)',fontSize:'13px',textAlign:'center'}}>No conversations yet</div>}
-          {convos.map(c=>(
-            <div key={c.id} className={\`convo-item \${c.id===activeId&&view==='chat'?'active':''}\`}
-              onClick={()=>{setActiveId(c.id);setView('chat');setSidebarOpen(false);}}>
-              💬 {c.title||'Untitled'}
-              <span className="convo-del" onClick={e=>delConvo(e,c.id)}>✕</span>
-            </div>
-          ))}
-        </div>
-        <div className="sidebar-footer">
-          <div className="user-pill">👤 {user.name||user.email}</div>
-          <button className="icon-btn" onClick={()=>setShowSettings(true)}>⚙️</button>
-        </div>
-      </div>
-
-      <div className="main">
-        <div className="topbar">
-          <button className="icon-btn" onClick={()=>setSidebarOpen(s=>!s)}>☰</button>
-          <span className="topbar-title">{view==='sport'?'🏈 AFL & Sport':activeConvo?.title||'Falkor'}</span>
-          {view==='chat'&&<select className="model-select" value={model} onChange={e=>setModel(e.target.value)}>
-            {MODELS.map(m=><option key={m.key} value={m.key}>{m.label}</option>)}
-          </select>}
-          <div className={\`ws-dot \${wsCls}\`} title={wsState}/>
-        </div>
-
-        {view==='sport' && <SportPanel pin={LS.pin()}/>}
-
-        {view==='chat' && (msgs.length===0&&!typing ? (
-          <div className="empty">
-            <div className="empty-icon">🐉</div>
-            <div className="empty-title">Hey {user.name||'there'}!</div>
-            <div className="empty-sub">What's on your mind?</div>
-          </div>
-        ) : (
-          <div className="messages">
-            {msgs.map(m=><MessageBubble key={m.id} msg={m}/>)}
-            {typing&&<TypingIndicator/>}
-            <div ref={endRef}/>
-          </div>
-        ))}
-
-        {view==='chat' && (
-          <div className="composer">
-            {attachment&&<div className="attach-row">📎 {attachment.name}<span className="attach-remove" onClick={()=>setAttachment(null)}>✕</span></div>}
-            <div className={\`composer-inner \${dragOver?'drag-over':''}\`}
-              onDragOver={e=>{e.preventDefault();setDragOver(true);}}
-              onDragLeave={()=>setDragOver(false)}
-              onDrop={e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)processFile(f);}}>
-              <textarea ref={taRef} rows={1} placeholder="Message Falkor… (Shift+Enter for newline)"
-                value={input} onChange={onTAChange} onKeyDown={onKey}/>
-              <label style={{cursor:'pointer',color:'var(--muted)',fontSize:'18px',padding:'2px 4px'}} title="Attach file">
-                📎<input type="file" style={{display:'none'}} onChange={e=>{if(e.target.files[0])processFile(e.target.files[0]);}}/>
-              </label>
-              <button
-                className={`mic-btn${isRecording?' recording':wakeActive?' wake':''}`}
-                onClick={toggleRecording}
-                title={isRecording?'Stop recording':'Start voice input (or say "Hey Falkor")'}
-              >{isRecording?'⏹':'🎙'}</button>
-              <button className={`speak-btn${autoSpeak?' on':''}`} onClick={toggleAutoSpeak} title={autoSpeak?'Auto-speak ON':'Auto-speak OFF'}>
-                {autoSpeak?'🔊':'🔇'}
-              </button>
-              <button className="send-btn" onClick={sendMsg} disabled={!input.trim()&&!attachment}>↑</button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {showSettings&&<SettingsPanel onClose={()=>setShowSettings(false)} theme={theme} onThemeToggle={toggleTheme}/>}
-    </div>
-  );
-}
-
-ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
-</script>
-</body>
-</html>`, {
+  // Wake word
+  useE`;
+    return new Response(HTML, {
       headers: {
-        'Content-Type': 'text/html;charset=utf-8',
-        'Cache-Control': 'public, max-age=300',
-      },
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        'X-Content-Type-Options': 'nosniff',
+      }
     });
-  },
+  }
 };
