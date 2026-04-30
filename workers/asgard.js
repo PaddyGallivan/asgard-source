@@ -2,7 +2,7 @@
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
 const VERSION = '8.8.0';
-// Auto-login from URL: asgard.pgallivan.workers.dev?pin=XXXXX
+// Auto-login from URL: asgard.luckdragon.io?pin=XXXXX
 (function(){
   try {
     var _sp = new URLSearchParams(location.search);
@@ -14,7 +14,7 @@ const VERSION = '8.8.0';
     }
   } catch(e) {}
 })();
-const TOOLS_URL = 'https://asgard-tools.pgallivan.workers.dev';
+const TOOLS_URL = 'https://asgard-tools.luckdragon.io';
 
 function notifEnabled() { return localStorage.getItem('asgard.notif.v1') === '1' && Notification.permission === 'granted'; }
 function notify(title, body, opts) {
@@ -99,7 +99,7 @@ const PROJECTS = [
   {
     "id": "superleague",
     "name": "Superleague",
-    "url": "https://superleague.pgallivan.workers.dev",
+    "url": "https://superleague.luckdragon.io",
     "repo": "LuckDragonAsgard/superleague",
     "tag": "CF Worker",
     "context": "Superleague v4 CF Worker. MUST include KV binding SLY_STATIC=4f427724561e48f682d4a7c6153d7124 on deploy or worker 500s."
@@ -131,7 +131,7 @@ const PROJECTS = [
   {
     "id": "asgard",
     "name": "Asgard Dashboard",
-    "url": "https://asgard.pgallivan.workers.dev",
+    "url": "https://asgard.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Asgard 7.0 dashboard worker. Source on GitHub: PaddyGallivan/asgard-source/workers/asgard.js. Deploy via asgard-tools /admin/deploy. main_module is asgard.js."
@@ -139,7 +139,7 @@ const PROJECTS = [
   {
     "id": "asgard-tools",
     "name": "Asgard Tools",
-    "url": "https://asgard-tools.pgallivan.workers.dev",
+    "url": "https://asgard-tools.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Asgard agent loop worker. Endpoints: /health, /chat/smart, /tools, /admin/deploy. Source on GitHub: PaddyGallivan/asgard-source/workers/asgard-tools.js. main_module is asgard-tools.js."
@@ -147,7 +147,7 @@ const PROJECTS = [
   {
     "id": "asgard-brain",
     "name": "Asgard Brain",
-    "url": "https://asgard-brain.pgallivan.workers.dev",
+    "url": "https://asgard-brain.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "D1 SQL service. POST /d1/write and /d1/query, X-Pin: 2967."
@@ -155,7 +155,7 @@ const PROJECTS = [
   {
     "id": "asgard-vault",
     "name": "Asgard Vault",
-    "url": "https://asgard-vault.pgallivan.workers.dev",
+    "url": "https://asgard-vault.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Secret storage. GET /secret/{KEY} with X-Pin: 2967."
@@ -163,7 +163,7 @@ const PROJECTS = [
   {
     "id": "asgard-ai",
     "name": "Asgard AI (proxy)",
-    "url": "https://asgard-ai.pgallivan.workers.dev",
+    "url": "https://asgard-ai.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Holds ANTHROPIC_API_KEY binding; legacy AI proxy. Mostly superseded by asgard-tools."
@@ -171,7 +171,7 @@ const PROJECTS = [
   {
     "id": "asgard-email",
     "name": "Asgard Email",
-    "url": "https://asgard-email.pgallivan.workers.dev",
+    "url": "https://asgard-email.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Email-handling worker."
@@ -179,7 +179,7 @@ const PROJECTS = [
   {
     "id": "asgard-email-ui",
     "name": "Asgard Email UI",
-    "url": "https://asgard-email-ui.pgallivan.workers.dev",
+    "url": "https://asgard-email-ui.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "UI for asgard-email."
@@ -187,7 +187,7 @@ const PROJECTS = [
   {
     "id": "asgard-memory",
     "name": "Asgard Memory",
-    "url": "https://asgard-memory.pgallivan.workers.dev",
+    "url": "https://asgard-memory.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Memory store worker."
@@ -195,7 +195,7 @@ const PROJECTS = [
   {
     "id": "asgard-monitor",
     "name": "Asgard Monitor",
-    "url": "https://asgard-monitor.pgallivan.workers.dev",
+    "url": "https://asgard-monitor.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Monitoring worker."
@@ -203,7 +203,7 @@ const PROJECTS = [
   {
     "id": "asgard-watchdog",
     "name": "Asgard Watchdog",
-    "url": "https://asgard-watchdog.pgallivan.workers.dev",
+    "url": "https://asgard-watchdog.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Watchdog worker."
@@ -211,7 +211,7 @@ const PROJECTS = [
   {
     "id": "asgard-pingtest",
     "name": "Asgard Pingtest",
-    "url": "https://asgard-pingtest.pgallivan.workers.dev",
+    "url": "https://asgard-pingtest.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Connectivity test."
@@ -219,7 +219,7 @@ const PROJECTS = [
   {
     "id": "asgard-build",
     "name": "Asgard Build",
-    "url": "https://asgard-build.pgallivan.workers.dev",
+    "url": "https://asgard-build.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Build worker."
@@ -227,7 +227,7 @@ const PROJECTS = [
   {
     "id": "asgard-deploy",
     "name": "Asgard Deploy Helper",
-    "url": "https://asgard-deploy-helper.pgallivan.workers.dev",
+    "url": "https://asgard-deploy-helper.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Deploy helper."
@@ -235,7 +235,7 @@ const PROJECTS = [
   {
     "id": "asgard-comms",
     "name": "Asgard Comms",
-    "url": "https://asgard-comms.pgallivan.workers.dev",
+    "url": "https://asgard-comms.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Comms worker."
@@ -243,7 +243,7 @@ const PROJECTS = [
   {
     "id": "asgard-auth",
     "name": "Asgard Auth",
-    "url": "https://asgard-auth.pgallivan.workers.dev",
+    "url": "https://asgard-auth.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Auth worker."
@@ -251,7 +251,7 @@ const PROJECTS = [
   {
     "id": "asgard-agent",
     "name": "Asgard Agent",
-    "url": "https://asgard-agent.pgallivan.workers.dev",
+    "url": "https://asgard-agent.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Agent worker."
@@ -259,7 +259,7 @@ const PROJECTS = [
   {
     "id": "asgard-intel",
     "name": "Asgard Intelligence",
-    "url": "https://asgard-intelligence.pgallivan.workers.dev",
+    "url": "https://asgard-intelligence.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Intelligence worker."
@@ -267,7 +267,7 @@ const PROJECTS = [
   {
     "id": "asgard-rank",
     "name": "Asgard Ranking",
-    "url": "https://asgard-ranking.pgallivan.workers.dev",
+    "url": "https://asgard-ranking.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Ranking worker."
@@ -275,7 +275,7 @@ const PROJECTS = [
   {
     "id": "asgard-workers",
     "name": "Asgard Workers",
-    "url": "https://asgard-workers.pgallivan.workers.dev",
+    "url": "https://asgard-workers.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Workers worker (meta)."
@@ -283,7 +283,7 @@ const PROJECTS = [
   {
     "id": "gh-push",
     "name": "gh-push",
-    "url": "https://gh-push.pgallivan.workers.dev",
+    "url": "https://gh-push.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "GitHub push helper. POST body {owner, repo, path, content (base64), message, branch} + Authorization: Bearer GITHUB_TOKEN."
@@ -291,7 +291,7 @@ const PROJECTS = [
   {
     "id": "craftsman",
     "name": "Craftsman",
-    "url": "https://craftsman.pgallivan.workers.dev",
+    "url": "https://craftsman.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Code-build/deploy worker."
@@ -299,7 +299,7 @@ const PROJECTS = [
   {
     "id": "bomber-boat-api",
     "name": "Bomber Boat API",
-    "url": "https://bomber-boat-api.pgallivan.workers.dev",
+    "url": "https://bomber-boat-api.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Backend API for Bomber Boat."
@@ -307,7 +307,7 @@ const PROJECTS = [
   {
     "id": "bulldogs-api",
     "name": "Bulldogs Boat API",
-    "url": "https://bulldogs-boat-api.pgallivan.workers.dev",
+    "url": "https://bulldogs-boat-api.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Backend API for Bulldogs Boat."
@@ -315,7 +315,7 @@ const PROJECTS = [
   {
     "id": "bout-transcribe",
     "name": "Bout Transcribe",
-    "url": "https://bout-transcribe.pgallivan.workers.dev",
+    "url": "https://bout-transcribe.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Audio transcription worker."
@@ -323,7 +323,7 @@ const PROJECTS = [
   {
     "id": "comms-hub",
     "name": "Comms Hub",
-    "url": "https://comms-hub.pgallivan.workers.dev",
+    "url": "https://comms-hub.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Comms hub."
@@ -331,7 +331,7 @@ const PROJECTS = [
   {
     "id": "comms-hub-int",
     "name": "Comms Hub Integrator",
-    "url": "https://comms-hub-integrator.pgallivan.workers.dev",
+    "url": "https://comms-hub-integrator.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Comms hub integrator."
@@ -339,7 +339,7 @@ const PROJECTS = [
   {
     "id": "circuit-breaker",
     "name": "Circuit Breaker",
-    "url": "https://circuit-breaker.pgallivan.workers.dev",
+    "url": "https://circuit-breaker.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Circuit breaker pattern worker."
@@ -347,7 +347,7 @@ const PROJECTS = [
   {
     "id": "cf-bootstrap",
     "name": "CF Route Bootstrap",
-    "url": "https://cf-route-bootstrap.pgallivan.workers.dev",
+    "url": "https://cf-route-bootstrap.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Route setup helper."
@@ -355,7 +355,7 @@ const PROJECTS = [
   {
     "id": "ai-job-proc",
     "name": "AI Job Processor",
-    "url": "https://ai-job-processor.pgallivan.workers.dev",
+    "url": "https://ai-job-processor.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "AI job processing queue."
@@ -899,13 +899,13 @@ const HTML = `<!doctype html>
 <script>
 (function(){try{var c=(document.cookie+';').split(';').map(function(s){return s.trim();}).find(function(s){return s.startsWith('asgard_pin=');});if(c){localStorage.setItem('asgard.pin.v1',decodeURIComponent(c.split('=').slice(1).join('=')));}}catch(e){}})();
 let PROJECTS = [];
-const BRAIN_URL = 'https://asgard-brain.pgallivan.workers.dev';
+const BRAIN_URL = 'https://asgard-brain.luckdragon.io';
 async function loadProductsFromBrain() {
   try {
     // Call asgard-brain directly from client (CF blocks worker→worker same-zone fetches).
     // PIN from localStorage is required — guests without a PIN see no products.
     var pin = loadPin() || '';
-    var r = await fetch('https://asgard-brain.pgallivan.workers.dev/d1/query', {
+    var r = await fetch('https://asgard-brain.luckdragon.io/d1/query', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
       body: JSON.stringify({
@@ -970,7 +970,7 @@ const PROJECTS_OVERRIDES_KEY = 'asgard.projectsOverrides.v1';
 const SORT_KEY = 'asgard.sort.v1';
 const FACTS_KEY = 'asgard.facts.v1';
 const CLOUD_SYNC_KEY = 'asgard.cloudSync.v1';
-const SYNC_BRAIN_URL = 'https://asgard-brain.pgallivan.workers.dev';
+const SYNC_BRAIN_URL = 'https://asgard-brain.luckdragon.io';
 var SYNC_UID = getPinUser();
 
 // ---------- State ----------
@@ -1282,11 +1282,11 @@ function render() {
 
   // Presence: heartbeat dots for core workers
   var heartbeats = [
-    { name: 'asgard-tools', url: 'https://asgard-tools.pgallivan.workers.dev/health' },
-    { name: 'asgard-ai',    url: 'https://asgard-ai.pgallivan.workers.dev/health' },
-    { name: 'asgard-brain', url: 'https://asgard-brain.pgallivan.workers.dev/health' },
-    { name: 'asgard-vault', url: 'https://asgard-vault.pgallivan.workers.dev/health' },
-    { name: 'asgard-browser', url: 'https://asgard-browser.pgallivan.workers.dev/health' }
+    { name: 'asgard-tools', url: 'https://asgard-tools.luckdragon.io/health' },
+    { name: 'asgard-ai',    url: 'https://asgard-ai.luckdragon.io/health' },
+    { name: 'asgard-brain', url: 'https://asgard-brain.luckdragon.io/health' },
+    { name: 'asgard-vault', url: 'https://asgard-vault.luckdragon.io/health' },
+    { name: 'asgard-browser', url: 'https://asgard-browser.luckdragon.io/health' }
   ];
   heartbeats.forEach(function(h) {
     var row = document.createElement('div');
@@ -1419,7 +1419,7 @@ function showProjectInfo(id) {
 
   // CF Worker detection
   if (url.indexOf('workers.dev') !== -1) {
-    var wm = (url.indexOf('.pgallivan.workers.dev') > -1) ? [null, (url.split('//')[1]||'').split('.')[0]] : null;
+    var wm = (url.indexOf('.luckdragon.io') > -1) ? [null, (url.split('//')[1]||'').split('.')[0]] : null;
     if (wm) workerName = wm[1];
     badges += '<span class="pi-badge b-cf">&#x2601; CF Worker</span>';
     stackNotes.push('<strong>Cloudflare Workers</strong> — serverless JS that runs on 300+ edge locations worldwide. No server to manage, instant deploy, free tier up to 100K req/day.');
@@ -1556,9 +1556,9 @@ async function piRestore(workerName, out) {
     var msg = (commits[0].commit && commits[0].commit.message) ? commits[0].commit.message.split(String.fromCharCode(10))[0] : sha.substring(0,8);
     out.textContent = '⏳ Restoring from ' + sha.substring(0,8) + ': ' + msg;
     var mainMod = workerName === 'asgard' ? 'asgard.js' : 'worker.js';
-    var r = await fetch('https://asgard-tools.pgallivan.workers.dev/admin/rollback', {
+    var r = await fetch('https://asgard-tools.luckdragon.io/admin/rollback', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Pin': pin, 'Origin': 'https://asgard.pgallivan.workers.dev', 'User-Agent': navigator.userAgent },
+      headers: { 'Content-Type': 'application/json', 'X-Pin': pin, 'Origin': 'https://asgard.luckdragon.io', 'User-Agent': navigator.userAgent },
       body: JSON.stringify({ worker_name: workerName, sha: sha, main_module: mainMod })
     });
     var d = await r.json();
@@ -2138,7 +2138,7 @@ async function loadStats() {
   var b = els.statsBody;
   b.innerHTML = '<div class="muted" style="padding:16px;text-align:center">Loading cost data…</div>';
   var pin = loadPin();
-  fetch('https://asgard-ai.pgallivan.workers.dev/admin/spend?days=30', {headers:{'X-Pin':pin,'Content-Type':'application/json'}})
+  fetch('https://asgard-ai.luckdragon.io/admin/spend?days=30', {headers:{'X-Pin':pin,'Content-Type':'application/json'}})
     .then(function(r){return r.json();}).then(function(d){
       if (!d.ok) { b.innerHTML = '<div class="muted" style="padding:16px">No spend data yet — start chatting!</div>'; return; }
       var rows = d.rows || [];
@@ -2274,7 +2274,7 @@ async function speakMessage(text, btn) {
   if (currentAudio) { try { currentAudio.pause(); } catch(e){} currentAudio = null; }
   if (btn) btn.classList.add('playing');
   try {
-    var r = await fetch('https://asgard-ai.pgallivan.workers.dev/speak', {
+    var r = await fetch('https://asgard-ai.luckdragon.io/speak', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
       body: JSON.stringify({ text: text.substring(0, 4000) })
@@ -2356,7 +2356,7 @@ async function sendToSlack(text, btn) {
   if (!chan) { alert('Configure Slack channel in Settings'); return; }
   if (btn) btn.textContent = '⏳ Slack…';
   try {
-    var r = await fetch('https://asgard-ai.pgallivan.workers.dev/slack/post', {
+    var r = await fetch('https://asgard-ai.luckdragon.io/slack/post', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
       body: JSON.stringify({ channel: chan, text: text.substring(0, 4000) })
@@ -2374,7 +2374,7 @@ async function sendToTelegram(text, btn) {
   if (!chat) { alert('Configure Telegram chat ID in Settings'); return; }
   if (btn) btn.textContent = '⏳ Telegram…';
   try {
-    var r = await fetch('https://asgard-ai.pgallivan.workers.dev/telegram/send', {
+    var r = await fetch('https://asgard-ai.luckdragon.io/telegram/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
       body: JSON.stringify({ chat_id: chat, text: text.substring(0, 4000) })
@@ -2390,7 +2390,7 @@ async function sendToTelegram(text, btn) {
 async function probeBridge(uid, statusEl) {
   if (!statusEl) return;
   try {
-    var r = await fetch('https://asgard-ai.pgallivan.workers.dev/bridge/poll?uid=' + encodeURIComponent(uid), { headers: { 'X-Pin': loadPin() } });
+    var r = await fetch('https://asgard-ai.luckdragon.io/bridge/poll?uid=' + encodeURIComponent(uid), { headers: { 'X-Pin': loadPin() } });
     if (r.ok) {
       statusEl.textContent = '· connected';
       statusEl.style.color = 'var(--good)';
@@ -2408,13 +2408,13 @@ async function testBridges() {
   if (!els.bridgesTestStatus) return;
   els.bridgesTestStatus.textContent = 'Sending tests…';
   try {
-    var r1 = await fetch('https://asgard-ai.pgallivan.workers.dev/bridge/enqueue', {
+    var r1 = await fetch('https://asgard-ai.luckdragon.io/bridge/enqueue', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
       body: JSON.stringify({ uid: getPinUser(), command: { type: 'screenshot', input: {} } })
     });
     var d1 = await r1.json();
-    var r2 = await fetch('https://asgard-ai.pgallivan.workers.dev/bridge/enqueue', {
+    var r2 = await fetch('https://asgard-ai.luckdragon.io/bridge/enqueue', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
       body: JSON.stringify({ uid: getPinUser() + '-desktop', command: { type: 'screenshot', input: {} } })
@@ -2422,8 +2422,8 @@ async function testBridges() {
     var d2 = await r2.json();
     // Wait 4s for helpers to pick up
     await new Promise(r => setTimeout(r, 4000));
-    var c1 = await (await fetch('https://asgard-ai.pgallivan.workers.dev/bridge/result/' + d1.id, { headers: { 'X-Pin': loadPin() } })).json();
-    var c2 = await (await fetch('https://asgard-ai.pgallivan.workers.dev/bridge/result/' + d2.id, { headers: { 'X-Pin': loadPin() } })).json();
+    var c1 = await (await fetch('https://asgard-ai.luckdragon.io/bridge/result/' + d1.id, { headers: { 'X-Pin': loadPin() } })).json();
+    var c2 = await (await fetch('https://asgard-ai.luckdragon.io/bridge/result/' + d2.id, { headers: { 'X-Pin': loadPin() } })).json();
     var msgs = [];
     msgs.push('Chrome: ' + (c1.status === 'done' ? '✅ responded' : '⏳ no response'));
     msgs.push('Desktop: ' + (c2.status === 'done' ? '✅ responded' : '⏳ no response'));
@@ -2441,7 +2441,7 @@ async function renderSetupChecklist() {
   var items = [];
   // Chrome bridge
   try {
-    var r = await fetch('https://asgard-ai.pgallivan.workers.dev/bridge/poll?uid=' + encodeURIComponent(getPinUser()), { headers: { 'X-Pin': loadPin() } });
+    var r = await fetch('https://asgard-ai.luckdragon.io/bridge/poll?uid=' + encodeURIComponent(getPinUser()), { headers: { 'X-Pin': loadPin() } });
     items.push({ name: 'Chrome bridge installed & polling', ok: r.ok });
   } catch (e) { items.push({ name: 'Chrome bridge installed & polling', ok: false }); }
   // Desktop bridge — check if it polled in the last 5 minutes by enqueueing a no-op and seeing if it's claimed
@@ -2466,7 +2466,7 @@ async function submitFeatureRequest() {
   var text = prompt('What feature would you like to request?');
   if (!text || !text.trim()) return;
   try {
-    var r = await fetch('https://asgard-ai.pgallivan.workers.dev/feature-request', {
+    var r = await fetch('https://asgard-ai.luckdragon.io/feature-request', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
       body: JSON.stringify({ body: text.trim(), text: text.trim(), source: 'asgard-dashboard' })
@@ -2542,7 +2542,7 @@ async function send(text) {
     var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
     var timeoutId = setTimeout(function(){ if (ctrl) ctrl.abort(); }, 90000);
     try {
-      var r = await fetch('https://asgard-ai.pgallivan.workers.dev/image/generate', {
+      var r = await fetch('https://asgard-ai.luckdragon.io/image/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
         body: JSON.stringify({ prompt: prompt }),
@@ -2603,7 +2603,7 @@ async function send(text) {
     var body;
     if (hasImage) {
       // Vision route — always go through asgard-ai /chat/vision
-      endpoint = 'https://asgard-ai.pgallivan.workers.dev/chat/vision';
+      endpoint = 'https://asgard-ai.luckdragon.io/chat/vision';
       body = { message: text, image_base64: pendingImage.base64, model: selectedModel };
       if (sys) body.system = sys;
       // Attach the image to the just-pushed user message so it renders in chat
@@ -2612,7 +2612,7 @@ async function send(text) {
       pendingImage = null; renderAttachRow();
     } else {
       // ALL providers (Claude, OpenAI, Gemini) route to asgard-ai /chat/agentic for unified tool access (drive_*, github_*, send_email, etc.)
-      endpoint = 'https://asgard-ai.pgallivan.workers.dev/chat/agentic';
+      endpoint = 'https://asgard-ai.luckdragon.io/chat/agentic';
       body = { message: text, messages: conv.messages.slice(0, -1).map(m => ({ role: m.role, content: m.content })), model: selectedModel };
       // Project context injection
       if (conv.projectId) {
@@ -2720,7 +2720,7 @@ setInterval(pollVersion, 60000);
 async function pollUnread() {
   try {
     var pin = loadPin(); if (!pin) return;
-    var r = await fetch('https://asgard-brain.pgallivan.workers.dev/d1/read', {
+    var r = await fetch('https://asgard-brain.luckdragon.io/d1/read', {
       method:'POST', headers:{'Content-Type':'application/json','X-Pin':pin},
       body: JSON.stringify({ sql: 'SELECT COUNT(*) as cnt FROM msg_inbox WHERE read_at IS NULL' })
     });
@@ -2791,13 +2791,13 @@ runPinGate(function() {
 
 function corsHeaders(request) {
   const allowed = [
-    'https://asgard.pgallivan.workers.dev',
-    'https://asgard-ai.pgallivan.workers.dev',
-    'https://asgard-tools.pgallivan.workers.dev',
-    'https://asgard-brain.pgallivan.workers.dev'
+    'https://asgard.luckdragon.io',
+    'https://asgard-ai.luckdragon.io',
+    'https://asgard-tools.luckdragon.io',
+    'https://asgard-brain.luckdragon.io'
   ];
   const origin = request && request.headers ? (request.headers.get('Origin') || '') : '';
-  const acao = allowed.includes(origin) ? origin : 'https://asgard.pgallivan.workers.dev';
+  const acao = allowed.includes(origin) ? origin : 'https://asgard.luckdragon.io';
   return {
     'Access-Control-Allow-Origin': acao,
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -2825,7 +2825,7 @@ export default {
         });
       }
       try {
-        const r = await fetch('https://asgard-brain.pgallivan.workers.dev/d1/query', {
+        const r = await fetch('https://asgard-brain.luckdragon.io/d1/query', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Pin': env.PADDY_PIN || '' },
           body: JSON.stringify({
@@ -2945,7 +2945,7 @@ export default {
         'Strict-Transport-Security': 'max-age=63072000; includeSubDomains',
         'Referrer-Policy': 'strict-origin-when-cross-origin',
         'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
-        'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src https://asgard-ai.pgallivan.workers.dev https://asgard-tools.pgallivan.workers.dev https://asgard-brain.pgallivan.workers.dev https://asgard-vault.pgallivan.workers.dev https:; img-src 'self' data: blob:; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'none';"
+        'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src https://asgard-ai.luckdragon.io https://asgard-tools.luckdragon.io https://asgard-brain.luckdragon.io https://asgard-vault.luckdragon.io https:; img-src 'self' data: blob:; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'none';"
       } });
     }
 
