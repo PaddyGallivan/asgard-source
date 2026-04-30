@@ -1,13 +1,13 @@
-// asgard worker v7.9.2 — Drive references purged, bridge installers point to GitHub
+// falkor worker v7.9.2 — Drive references purged, bridge installers point to GitHub
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
 const VERSION = '8.8.0';
 function loginPage(extraHtml, prefillEmail) {
-  return '<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Asgard</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:linear-gradient(135deg,#0d0d1f 0%,#1a1a35 100%);display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:-apple-system,system-ui,sans-serif}.card{background:rgba(30,30,53,.95);backdrop-filter:blur(20px);padding:2.5rem 2rem;border-radius:20px;width:340px;text-align:center;border:1px solid rgba(217,119,87,.2);box-shadow:0 25px 60px rgba(0,0,0,.5)}.logo{font-size:3rem;margin-bottom:.5rem;filter:drop-shadow(0 0 20px rgba(217,119,87,.4))}h1{color:#fff;font-size:1.4rem;font-weight:700;margin:.25rem 0 .25rem}.sub{color:#6b6b8a;font-size:.8rem;margin:0 0 1.5rem;letter-spacing:.5px;text-transform:uppercase}.field{position:relative;margin-bottom:1rem}.field label{display:block;text-align:left;font-size:.75rem;color:#8888aa;margin-bottom:.4rem;font-weight:500}input{width:100%;padding:.8rem 1rem;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:#fff;font-size:.95rem;font-family:inherit;outline:none;transition:border .2s}input:focus{border-color:rgba(217,119,87,.6)}button{width:100%;padding:.85rem;background:linear-gradient(135deg,#d97757,#c4603d);color:#fff;border:none;border-radius:10px;font-size:1rem;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .2s;margin-top:.5rem}button:hover{opacity:.9}.err{color:#ef4444;font-size:.82rem;margin:.5rem 0;text-align:left}.locked{color:#f59e0b;font-size:.82rem;margin:.5rem 0}</style></head><body><div class="card"><div class="logo">&#x1F409;</div><h1>Asgard</h1><p class="sub">Luck Dragon Command</p>' + (extraHtml||'') + '<form method=POST action=/login><div class="field"><label>Email address</label><input name=email type=email placeholder="you@example.com" autocomplete=email value="' + (prefillEmail||'') + '" autofocus></div><div class="field"><label>Password</label><input name=password type=password placeholder="Password" autocomplete=current-password></div><button type=submit>Sign in</button></form></div></body></html>';
+  return '<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Falkor</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:linear-gradient(135deg,#0d0d1f 0%,#1a1a35 100%);display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:-apple-system,system-ui,sans-serif}.card{background:rgba(30,30,53,.95);backdrop-filter:blur(20px);padding:2.5rem 2rem;border-radius:20px;width:340px;text-align:center;border:1px solid rgba(217,119,87,.2);box-shadow:0 25px 60px rgba(0,0,0,.5)}.logo{font-size:3rem;margin-bottom:.5rem;filter:drop-shadow(0 0 20px rgba(217,119,87,.4))}h1{color:#fff;font-size:1.4rem;font-weight:700;margin:.25rem 0 .25rem}.sub{color:#6b6b8a;font-size:.8rem;margin:0 0 1.5rem;letter-spacing:.5px;text-transform:uppercase}.field{position:relative;margin-bottom:1rem}.field label{display:block;text-align:left;font-size:.75rem;color:#8888aa;margin-bottom:.4rem;font-weight:500}input{width:100%;padding:.8rem 1rem;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:#fff;font-size:.95rem;font-family:inherit;outline:none;transition:border .2s}input:focus{border-color:rgba(217,119,87,.6)}button{width:100%;padding:.85rem;background:linear-gradient(135deg,#d97757,#c4603d);color:#fff;border:none;border-radius:10px;font-size:1rem;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .2s;margin-top:.5rem}button:hover{opacity:.9}.err{color:#ef4444;font-size:.82rem;margin:.5rem 0;text-align:left}.locked{color:#f59e0b;font-size:.82rem;margin:.5rem 0}</style></head><body><div class="card"><div class="logo">&#x1F409;</div><h1>Falkor</h1><p class="sub">Luck Dragon Command</p>' + (extraHtml||'') + '<form method=POST action=/login><div class="field"><label>Email address</label><input name=email type=email placeholder="you@example.com" autocomplete=email value="' + (prefillEmail||'') + '" autofocus></div><div class="field"><label>Password</label><input name=password type=password placeholder="Password" autocomplete=current-password></div><button type=submit>Sign in</button></form></div></body></html>';
 }
 
 // ── Auth: email + password ─────────────────────────────────
-const ASGARD_USERS = [
+const FALKOR_USERS = [
   { email: 'pgallivan@outlook.com',     name: 'Paddy',  userId: 'paddy',  hash: '1e3fe6e887aca36d732938f227d2a65ef6b2de08f1f30cdf08d1bcace2eb3ac3', salt: '9177c520fef818045de3df66c394557e' },
   { email: 'rooney.jaclyn.l@gmail.com', name: 'Jaclyn', userId: 'jacky',  hash: 'f7bb21af02d56a45c81140988a81b90dfdc4d448bfa72d580b63ed0f10d0c365', salt: '98b7d133844d099212b2a8e2a5764c70' },
   { email: 'bpggarth@gmail.com',        name: 'Garth',  userId: 'george', hash: 'cffe366a931af3feeb6951b73f614337a4676a4a794868627ceea9644d81e884', salt: 'c223a336b67a9e050bcd959a8f6e97a4' },
@@ -37,21 +37,21 @@ function recordFailure(ip) {
 }
 
 
-// Auto-login from URL: asgard.luckdragon.io?pin=XXXXX
+// Auto-login from URL: falkor.luckdragon.io?pin=XXXXX
 (function(){
   try {
     var _sp = new URLSearchParams(location.search);
     var _pin = _sp.get('pin');
     if (_pin && _pin.length >= 16) {
-      localStorage.setItem('asgard.pin.v1', _pin);
+      localStorage.setItem('falkor.pin.v1', _pin);
       // Clean the URL so PIN isn't visible in browser history
       history.replaceState({}, '', location.pathname);
     }
   } catch(e) {}
 })();
-const TOOLS_URL = 'https://asgard-tools.luckdragon.io';
+const TOOLS_URL = 'https://falkor-tools.luckdragon.io';
 
-function notifEnabled() { return localStorage.getItem('asgard.notif.v1') === '1' && Notification.permission === 'granted'; }
+function notifEnabled() { return localStorage.getItem('falkor.notif.v1') === '1' && Notification.permission === 'granted'; }
 function notify(title, body, opts) {
   if (!notifEnabled()) return;
   try { new Notification(title, { body: body || '', icon: '/icon.svg', ...(opts||{}) }); } catch(e) {}
@@ -60,25 +60,25 @@ function initNotifToggle() {
   var cb = document.getElementById('notifToggle');
   var st = document.getElementById('notifStatus');
   if (!cb) return;
-  cb.checked = localStorage.getItem('asgard.notif.v1') === '1' && Notification.permission === 'granted';
+  cb.checked = localStorage.getItem('falkor.notif.v1') === '1' && Notification.permission === 'granted';
   cb.addEventListener('change', async function() {
     if (cb.checked) {
       var perm = await Notification.requestPermission();
       if (perm === 'granted') {
-        localStorage.setItem('asgard.notif.v1', '1');
+        localStorage.setItem('falkor.notif.v1', '1');
         st.textContent = 'Notifications on ✓';
-        notify('Asgard', 'Notifications are enabled!');
+        notify('Falkor', 'Notifications are enabled!');
       } else {
         cb.checked = false;
-        localStorage.setItem('asgard.notif.v1', '0');
+        localStorage.setItem('falkor.notif.v1', '0');
         st.textContent = 'Permission denied by browser';
       }
     } else {
-      localStorage.setItem('asgard.notif.v1', '0');
+      localStorage.setItem('falkor.notif.v1', '0');
       st.textContent = '';
     }
   });
-  if (Notification.permission === 'granted' && localStorage.getItem('asgard.notif.v1') === '1') st.textContent = 'Notifications on ✓';
+  if (Notification.permission === 'granted' && localStorage.getItem('falkor.notif.v1') === '1') st.textContent = 'Notifications on ✓';
 }
 
 // Live inventory pulled from CF API + GitHub. 39 projects.
@@ -87,7 +87,7 @@ const PROJECTS = [
     "id": "bomber-boat",
     "name": "Bomber Boat",
     "url": "https://bomberboat.com.au",
-    "repo": "LuckDragonAsgard/bomber-boat",
+    "repo": "LuckDragonFalkor/bomber-boat",
     "tag": "CF Pages",
     "context": "Bomber Boat is a Vic Football boat-spotting game. CF Pages project: bomber-boat. NEVER touch deploy-spots-fix scripts."
   },
@@ -103,7 +103,7 @@ const PROJECTS = [
     "id": "sport-portal",
     "name": "Sport Portal",
     "url": "https://sportportal.com.au",
-    "repo": "LuckDragonAsgard/sport-portal",
+    "repo": "LuckDragonFalkor/sport-portal",
     "tag": "CF Pages",
     "context": "Main sports carnival/timing platform. Pages project: sportportal."
   },
@@ -119,7 +119,7 @@ const PROJECTS = [
     "id": "carnival-timing",
     "name": "Carnival Timing",
     "url": "https://carnivaltiming.com",
-    "repo": "LuckDragonAsgard/district-sport",
+    "repo": "LuckDragonFalkor/district-sport",
     "tag": "CF Pages",
     "context": "Carnival Timing site. Pages project: carnival-timing. Repo is district-sport."
   },
@@ -127,7 +127,7 @@ const PROJECTS = [
     "id": "kbt-trivia",
     "name": "KBT Trivia",
     "url": "https://kbt-trial.vercel.app/host-app",
-    "repo": "LuckDragonAsgard/kbt-trivia-tools",
+    "repo": "LuckDragonFalkor/kbt-trivia-tools",
     "tag": "Vercel",
     "context": "KBT Trivia hosting tool. Prod on Vercel; also auto-deploys to CF Pages (kbt-trial-9gu.pages.dev) via gh-push."
   },
@@ -135,182 +135,182 @@ const PROJECTS = [
     "id": "superleague",
     "name": "Superleague",
     "url": "https://superleague.luckdragon.io",
-    "repo": "LuckDragonAsgard/superleague",
+    "repo": "LuckDragonFalkor/superleague",
     "tag": "CF Worker",
     "context": "Superleague v4 CF Worker. MUST include KV binding SLY_STATIC=4f427724561e48f682d4a7c6153d7124 on deploy or worker 500s."
   },
   {
     "id": "division-hub",
     "name": "Division Hub",
-    "url": "https://luckdragonasgard.github.io/division-hub/",
-    "repo": "LuckDragonAsgard/division-hub",
+    "url": "https://luckdragonfalkor.github.io/division-hub/",
+    "repo": "LuckDragonFalkor/division-hub",
     "tag": "GH Pages",
     "context": "Division Hub on GitHub Pages."
   },
   {
     "id": "cyms-club",
     "name": "CYMS Club App",
-    "url": "https://github.com/LuckDragonAsgard/cyms-club-app",
-    "repo": "LuckDragonAsgard/cyms-club-app",
+    "url": "https://github.com/LuckDragonFalkor/cyms-club-app",
+    "repo": "LuckDragonFalkor/cyms-club-app",
     "tag": "Repo",
     "context": "CYMS Club App. Code only \u2014 no live deployment yet."
   },
   {
     "id": "falkor-app",
     "name": "Falkor",
-    "url": "https://github.com/LuckDragonAsgard/falkor-app",
-    "repo": "LuckDragonAsgard/falkor-app",
+    "url": "https://github.com/LuckDragonFalkor/falkor-app",
+    "repo": "LuckDragonFalkor/falkor-app",
     "tag": "Repo",
     "context": "Falkor app. Code only."
   },
   {
-    "id": "asgard",
-    "name": "Asgard Dashboard",
-    "url": "https://asgard.luckdragon.io",
+    "id": "falkor",
+    "name": "Falkor Dashboard",
+    "url": "https://falkor.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
-    "context": "Asgard 7.0 dashboard worker. Source on GitHub: PaddyGallivan/asgard-source/workers/asgard.js. Deploy via asgard-tools /admin/deploy. main_module is asgard.js."
+    "context": "Falkor 7.0 dashboard worker. Source on GitHub: PaddyGallivan/falkor-source/workers/falkor.js. Deploy via falkor-tools /admin/deploy. main_module is falkor.js."
   },
   {
-    "id": "asgard-tools",
-    "name": "Asgard Tools",
-    "url": "https://asgard-tools.luckdragon.io",
+    "id": "falkor-tools",
+    "name": "Falkor Tools",
+    "url": "https://falkor-tools.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
-    "context": "Asgard agent loop worker. Endpoints: /health, /chat/smart, /tools, /admin/deploy. Source on GitHub: PaddyGallivan/asgard-source/workers/asgard-tools.js. main_module is asgard-tools.js."
+    "context": "Falkor agent loop worker. Endpoints: /health, /chat/smart, /tools, /admin/deploy. Source on GitHub: PaddyGallivan/falkor-source/workers/falkor-tools.js. main_module is falkor-tools.js."
   },
   {
-    "id": "asgard-brain",
-    "name": "Asgard Brain",
-    "url": "https://asgard-brain.luckdragon.io",
+    "id": "falkor-brain",
+    "name": "Falkor Brain",
+    "url": "https://falkor-brain.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "D1 SQL service. POST /d1/write and /d1/query, X-Pin: 2967."
   },
   {
-    "id": "asgard-vault",
-    "name": "Asgard Vault",
-    "url": "https://asgard-vault.luckdragon.io",
+    "id": "falkor-vault",
+    "name": "Falkor Vault",
+    "url": "https://falkor-vault.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Secret storage. GET /secret/{KEY} with X-Pin: 2967."
   },
   {
-    "id": "asgard-ai",
-    "name": "Asgard AI (proxy)",
-    "url": "https://asgard-ai.luckdragon.io",
+    "id": "falkor-ai",
+    "name": "Falkor AI (proxy)",
+    "url": "https://falkor-ai.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
-    "context": "Holds ANTHROPIC_API_KEY binding; legacy AI proxy. Mostly superseded by asgard-tools."
+    "context": "Holds ANTHROPIC_API_KEY binding; legacy AI proxy. Mostly superseded by falkor-tools."
   },
   {
-    "id": "asgard-email",
-    "name": "Asgard Email",
-    "url": "https://asgard-email.luckdragon.io",
+    "id": "falkor-email",
+    "name": "Falkor Email",
+    "url": "https://falkor-email.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Email-handling worker."
   },
   {
-    "id": "asgard-email-ui",
-    "name": "Asgard Email UI",
-    "url": "https://asgard-email-ui.luckdragon.io",
+    "id": "falkor-email-ui",
+    "name": "Falkor Email UI",
+    "url": "https://falkor-email-ui.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
-    "context": "UI for asgard-email."
+    "context": "UI for falkor-email."
   },
   {
-    "id": "asgard-memory",
-    "name": "Asgard Memory",
-    "url": "https://asgard-memory.luckdragon.io",
+    "id": "falkor-memory",
+    "name": "Falkor Memory",
+    "url": "https://falkor-memory.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Memory store worker."
   },
   {
-    "id": "asgard-monitor",
-    "name": "Asgard Monitor",
-    "url": "https://asgard-monitor.luckdragon.io",
+    "id": "falkor-monitor",
+    "name": "Falkor Monitor",
+    "url": "https://falkor-monitor.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Monitoring worker."
   },
   {
-    "id": "asgard-watchdog",
-    "name": "Asgard Watchdog",
-    "url": "https://asgard-watchdog.luckdragon.io",
+    "id": "falkor-watchdog",
+    "name": "Falkor Watchdog",
+    "url": "https://falkor-watchdog.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Watchdog worker."
   },
   {
-    "id": "asgard-pingtest",
-    "name": "Asgard Pingtest",
-    "url": "https://asgard-pingtest.luckdragon.io",
+    "id": "falkor-pingtest",
+    "name": "Falkor Pingtest",
+    "url": "https://falkor-pingtest.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Connectivity test."
   },
   {
-    "id": "asgard-build",
-    "name": "Asgard Build",
-    "url": "https://asgard-build.luckdragon.io",
+    "id": "falkor-build",
+    "name": "Falkor Build",
+    "url": "https://falkor-build.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Build worker."
   },
   {
-    "id": "asgard-deploy",
-    "name": "Asgard Deploy Helper",
-    "url": "https://asgard-deploy-helper.luckdragon.io",
+    "id": "falkor-deploy",
+    "name": "Falkor Deploy Helper",
+    "url": "https://falkor-deploy-helper.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Deploy helper."
   },
   {
-    "id": "asgard-comms",
-    "name": "Asgard Comms",
-    "url": "https://asgard-comms.luckdragon.io",
+    "id": "falkor-comms",
+    "name": "Falkor Comms",
+    "url": "https://falkor-comms.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Comms worker."
   },
   {
-    "id": "asgard-auth",
-    "name": "Asgard Auth",
-    "url": "https://asgard-auth.luckdragon.io",
+    "id": "falkor-auth",
+    "name": "Falkor Auth",
+    "url": "https://falkor-auth.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Auth worker."
   },
   {
-    "id": "asgard-agent",
-    "name": "Asgard Agent",
-    "url": "https://asgard-agent.luckdragon.io",
+    "id": "falkor-agent",
+    "name": "Falkor Agent",
+    "url": "https://falkor-agent.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Agent worker."
   },
   {
-    "id": "asgard-intel",
-    "name": "Asgard Intelligence",
-    "url": "https://asgard-intelligence.luckdragon.io",
+    "id": "falkor-intel",
+    "name": "Falkor Intelligence",
+    "url": "https://falkor-intelligence.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Intelligence worker."
   },
   {
-    "id": "asgard-rank",
-    "name": "Asgard Ranking",
-    "url": "https://asgard-ranking.luckdragon.io",
+    "id": "falkor-rank",
+    "name": "Falkor Ranking",
+    "url": "https://falkor-ranking.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Ranking worker."
   },
   {
-    "id": "asgard-workers",
-    "name": "Asgard Workers",
-    "url": "https://asgard-workers.luckdragon.io",
+    "id": "falkor-workers",
+    "name": "Falkor Workers",
+    "url": "https://falkor-workers.luckdragon.io",
     "repo": "?",
     "tag": "CF Worker",
     "context": "Workers worker (meta)."
@@ -400,12 +400,12 @@ const PROJECTS = [
 // Tool/function shortcuts shown in the left sidebar (prefill the composer with a useful prompt)
 const TOOLS = [
   { id: 'deploy',   name: 'Deploy worker',        prompt: 'Deploy the latest source for ' },
-  { id: 'gh-push',  name: 'Push to GitHub',       prompt: 'Push this file to LuckDragonAsgard/' },
-  { id: 'health',   name: 'Health check all',     prompt: 'Check the health of all Asgard sites and report back which are up/down.' },
+  { id: 'gh-push',  name: 'Push to GitHub',       prompt: 'Push this file to LuckDragonFalkor/' },
+  { id: 'health',   name: 'Health check all',     prompt: 'Check the health of all Falkor sites and report back which are up/down.' },
   { id: 'workers',  name: 'List CF workers',      prompt: 'List all my deployed Cloudflare Workers with their versions.' },
   { id: 'pages',    name: 'List CF pages',        prompt: 'List my Cloudflare Pages projects and their custom domains.' },
-  { id: 'commits',  name: 'Recent commits',       prompt: 'Show me the last 10 commits across all LuckDragonAsgard repos.' },
-  { id: 'd1',       name: 'Query D1',             prompt: 'Run this SQL against asgard-brain D1: ' },
+  { id: 'commits',  name: 'Recent commits',       prompt: 'Show me the last 10 commits across all LuckDragonFalkor repos.' },
+  { id: 'd1',       name: 'Query D1',             prompt: 'Run this SQL against falkor-brain D1: ' },
   { id: 'secret',   name: 'Read a secret',        prompt: 'Get the value of secret ' },
   { id: 'read-src', name: 'Read worker source',   prompt: 'Show me the source code of the ' },
   { id: 'edit-src', name: 'Patch worker source',  prompt: 'In worker XYZ replace `OLD` with `NEW` and redeploy.' },
@@ -442,17 +442,17 @@ const TOOLS = [
 // Model picker — id is the API model name, label is what we show.
 // Costs are per-million tokens for input / output. Cached pricing class — verify with Anthropic for exact current values.
 const MODELS = [
-  // Anthropic — full tool agent loop via asgard-tools
+  // Anthropic — full tool agent loop via falkor-tools
   { id: 'claude-opus-4-6',     label: 'Opus 4.6',         provider: 'anthropic', tools: true,  in: 15.00, out: 75.00, blurb: 'Highest capability — long horizons, complex reasoning' },
   { id: 'claude-sonnet-4-5',   label: 'Sonnet 4.5',       provider: 'anthropic', tools: true,  in:  3.00, out: 15.00, blurb: 'Balanced — default, fast enough, smart enough' },
   { id: 'claude-haiku-4-5',    label: 'Haiku 4.5',        provider: 'anthropic', tools: true,  in:  1.00, out:  5.00, blurb: 'Fastest, cheapest Claude — quick checks, high volume' },
-  // OpenAI — full tool agent loop via asgard-ai /chat/agentic
+  // OpenAI — full tool agent loop via falkor-ai /chat/agentic
   { id: 'gpt-5.5',             label: 'GPT-5.5',          provider: 'openai',    tools: true,  in:  5.00, out: 30.00, blurb: 'OpenAI flagship (Apr 2026) — strongest reasoning + coding' },
   { id: 'gpt-5.4',             label: 'GPT-5.4',          provider: 'openai',    tools: true,  in:  2.50, out: 15.00, blurb: 'Previous flagship — balanced, 1M context' },
   { id: 'gpt-4o-mini',         label: 'GPT-4o mini',      provider: 'openai',    tools: true,  in:  0.15, out:  0.60, blurb: 'Cheapest OpenAI — quick chat' },
   { id: 'o3-mini',             label: 'o3-mini',          provider: 'openai',    tools: true,  in:  1.10, out:  4.40, blurb: 'OpenAI reasoning, smaller' },
-  // Google Gemini — chat-only via asgard-ai
-  { id: 'gemini-2.5-pro',      label: 'Gemini 2.5 Pro',   provider: 'gemini',    tools: true,  in:  1.25, out: 10.00, blurb: 'Long context (1M+), strong reasoning — no Asgard tools yet' },
+  // Google Gemini — chat-only via falkor-ai
+  { id: 'gemini-2.5-pro',      label: 'Gemini 2.5 Pro',   provider: 'gemini',    tools: true,  in:  1.25, out: 10.00, blurb: 'Long context (1M+), strong reasoning — no Falkor tools yet' },
   { id: 'gemini-2.5-flash',    label: 'Gemini 2.5 Flash', provider: 'gemini',    tools: true,  in:  0.30, out:  2.50, blurb: 'Cheap and fast Gemini — no tools' }
 ];
 
@@ -464,12 +464,12 @@ const HTML = `<!doctype html>
 <meta name="theme-color" content="#d97757">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Asgard">
+<meta name="apple-mobile-web-app-title" content="Falkor">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icon.svg">
 <link rel="icon" type="image/svg+xml" href="/icon.svg">
-<title>Asgard</title>
+<title>Falkor</title>
 <style>
   :root {
     --bg: #1a1a1a; --sidebar: #141414; --panel: #1f1f1f; --panel2: #252525; --border: #2a2a2a;
@@ -677,6 +677,74 @@ const HTML = `<!doctype html>
   .msg-action { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; font-family: inherit; }
   .msg-action:hover { border-color: var(--accent); color: var(--accent); }
   .msg-action.playing { color: var(--accent); border-color: var(--accent); }
+  .stream-cursor { display: inline-block; animation: blink 0.7s step-end infinite; font-weight: 300; color: var(--accent); }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+  /* ── Task runner ── */
+  .task-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin: 10px 0; }
+  .task-card .task-title { font-weight: 600; font-size: 14px; color: var(--text); margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+  .task-card .task-title .task-badge { background: var(--accent); color: white; font-size: 10px; padding: 2px 7px; border-radius: 999px; font-weight: 700; }
+  .task-step { display: flex; align-items: flex-start; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .task-step:last-child { border-bottom: none; }
+  .task-step .step-icon { width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; flex-shrink: 0; margin-top: 1px; }
+  .task-step.step-pending   .step-icon { background: var(--panel2); color: var(--muted); border: 1px solid var(--border); }
+  .task-step.step-running   .step-icon { background: #d97757; color: white; animation: pulse-step 0.8s ease-in-out infinite; }
+  .task-step.step-done      .step-icon { background: #2ecc71; color: white; }
+  .task-step.step-error     .step-icon { background: var(--bad); color: white; }
+  @keyframes pulse-step { 0%,100%{opacity:1} 50%{opacity:0.5} }
+  .task-step .step-desc { flex: 1; color: var(--text-soft); line-height: 1.4; }
+  .task-step.step-running   .step-desc { color: var(--text); }
+  .task-step.step-done      .step-desc { color: var(--muted); }
+  .task-step .step-result { font-size: 11px; color: var(--muted); margin-top: 3px; }
+  .task-summary { font-size: 12px; color: var(--muted); margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+
+  /* ── Drive mode overlay ── */
+  #driveOverlay { display: none; position: fixed; inset: 0; background: #0d0d0d; z-index: 200; flex-direction: column; align-items: center; justify-content: center; gap: 20px; }
+  #driveOverlay.active { display: flex; }
+  #driveOverlay .drive-word { font-size: 11px; letter-spacing: 0.25em; color: #d97757; text-transform: uppercase; margin: 0; }
+  #driveOverlay .drive-msg { font-size: clamp(20px, 4vw, 32px); color: white; max-width: 80vw; text-align: center; line-height: 1.4; margin: 0; }
+  #driveOverlay .drive-status { font-size: 13px; color: #555; margin: 0; }
+  #driveOverlay .drive-exit { background: transparent; border: 1px solid #333; color: #666; padding: 8px 20px; border-radius: 999px; cursor: pointer; font-size: 12px; font-family: inherit; margin-top: 12px; }
+  #driveOverlay .drive-exit:hover { border-color: #d97757; color: #d97757; }
+  #drivePulse { width: 48px; height: 48px; border-radius: 50%; background: #d97757; opacity: 0; }
+  #drivePulse.listening { animation: drive-pulse 1.2s ease-out infinite; }
+  @keyframes drive-pulse { 0%{transform:scale(0.8);opacity:0.8} 100%{transform:scale(2);opacity:0} }
+
+  /* ── Memory panel ── */
+  .memory-panel { padding: 16px; max-height: calc(100vh - 200px); overflow-y: auto; }
+  .memory-item { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; display: flex; gap: 10px; align-items: flex-start; }
+  .memory-item .mem-text { flex: 1; font-size: 13px; color: var(--text-soft); line-height: 1.5; }
+  .memory-item .mem-del { background: transparent; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 0 2px; }
+  .memory-item .mem-del:hover { color: var(--bad); }
+  .memory-item .mem-time { font-size: 10px; color: var(--muted); margin-top: 3px; }
+
+  /* ── Infra / billing panel ── */
+  .infra-panel { padding: 16px; }
+  .infra-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(140px,1fr)); gap: 10px; margin-bottom: 20px; }
+  .infra-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .infra-card .ic-label { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .infra-card .ic-val { font-size: 22px; font-weight: 700; color: var(--text); }
+  .infra-card .ic-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .heal-row { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .heal-row:last-child { border-bottom: none; }
+  .heal-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .heal-dot.ok { background: var(--good); }
+  .heal-dot.fail { background: var(--bad); animation: pulse-step 0.8s ease-in-out infinite; }
+  .infra-refresh { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; font-family: inherit; }
+  .infra-refresh:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Family dashboard ── */
+  .family-panel { padding: 16px; }
+  .family-section { margin-bottom: 24px; }
+  .family-section h3 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 10px; }
+  .family-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .family-row:last-child { border-bottom: none; }
+  .family-rank { width: 24px; font-weight: 700; color: var(--accent); }
+  .family-name { flex: 1; color: var(--text); }
+  .family-score { font-weight: 600; color: var(--text); }
+  .family-badge { background: var(--accent); color: white; font-size: 10px; padding: 1px 6px; border-radius: 999px; }
+  .family-add-btn { background: transparent; border: 1px dashed var(--border); color: var(--muted); padding: 8px 14px; border-radius: 8px; cursor: pointer; font-size: 12px; font-family: inherit; margin-top: 8px; width: 100%; }
+  .family-add-btn:hover { border-color: var(--accent); color: var(--accent); }
 
   /* Image attachment chip in composer + image bubble in messages */
   .attach-row { display: flex; gap: 6px; flex-wrap: wrap; padding: 6px 4px 4px; }
@@ -797,7 +865,7 @@ const HTML = `<!doctype html>
 <div class="app">
   <aside class="sidebar" id="sidebar">
     <div class="sb-head">
-      <div class="brand"><div class="brand-dot"></div>Asgard</div>
+      <div class="brand"><div class="brand-dot"></div>Falkor</div>
       <button class="icon-btn" id="closeSidebar" title="Close" aria-label="Close sidebar" style="display:none">×</button>
     </div>
     <button class="new-chat" id="newChat">+ New chat</button>
@@ -825,14 +893,14 @@ const HTML = `<!doctype html>
     <div class="setting"><label>Theme</label><select id="setTheme"><option value="dark">Dark (default)</option><option value="light">Light</option></select></div>
     <div class="setting"><label>Show debug info on messages (token counts, iters)</label><input type="checkbox" id="setDebug"></div>
     <div class="setting"><label>X-Pin (for non-Claude providers)</label><input type="text" id="setPin" placeholder="enter PIN"></div>
-    <div class="setting"><label>Slack channel (for Send-to-Slack button)</label><input type="text" id="setSlackChan" placeholder="#asgard-alerts or C0123ABCDEF"></div>
+    <div class="setting"><label>Slack channel (for Send-to-Slack button)</label><input type="text" id="setSlackChan" placeholder="#falkor-alerts or C0123ABCDEF"></div>
     <div class="setting"><label>Telegram chat ID (for Send-to-Telegram button)</label><input type="text" id="setTelegramChat" placeholder="-1001234567890"></div>
-    <div class="setting"><label>Shared facts (injected as system context for every chat)</label><textarea id="setFacts" rows="5" placeholder="e.g. Paddy is a PE teacher in Williamstown. CF account: a6f47c... GitHub org: LuckDragonAsgard. Telegram chat: -1001234..."></textarea></div>
-    <div class="setting"><label><input type="checkbox" id="setCloudSync" style="margin-right:6px;vertical-align:middle"> Cloud-sync conversations (chats survive across devices via asgard-brain D1)</label></div>
+    <div class="setting"><label>Shared facts (injected as system context for every chat)</label><textarea id="setFacts" rows="5" placeholder="e.g. Paddy is a PE teacher in Williamstown. CF account: a6f47c... GitHub org: LuckDragonFalkor. Telegram chat: -1001234..."></textarea></div>
+    <div class="setting"><label><input type="checkbox" id="setCloudSync" style="margin-right:6px;vertical-align:middle"> Cloud-sync conversations (chats survive across devices via falkor-brain D1)</label></div>
     <div class="setting setting-row"><button class="btn" id="btnSyncNow">Sync now</button><button class="btn" id="btnSyncRestore">Restore from cloud</button><span id="syncStatus" class="muted"></span></div>
-    <div class="setting"><label><input type="checkbox" id="setPinGate" style="margin-right:6px;vertical-align:middle"> Require PIN to open Asgard (gates the dashboard)</label></div>
+    <div class="setting"><label><input type="checkbox" id="setPinGate" style="margin-right:6px;vertical-align:middle"> Require PIN to open Falkor (gates the dashboard)</label></div>
     <div class="setting setting-row"><button class="btn-danger" id="btnClearChats">Clear all conversations</button><button class="btn" id="btnExport">Export conversations (JSON)</button></div>
-    <div class="setting muted">Asgard <span id="setVersion"></span> · localStorage <span id="setStorageUsed"></span></div>
+    <div class="setting muted">Falkor <span id="setVersion"></span> · localStorage <span id="setStorageUsed"></span></div>
   </div>
 </div>
 
@@ -842,17 +910,17 @@ const HTML = `<!doctype html>
 </div>
 
 <div class="modal modal-large" id="bridgesModal">
-  <div class="modal-head"><h2>Install Asgard Bridges</h2><button class="modal-close" data-close="bridgesModal" aria-label="Close bridges">×</button></div>
+  <div class="modal-head"><h2>Install Falkor Bridges</h2><button class="modal-close" data-close="bridgesModal" aria-label="Close bridges">×</button></div>
   <div class="modal-body">
     <div id="setupChecklist" style="background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:14px;margin:0 0 14px"><h3 style="margin:0 0 8px;font-size:14px">📋 Setup checklist</h3><div id="checklistItems" style="font-size:12px"><div class="muted">Loading...</div></div></div>
-    <p style="font-size:13px;color:var(--text-soft);margin-top:0">Two bridges turn Asgard into a full computer-use agent — Chrome controls your real browser with your logged-in sessions, Desktop controls your native apps.</p>
+    <p style="font-size:13px;color:var(--text-soft);margin-top:0">Two bridges turn Falkor into a full computer-use agent — Chrome controls your real browser with your logged-in sessions, Desktop controls your native apps.</p>
 
     <div style="background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:14px;margin:14px 0">
       <h3 style="margin:0 0 8px;font-size:14px">🌐 Chrome Bridge <span id="chromeBridgeStatus" style="font-size:11px;font-weight:400;color:var(--muted)">checking…</span></h3>
       <p style="margin:0 0 10px;font-size:12px;color:var(--text-soft)">Drives your real Chrome with your cookies/sessions. Drag-drop a screenshot, click links, fill forms.</p>
       <ol style="margin:0 0 10px;padding-left:18px;font-size:12px">
-        <li>Download the source repo: <a href="https://codeload.github.com/PaddyGallivan/asgard-source/zip/refs/heads/main" style="color:var(--accent)">asgard-source.zip</a></li>
-        <li>Unzip → use the <code>bridges/asgard-bridge-extension/</code> folder inside</li>
+        <li>Download the source repo: <a href="https://codeload.github.com/PaddyGallivan/falkor-source/zip/refs/heads/main" style="color:var(--accent)">falkor-source.zip</a></li>
+        <li>Unzip → use the <code>bridges/falkor-bridge-extension/</code> folder inside</li>
         <li>Keep the unzipped folder somewhere permanent (don't move/delete it)</li>
         <li>Open <code>chrome://extensions</code> → toggle Developer mode ON → Load unpacked → pick the unzipped folder</li>
         <li>Pin the extension, click it, confirm PIN matches your X-Pin (default 2967), tick Enabled</li>
@@ -867,11 +935,11 @@ const HTML = `<!doctype html>
         <li>Install Python 3.9+ if you don't have it (built in to macOS)</li>
         <li>Run in a terminal: <pre style="background:#0d0d0d;padding:8px 10px;border-radius:6px;font-size:11px;margin:4px 0">pip install pyautogui pillow requests</pre></li>
         <li><strong>macOS only:</strong> System Settings → Privacy → <em>Accessibility</em> AND <em>Screen Recording</em> → add Terminal</li>
-        <li>Save <a href="https://raw.githubusercontent.com/PaddyGallivan/asgard-source/main/bridges/asgard-desktop.py" target="_blank" style="color:var(--accent)">asgard-desktop.py</a> to your home folder (right-click → Save link as)</li>
-        <li>Run: <pre style="background:#0d0d0d;padding:8px 10px;border-radius:6px;font-size:11px;margin:4px 0">python ~/asgard-desktop.py</pre></li>
+        <li>Save <a href="https://raw.githubusercontent.com/PaddyGallivan/falkor-source/main/bridges/falkor-desktop.py" target="_blank" style="color:var(--accent)">falkor-desktop.py</a> to your home folder (right-click → Save link as)</li>
+        <li>Run: <pre style="background:#0d0d0d;padding:8px 10px;border-radius:6px;font-size:11px;margin:4px 0">python ~/falkor-desktop.py</pre></li>
         <li>Leave the terminal open. Failsafe: drag mouse to top-left corner to abort.</li>
       </ol>
-      <p style="margin:0;font-size:11px;color:var(--muted)">Polls every ~2s. Setup guide: <a href="https://github.com/PaddyGallivan/asgard-source/blob/main/bridges/README-desktop.md" target="_blank" style="color:var(--accent)">README on GitHub</a>.</p>
+      <p style="margin:0;font-size:11px;color:var(--muted)">Polls every ~2s. Setup guide: <a href="https://github.com/PaddyGallivan/falkor-source/blob/main/bridges/README-desktop.md" target="_blank" style="color:var(--accent)">README on GitHub</a>.</p>
     </div>
 
     <div class="setting setting-row" style="align-items:center;gap:12px">
@@ -887,14 +955,14 @@ const HTML = `<!doctype html>
 <div class="modal modal-large" id="deployModal">
   <div class="modal-head"><h2>Deploy worker</h2><button class="modal-close" data-close="deployModal" aria-label="Close deploy">×</button></div>
   <div class="modal-body">
-    <div class="setting"><label>Worker name</label><input type="text" id="deployName" placeholder="asgard"></div>
-    <div class="setting"><label>main_module</label><input type="text" id="deployMain" placeholder="worker.js or asgard.js" value="worker.js"></div>
+    <div class="setting"><label>Worker name</label><input type="text" id="deployName" placeholder="falkor"></div>
+    <div class="setting"><label>main_module</label><input type="text" id="deployMain" placeholder="worker.js or falkor.js" value="worker.js"></div>
     <div class="setting"><label>Source code</label><textarea id="deployCode" rows="14" placeholder="export default { async fetch(req, env) { return new Response('hi'); } };"></textarea></div>
     <div class="setting setting-row"><button class="btn" id="btnLoadSrc" style="margin-right:8px">&#x1F4E5; Load source</button><button class="btn-primary" id="btnDeploy">Deploy</button><span id="deployStatus" class="muted"></span></div>
     <hr style="border:0;border-top:1px solid var(--border);margin:18px 0">
     <div class="setting setting-row"><button class="btn" id="btnSmoke">🩺 Run smoke test</button><span id="smokeStatus" class="muted"></span></div>
     <div id="smokeResults" style="font-size:11px;font-family:'Menlo',Consolas,monospace;color:var(--text-soft);margin:6px 0 14px"></div>
-    <div class="setting"><label>Rollback — recent versions of this worker</label><button class="btn" id="btnLoadCommits" style="margin-top:4px">Load recent commits for "<span id="rbWorkerLabel">asgard</span>"</button></div>
+    <div class="setting"><label>Rollback — recent versions of this worker</label><button class="btn" id="btnLoadCommits" style="margin-top:4px">Load recent commits for "<span id="rbWorkerLabel">falkor</span>"</button></div>
     <div id="rollbackList" style="font-size:11px;color:var(--text-soft);margin:6px 0"></div>
   </div>
 </div>
@@ -918,6 +986,9 @@ const HTML = `<!doctype html>
         <div class="view-tabs" id="viewTabs">
           <button class="view-tab" data-view="projects">Projects</button>
           <button class="view-tab active" data-view="chat">Chat</button>
+          <button class="view-tab" data-view="family">&#x1F3C6; Family</button>
+          <button class="view-tab" data-view="memory">&#x1F9E0; Memory</button>
+          <button class="view-tab" data-view="infra">&#x26A1; Infra</button>
         </div>
       </div>
     </div>
@@ -926,25 +997,25 @@ const HTML = `<!doctype html>
       <div class="composer-inner">
         <form class="composer-box" id="form">
           <button type="button" id="speakToggle" title="Auto-speak OFF" aria-label="Toggle auto-speak" style="background:transparent;border:none;cursor:pointer;padding:6px 8px;font-size:1.2rem;color:var(--muted);flex-shrink:0;border-radius:8px;transition:color .2s;opacity:0.4" onmouseenter="this.style.color='var(--accent)'" onmouseleave="this.style.color=loadSpeakAuto()?'var(--accent)':\'var(--muted)'">&#x1F50A;</button><button type="button" id="mic" title="Voice input" aria-label="Voice input" style="background:transparent;border:none;cursor:pointer;padding:6px 8px;font-size:1.2rem;color:var(--muted);flex-shrink:0;border-radius:8px;transition:color .2s" onmouseenter="this.style.color='var(--accent)'" onmouseleave="this.style.color='var(--muted)'">&#x1F3A4;</button>
-          <textarea id="input" placeholder="Message Asgard…" rows="1"></textarea>
+          <textarea id="input" placeholder="Message Falkor…" rows="1"></textarea>
           <button type="submit" id="send" aria-label="Send message">Send</button>
         </form>
-        <div class="composer-hint" id="hint">Press Enter to send · Shift+Enter for newline · /image &lt;prompt&gt; for DALL-E</div>
+        <div class="composer-hint" id="hint">Enter to send · /image &lt;prompt&gt; for DALL-E · /task &lt;goal&gt; for agentic run · /remember &lt;fact&gt;</div>
       </div>
     </div>
   </div>
 </div>
 
 <script>
-(function(){try{var cookies=(document.cookie+';').split(';').map(function(s){return s.trim();});var pc=cookies.find(function(s){return s.startsWith('asgard_pin=');});if(pc){localStorage.setItem('asgard.pin.v1',decodeURIComponent(pc.split('=').slice(1).join('=')));}var uc=cookies.find(function(s){return s.startsWith('asgard_user=');});if(uc){localStorage.setItem('asgard.user.v1',uc.split('=')[1]);}}catch(e){}})();
+(function(){try{var cookies=(document.cookie+';').split(';').map(function(s){return s.trim();});var pc=cookies.find(function(s){return s.startsWith('falkor_pin=');});if(pc){localStorage.setItem('falkor.pin.v1',decodeURIComponent(pc.split('=').slice(1).join('=')));}var uc=cookies.find(function(s){return s.startsWith('falkor_user=');});if(uc){localStorage.setItem('falkor.user.v1',uc.split('=')[1]);}}catch(e){}})();
 let PROJECTS = [];
-const BRAIN_URL = 'https://asgard-brain.luckdragon.io';
+const BRAIN_URL = 'https://falkor-brain.luckdragon.io';
 async function loadProductsFromBrain() {
   try {
-    // Call asgard-brain directly from client (CF blocks worker→worker same-zone fetches).
+    // Call falkor-brain directly from client (CF blocks worker→worker same-zone fetches).
     // PIN from localStorage is required — guests without a PIN see no products.
     var pin = loadPin() || '';
-    var r = await fetch('https://asgard-brain.luckdragon.io/d1/query', {
+    var r = await fetch('https://falkor-brain.luckdragon.io/d1/query', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
       body: JSON.stringify({
@@ -993,23 +1064,26 @@ async function _brainWrite(sql, params) {
 }
 const TOOLS_LIST = __TOOLS_JSON__;
 const TOOLS_URL = '__TOOLS_URL__';
-const STORAGE_KEY = 'asgard.conversations.v1';
-const ACTIVE_KEY = 'asgard.active.v1';
-const VIEW_KEY = 'asgard.view.v1';
-const FILTER_KEY = 'asgard.filter.v1';
-const MODEL_KEY = 'asgard.model.v1';
-const PIN_KEY = 'asgard.pin.v1';
-const THEME_KEY = 'asgard.theme.v1';
-const DEBUG_KEY = 'asgard.debug.v1';
-const PIN_GATE_KEY = 'asgard.pinGate.v1';
-const PIN_VERIFY_KEY = 'asgard.pinVerify.v1';
-const SLACK_CHAN_KEY = 'asgard.slack.v1';
-const TELEGRAM_CHAT_KEY = 'asgard.telegram.v1';
-const PROJECTS_OVERRIDES_KEY = 'asgard.projectsOverrides.v1';
-const SORT_KEY = 'asgard.sort.v1';
-const FACTS_KEY = 'asgard.facts.v1';
-const CLOUD_SYNC_KEY = 'asgard.cloudSync.v1';
-const SYNC_BRAIN_URL = 'https://asgard-brain.luckdragon.io';
+const STORAGE_KEY = 'falkor.conversations.v1';
+const ACTIVE_KEY = 'falkor.active.v1';
+const VIEW_KEY = 'falkor.view.v1';
+const FILTER_KEY = 'falkor.filter.v1';
+const MODEL_KEY = 'falkor.model.v1';
+const PIN_KEY = 'falkor.pin.v1';
+const THEME_KEY = 'falkor.theme.v1';
+const DEBUG_KEY = 'falkor.debug.v1';
+const PIN_GATE_KEY = 'falkor.pinGate.v1';
+const PIN_VERIFY_KEY = 'falkor.pinVerify.v1';
+const SLACK_CHAN_KEY = 'falkor.slack.v1';
+const TELEGRAM_CHAT_KEY = 'falkor.telegram.v1';
+const PROJECTS_OVERRIDES_KEY = 'falkor.projectsOverrides.v1';
+const SORT_KEY = 'falkor.sort.v1';
+const FACTS_KEY = 'falkor.facts.v1';
+const CLOUD_SYNC_KEY = 'falkor.cloudSync.v1';
+const DRIVE_KEY    = 'falkor.drive.v1';
+const MEMORY_KEY   = 'falkor.memory.v2';
+const TASKS_KEY    = 'falkor.tasks.v1';
+const SYNC_BRAIN_URL = 'https://falkor-brain.luckdragon.io';
 var SYNC_UID = getPinUser();
 
 // ---------- State ----------
@@ -1049,7 +1123,7 @@ function updateUserPill() {
   }
 }
 function getPinUser() {
-  var u = localStorage.getItem('asgard.user.v1');
+  var u = localStorage.getItem('falkor.user.v1');
   if (u === 'paddy' || u === 'jacky' || u === 'george') return u;
   // Legacy fallback: identify by pin prefix
   var p = loadPin();
@@ -1116,6 +1190,18 @@ function newConvo(projectId) {
   saveConvos(convos);
   saveActive(id);
   return conv;
+}
+function greetUser() {
+  var conv = getActive();
+  if (!conv || conv.messages.length > 0) return;
+  var hour = new Date().getHours();
+  var tod = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
+  var name = getPinName();
+  var greeting = 'Good ' + tod + ', ' + name + '! What can I do for you?';
+  conv.messages.push({ role: 'assistant', content: greeting, ts: Date.now() });
+  saveConvos(convos);
+  render();
+  if (typeof loadSpeakAuto === 'function' && loadSpeakAuto()) speakMessage(greeting);
 }
 function deleteConvo(id) {
   convos = convos.filter(c => c.id !== id);
@@ -1324,11 +1410,11 @@ function render() {
 
   // Presence: heartbeat dots for core workers
   var heartbeats = [
-    { name: 'asgard-tools', url: 'https://asgard-tools.luckdragon.io/health' },
-    { name: 'asgard-ai',    url: 'https://asgard-ai.luckdragon.io/health' },
-    { name: 'asgard-brain', url: 'https://asgard-brain.luckdragon.io/health' },
-    { name: 'asgard-vault', url: 'https://asgard-vault.luckdragon.io/health' },
-    { name: 'asgard-browser', url: 'https://asgard-browser.luckdragon.io/health' }
+    { name: 'falkor-tools', url: 'https://falkor-tools.luckdragon.io/health' },
+    { name: 'falkor-ai',    url: 'https://falkor-ai.luckdragon.io/health' },
+    { name: 'falkor-brain', url: 'https://falkor-brain.luckdragon.io/health' },
+    { name: 'falkor-vault', url: 'https://falkor-vault.luckdragon.io/health' },
+    { name: 'falkor-browser', url: 'https://falkor-browser.luckdragon.io/health' }
   ];
   heartbeats.forEach(function(h) {
     var row = document.createElement('div');
@@ -1433,13 +1519,22 @@ function render() {
     }
   }
 
-  // Main panel — three views
+  // Main panel — views
   els.chat.innerHTML = '';
   if (currentView === 'projects') {
     renderProjectTiles();
     els.composerWrap.style.display = 'none';
   } else if (currentView === 'detail') {
     renderProjectDetail();
+    els.composerWrap.style.display = 'none';
+  } else if (currentView === 'family') {
+    renderFamilyDashboard();
+    els.composerWrap.style.display = '';
+  } else if (currentView === 'memory') {
+    renderMemoryPanel();
+    els.composerWrap.style.display = 'none';
+  } else if (currentView === 'infra') {
+    renderInfraPanel();
     els.composerWrap.style.display = 'none';
   } else {
     renderChat();
@@ -1591,16 +1686,16 @@ async function piRestore(workerName, out) {
   out.textContent = '⏳ Fetching latest commit for ' + workerName + '...';
   out.style.color = '#aaa';
   try {
-    var ghR = await fetch('https://api.github.com/repos/PaddyGallivan/asgard-source/commits?path=workers/' + workerName + '.js&per_page=1', { headers: { 'Accept': 'application/vnd.github+json' } });
+    var ghR = await fetch('https://api.github.com/repos/PaddyGallivan/falkor-source/commits?path=workers/' + workerName + '.js&per_page=1', { headers: { 'Accept': 'application/vnd.github+json' } });
     var commits = await ghR.json();
     if (!Array.isArray(commits) || !commits[0] || !commits[0].sha) throw new Error('No commits found for workers/' + workerName + '.js');
     var sha = commits[0].sha;
     var msg = (commits[0].commit && commits[0].commit.message) ? commits[0].commit.message.split(String.fromCharCode(10))[0] : sha.substring(0,8);
     out.textContent = '⏳ Restoring from ' + sha.substring(0,8) + ': ' + msg;
-    var mainMod = workerName === 'asgard' ? 'asgard.js' : 'worker.js';
-    var r = await fetch('https://asgard-tools.luckdragon.io/admin/rollback', {
+    var mainMod = workerName === 'falkor' ? 'falkor.js' : 'worker.js';
+    var r = await fetch('https://falkor-tools.luckdragon.io/admin/rollback', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Pin': pin, 'Origin': 'https://asgard.luckdragon.io', 'User-Agent': navigator.userAgent },
+      headers: { 'Content-Type': 'application/json', 'X-Pin': pin, 'Origin': 'https://falkor.luckdragon.io', 'User-Agent': navigator.userAgent },
       body: JSON.stringify({ worker_name: workerName, sha: sha, main_module: mainMod })
     });
     var d = await r.json();
@@ -1650,7 +1745,7 @@ function renderProjectTiles() {
   var top = PROJECTS.slice().filter(function(p){ return (p.income_priority||0) > 0; }).sort(function(a,b){ return (b.income_priority||0) - (a.income_priority||0); }).slice(0, 5);
 
   var trackerHtml = '<div class="prod-tracker">';
-  trackerHtml += '<h1 style="margin:0 0 4px;font-size:24px">\u2728 Asgard Production Tracker</h1>';
+  trackerHtml += '<h1 style="margin:0 0 4px;font-size:24px">\u2728 Falkor Production Tracker</h1>';
   trackerHtml += '<p style="margin:0 0 18px;color:var(--muted);font-size:13px">' + PROJECTS.length + ' projects across Cloudflare, Vercel, GitHub. Click a tile for details + actions.</p>';
   // 5-year revenue strip
   trackerHtml += '<div class="rev-strip">';
@@ -2123,7 +2218,7 @@ function openModal(id) {
     if (els.btnSmoke) els.btnSmoke.onclick = runSmokeTest;
     if (els.btnLoadCommits) els.btnLoadCommits.onclick = loadRecentCommits;
     // Default the rollback worker name to the current deployName field
-    if (els.deployName && els.rbWorkerLabel) els.rbWorkerLabel.textContent = els.deployName.value || 'asgard';
+    if (els.deployName && els.rbWorkerLabel) els.rbWorkerLabel.textContent = els.deployName.value || 'falkor';
   }
   // Move focus into the modal for keyboard users
   setTimeout(function(){
@@ -2180,7 +2275,7 @@ function populateSettings() {
     var data = includePrivate ? convos : convos.filter(function(c){ return !c.private; });
     var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     var a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = 'asgard-conversations-' + Date.now() + '.json'; a.click();
+    a.href = URL.createObjectURL(blob); a.download = 'falkor-conversations-' + Date.now() + '.json'; a.click();
   };
 }
 
@@ -2188,7 +2283,7 @@ async function loadStats() {
   var b = els.statsBody;
   b.innerHTML = '<div class="muted" style="padding:16px;text-align:center">Loading cost data…</div>';
   var pin = loadPin();
-  fetch('https://asgard-ai.luckdragon.io/admin/spend?days=30', {headers:{'X-Pin':pin,'Content-Type':'application/json'}})
+  fetch('https://falkor-ai.luckdragon.io/admin/spend?days=30', {headers:{'X-Pin':pin,'Content-Type':'application/json'}})
     .then(function(r){return r.json();}).then(function(d){
       if (!d.ok) { b.innerHTML = '<div class="muted" style="padding:16px">No spend data yet — start chatting!</div>'; return; }
       var rows = d.rows || [];
@@ -2239,11 +2334,11 @@ async function runSmokeTest() {
 }
 
 async function loadRecentCommits() {
-  var worker = (els.deployName.value || 'asgard').trim();
+  var worker = (els.deployName.value || 'falkor').trim();
   els.rbWorkerLabel.textContent = worker;
   els.rollbackList.innerHTML = '<span class="muted">Loading...</span>';
   try {
-    var r = await fetch('https://api.github.com/repos/PaddyGallivan/asgard-source/commits?path=workers/' + worker + '.js&per_page=10');
+    var r = await fetch('https://api.github.com/repos/PaddyGallivan/falkor-source/commits?path=workers/' + worker + '.js&per_page=10');
     var commits = await r.json();
     if (!Array.isArray(commits) || !commits.length) {
       els.rollbackList.innerHTML = '<span class="muted">No commits found for workers/' + escapeHtml(worker) + '.js</span>';
@@ -2274,7 +2369,7 @@ async function rollbackTo(worker, sha) {
   if (!confirm('Roll ' + worker + ' back to commit ' + sha.substring(0,8) + '?')) return;
   els.rollbackList.innerHTML = '<span class="muted">Rolling back...</span>';
   try {
-    var main = worker === 'asgard' ? 'asgard.js' : 'worker.js';
+    var main = worker === 'falkor' ? 'falkor.js' : 'worker.js';
     var r = await fetch(TOOLS_URL + '/admin/rollback', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
@@ -2324,7 +2419,7 @@ async function speakMessage(text, btn) {
   if (currentAudio) { try { currentAudio.pause(); } catch(e){} currentAudio = null; }
   if (btn) btn.classList.add('playing');
   try {
-    var r = await fetch('https://asgard-ai.luckdragon.io/speak', {
+    var r = await fetch('https://falkor-ai.luckdragon.io/speak', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
       body: JSON.stringify({ text: text.substring(0, 4000) })
@@ -2342,7 +2437,7 @@ async function speakMessage(text, btn) {
   }
 }
 
-// ---------- Cloud sync (D1 via asgard-brain) ----------
+// ---------- Cloud sync (D1 via falkor-brain) ----------
 let _syncTimer = null;
 async function cloudSyncPush(manual) {
   if (!loadCloudSync() && !manual) return;
@@ -2352,7 +2447,7 @@ async function cloudSyncPush(manual) {
     await fetch(SYNC_BRAIN_URL + '/d1/write', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
-      body: JSON.stringify({ sql: 'CREATE TABLE IF NOT EXISTS asgard_sync_state (uid TEXT PRIMARY KEY, blob TEXT, ts INTEGER)', params: [] })
+      body: JSON.stringify({ sql: 'CREATE TABLE IF NOT EXISTS falkor_sync_state (uid TEXT PRIMARY KEY, blob TEXT, ts INTEGER)', params: [] })
     });
     const blob = JSON.stringify({ convos: convos, ts: Date.now() });
     if (blob.length > 4000000) { if (els.syncStatus) els.syncStatus.textContent = 'Too large to sync (>4MB)'; return; }
@@ -2360,7 +2455,7 @@ async function cloudSyncPush(manual) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
       body: JSON.stringify({
-        sql: 'INSERT OR REPLACE INTO asgard_sync_state (uid, blob, ts) VALUES (?, ?, ?)',
+        sql: 'INSERT OR REPLACE INTO falkor_sync_state (uid, blob, ts) VALUES (?, ?, ?)',
         params: [SYNC_UID, blob, Date.now()]
       })
     });
@@ -2376,7 +2471,7 @@ async function cloudSyncPull(manual) {
     const r = await fetch(SYNC_BRAIN_URL + '/d1/query', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
-      body: JSON.stringify({ sql: 'SELECT blob, ts FROM asgard_sync_state WHERE uid = ?', params: [SYNC_UID] })
+      body: JSON.stringify({ sql: 'SELECT blob, ts FROM falkor_sync_state WHERE uid = ?', params: [SYNC_UID] })
     });
     const d = await r.json();
     const row = d.results && d.results[0];
@@ -2406,7 +2501,7 @@ async function sendToSlack(text, btn) {
   if (!chan) { alert('Configure Slack channel in Settings'); return; }
   if (btn) btn.textContent = '⏳ Slack…';
   try {
-    var r = await fetch('https://asgard-ai.luckdragon.io/slack/post', {
+    var r = await fetch('https://falkor-ai.luckdragon.io/slack/post', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
       body: JSON.stringify({ channel: chan, text: text.substring(0, 4000) })
@@ -2424,7 +2519,7 @@ async function sendToTelegram(text, btn) {
   if (!chat) { alert('Configure Telegram chat ID in Settings'); return; }
   if (btn) btn.textContent = '⏳ Telegram…';
   try {
-    var r = await fetch('https://asgard-ai.luckdragon.io/telegram/send', {
+    var r = await fetch('https://falkor-ai.luckdragon.io/telegram/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
       body: JSON.stringify({ chat_id: chat, text: text.substring(0, 4000) })
@@ -2440,7 +2535,7 @@ async function sendToTelegram(text, btn) {
 async function probeBridge(uid, statusEl) {
   if (!statusEl) return;
   try {
-    var r = await fetch('https://asgard-ai.luckdragon.io/bridge/poll?uid=' + encodeURIComponent(uid), { headers: { 'X-Pin': loadPin() } });
+    var r = await fetch('https://falkor-ai.luckdragon.io/bridge/poll?uid=' + encodeURIComponent(uid), { headers: { 'X-Pin': loadPin() } });
     if (r.ok) {
       statusEl.textContent = '· connected';
       statusEl.style.color = 'var(--good)';
@@ -2458,13 +2553,13 @@ async function testBridges() {
   if (!els.bridgesTestStatus) return;
   els.bridgesTestStatus.textContent = 'Sending tests…';
   try {
-    var r1 = await fetch('https://asgard-ai.luckdragon.io/bridge/enqueue', {
+    var r1 = await fetch('https://falkor-ai.luckdragon.io/bridge/enqueue', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
       body: JSON.stringify({ uid: getPinUser(), command: { type: 'screenshot', input: {} } })
     });
     var d1 = await r1.json();
-    var r2 = await fetch('https://asgard-ai.luckdragon.io/bridge/enqueue', {
+    var r2 = await fetch('https://falkor-ai.luckdragon.io/bridge/enqueue', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
       body: JSON.stringify({ uid: getPinUser() + '-desktop', command: { type: 'screenshot', input: {} } })
@@ -2472,8 +2567,8 @@ async function testBridges() {
     var d2 = await r2.json();
     // Wait 4s for helpers to pick up
     await new Promise(r => setTimeout(r, 4000));
-    var c1 = await (await fetch('https://asgard-ai.luckdragon.io/bridge/result/' + d1.id, { headers: { 'X-Pin': loadPin() } })).json();
-    var c2 = await (await fetch('https://asgard-ai.luckdragon.io/bridge/result/' + d2.id, { headers: { 'X-Pin': loadPin() } })).json();
+    var c1 = await (await fetch('https://falkor-ai.luckdragon.io/bridge/result/' + d1.id, { headers: { 'X-Pin': loadPin() } })).json();
+    var c2 = await (await fetch('https://falkor-ai.luckdragon.io/bridge/result/' + d2.id, { headers: { 'X-Pin': loadPin() } })).json();
     var msgs = [];
     msgs.push('Chrome: ' + (c1.status === 'done' ? '✅ responded' : '⏳ no response'));
     msgs.push('Desktop: ' + (c2.status === 'done' ? '✅ responded' : '⏳ no response'));
@@ -2491,16 +2586,16 @@ async function renderSetupChecklist() {
   var items = [];
   // Chrome bridge
   try {
-    var r = await fetch('https://asgard-ai.luckdragon.io/bridge/poll?uid=' + encodeURIComponent(getPinUser()), { headers: { 'X-Pin': loadPin() } });
+    var r = await fetch('https://falkor-ai.luckdragon.io/bridge/poll?uid=' + encodeURIComponent(getPinUser()), { headers: { 'X-Pin': loadPin() } });
     items.push({ name: 'Chrome bridge installed & polling', ok: r.ok });
   } catch (e) { items.push({ name: 'Chrome bridge installed & polling', ok: false }); }
   // Desktop bridge — check if it polled in the last 5 minutes by enqueueing a no-op and seeing if it's claimed
   // Simpler: just probe poll endpoint (returns idle if no command pending; doesn't tell us if helper is RUNNING)
   // Better: check D1 — peek at any in_flight command for paddy-desktop. Skip for simplicity.
-  items.push({ name: 'Desktop helper running (python asgard-desktop.py)', ok: null, note: 'Status only visible while running — check Settings > X-Pin matches' });
+  items.push({ name: 'Desktop helper running (python falkor-desktop.py)', ok: null, note: 'Status only visible while running — check Settings > X-Pin matches' });
   // GHA
   try {
-    var ghr = await fetch('https://api.github.com/repos/PaddyGallivan/asgard-source/contents/.github/workflows/deploy.yml');
+    var ghr = await fetch('https://api.github.com/repos/PaddyGallivan/falkor-source/contents/.github/workflows/deploy.yml');
     items.push({ name: 'GitHub Actions CI/CD activated', ok: ghr.ok, note: ghr.ok ? '' : 'See docs/GHA-SETUP.md to activate (5 min)' });
   } catch (e) { items.push({ name: 'GitHub Actions CI/CD activated', ok: false, note: 'See docs/GHA-SETUP.md' }); }
   // Render
@@ -2516,10 +2611,10 @@ async function submitFeatureRequest() {
   var text = prompt('What feature would you like to request?');
   if (!text || !text.trim()) return;
   try {
-    var r = await fetch('https://asgard-ai.luckdragon.io/feature-request', {
+    var r = await fetch('https://falkor-ai.luckdragon.io/feature-request', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
-      body: JSON.stringify({ body: text.trim(), text: text.trim(), source: 'asgard-dashboard' })
+      body: JSON.stringify({ body: text.trim(), text: text.trim(), source: 'falkor-dashboard' })
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     alert('✅ Feature request submitted');
@@ -2558,15 +2653,478 @@ function buildSystemPrompt(conv) {
   if (!conv || !conv.projectId) return null;
   const proj = PROJECTS_EFF.find(p => p.id === conv.projectId);
   if (!proj) return null;
-  return 'You are Asgard, working specifically on the ' + proj.name + ' project right now. Project context: ' + proj.context + ' Live URL: ' + proj.url + '. Repo: ' + proj.repo + '. You are currently logged in as ' + getPinName() + '. Scope all answers and actions to this project unless ' + getPinName() + ' explicitly says otherwise.';
+  return 'You are Falkor, working specifically on the ' + proj.name + ' project right now. Project context: ' + proj.context + ' Live URL: ' + proj.url + '. Repo: ' + proj.repo + '. You are currently logged in as ' + getPinName() + '. Scope all answers and actions to this project unless ' + getPinName() + ' explicitly says otherwise.';
 }
 
 function sendMessage(text) { currentView = 'chat'; saveView('chat'); render(); send(text); }
 // ── Voice input ────────────────────────────────────────────
 // ── Auto-speak helpers ──────────────────────────────────────────────────────
-var SPEAK_AUTO_KEY = 'asgard.speak.auto';
+var SPEAK_AUTO_KEY = 'falkor.speak.auto';
 function loadSpeakAuto() { return localStorage.getItem(SPEAK_AUTO_KEY) === '1'; }
 function saveSpeakAuto(v) { localStorage.setItem(SPEAK_AUTO_KEY, v ? '1' : '0'); updateSpeakToggleBtn(); }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PERSISTENT MEMORY
+// ══════════════════════════════════════════════════════════════════════════════
+var MEM_KEY = 'falkor.memory.v2';
+function loadMemories() {
+  try { return JSON.parse(localStorage.getItem(MEM_KEY) || '[]'); } catch(e) { return []; }
+}
+function saveMemories(mems) {
+  localStorage.setItem(MEM_KEY, JSON.stringify(mems));
+  // Async-sync to vault
+  syncMemoriesToVault(mems);
+}
+function addMemory(text) {
+  var mems = loadMemories();
+  // Avoid exact duplicates
+  if (mems.some(function(m){ return m.text.toLowerCase() === text.toLowerCase(); })) return;
+  mems.unshift({ id: Date.now(), text: text.trim(), ts: Date.now() });
+  if (mems.length > 200) mems = mems.slice(0, 200);
+  saveMemories(mems);
+}
+function deleteMemory(id) {
+  var mems = loadMemories().filter(function(m){ return m.id !== id; });
+  saveMemories(mems);
+  renderMemoryPanel();
+}
+function getMemoryContext() {
+  var mems = loadMemories();
+  if (!mems.length) return '';
+  var recent = mems.slice(0, 30).map(function(m){ return '- ' + m.text; }).join('
+');
+  return '\n\n[Falkor memory — facts about Paddy and his work]\n' + recent + '\n[end memory]';
+}
+async function syncMemoriesToVault(mems) {
+  try {
+    await fetch('https://falkor-vault.luckdragon.io/secret/memory_' + getPinUser(), {
+      method: 'POST',
+      headers: { 'X-Pin': loadPin() || '2967', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: JSON.stringify(mems) })
+    });
+  } catch(e) {}
+}
+async function loadMemoriesFromVault() {
+  try {
+    var r = await fetch('https://falkor-vault.luckdragon.io/secret/memory_' + getPinUser(), {
+      headers: { 'X-Pin': loadPin() || '2967' }
+    });
+    if (r.ok) {
+      var data = await r.json();
+      var remote = JSON.parse(data.value || '[]');
+      if (remote.length > 0) {
+        localStorage.setItem(MEM_KEY, JSON.stringify(remote));
+      }
+    }
+  } catch(e) {}
+}
+function renderMemoryPanel() {
+  var panel = els.chat;
+  if (!panel) return;
+  var mems = loadMemories();
+  var html = '<div class="memory-panel"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">'
+    + '<h2 style="margin:0;font-size:16px;font-weight:600">&#x1F9E0; Memory</h2>'
+    + '<button onclick="var t=prompt('Add a memory:');if(t)addMemory(t),renderMemoryPanel();" style="background:var(--accent);border:none;color:white;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-family:inherit">+ Add</button>'
+    + '</div>';
+  if (!mems.length) {
+    html += '<p style="color:var(--muted);font-size:13px">No memories yet. Falkor will remember facts from your conversations automatically, or use /remember &lt;fact&gt;.</p>';
+  } else {
+    mems.forEach(function(m) {
+      var ago = timeAgo(m.ts);
+      html += '<div class="memory-item">'
+        + '<span class="mem-text">' + escapeHtml(m.text) + '<br><span class="mem-time">' + ago + '</span></span>'
+        + '<button class="mem-del" onclick="deleteMemory(' + m.id + ')" title="Forget this">&#x2715;</button>'
+        + '</div>';
+    });
+  }
+  html += '</div>';
+  panel.innerHTML = html;
+}
+function timeAgo(ts) {
+  var s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.floor(s/60) + 'm ago';
+  if (s < 86400) return Math.floor(s/3600) + 'h ago';
+  return Math.floor(s/86400) + 'd ago';
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FAMILY DASHBOARD
+// ══════════════════════════════════════════════════════════════════════════════
+var FAMILY_KEY = 'falkor.family.v1';
+function loadFamilyData() {
+  try { return JSON.parse(localStorage.getItem(FAMILY_KEY) || 'null') || getDefaultFamilyData(); }
+  catch(e) { return getDefaultFamilyData(); }
+}
+function getDefaultFamilyData() {
+  return {
+    footy: {
+      title: 'AFL Footy Tips',
+      round: 1,
+      members: [
+        { name: 'Paddy',  tips: 0, correct: 0, submitted: false },
+        { name: 'Jaclyn', tips: 0, correct: 0, submitted: false },
+        { name: 'Garth',  tips: 0, correct: 0, submitted: false }
+      ]
+    },
+    racing: {
+      title: 'Racing Tipping',
+      members: [
+        { name: 'Paddy',  points: 0 },
+        { name: 'Jaclyn', points: 0 },
+        { name: 'Garth',  points: 0 }
+      ]
+    }
+  };
+}
+function saveFamilyData(data) { localStorage.setItem(FAMILY_KEY, JSON.stringify(data)); }
+function renderFamilyDashboard() {
+  var panel = els.chat;
+  if (!panel) return;
+  var data = loadFamilyData();
+  // Sort footy by correct desc
+  var footy = data.footy.members.slice().sort(function(a,b){ return b.correct - a.correct; });
+  var racing = data.racing.members.slice().sort(function(a,b){ return b.points - a.points; });
+  var html = '<div class="family-panel">';
+  html += '<h2 style="margin:0 0 16px;font-size:16px;font-weight:600">&#x1F3C6; Family Comps</h2>';
+
+  // Footy tips
+  html += '<div class="family-section"><h3>' + escapeHtml(data.footy.title) + ' — Round ' + data.footy.round + '</h3>';
+  footy.forEach(function(m, i) {
+    var badge = i === 0 && m.correct > 0 ? '<span class="family-badge">Leader</span>' : '';
+    var subIcon = m.submitted ? '&#x2705;' : '<span style="color:var(--bad)">&#x26A0;</span>';
+    html += '<div class="family-row"><span class="family-rank">' + (i+1) + '</span>'
+      + '<span class="family-name">' + escapeHtml(m.name) + ' ' + subIcon + '</span>'
+      + '<span class="family-score">' + m.correct + '/' + (m.tips||9) + '</span> ' + badge + '</div>';
+  });
+  html += '<button class="family-add-btn" onclick="familyPromptUpdate('footy')">+ Update scores / mark submitted</button>';
+  html += '</div>';
+
+  // Racing
+  html += '<div class="family-section"><h3>' + escapeHtml(data.racing.title) + '</h3>';
+  racing.forEach(function(m, i) {
+    var badge = i === 0 && m.points > 0 ? '<span class="family-badge">Leader</span>' : '';
+    html += '<div class="family-row"><span class="family-rank">' + (i+1) + '</span>'
+      + '<span class="family-name">' + escapeHtml(m.name) + '</span>'
+      + '<span class="family-score">' + m.points + ' pts</span> ' + badge + '</div>';
+  });
+  html += '<button class="family-add-btn" onclick="familyPromptUpdate('racing')">+ Update points</button>';
+  html += '</div>';
+
+  html += '<p style="font-size:11px;color:var(--muted)">Tip: say "update footy tips: Paddy 7/9, Jaclyn 5/9, Garth 6/9" in chat to update scores.</p>';
+  html += '</div>';
+  panel.innerHTML = html;
+}
+function familyPromptUpdate(type) {
+  if (type === 'footy') {
+    var t = prompt('Update footy scores (e.g. Paddy 7/9, Jaclyn 5/9):');
+    if (t) { currentView = 'chat'; saveView('chat'); render(); send('Update footy tips: ' + t); }
+  } else {
+    var t2 = prompt('Update racing points (e.g. Paddy 120, Jaclyn 95):');
+    if (t2) { currentView = 'chat'; saveView('chat'); render(); send('Update racing points: ' + t2); }
+  }
+}
+function updateFamilyFromAI(type, updates) {
+  var data = loadFamilyData();
+  if (type === 'footy') {
+    updates.forEach(function(u) {
+      var m = data.footy.members.find(function(x){ return x.name.toLowerCase() === u.name.toLowerCase(); });
+      if (m) { if (u.correct !== undefined) m.correct = u.correct; if (u.tips !== undefined) m.tips = u.tips; if (u.submitted !== undefined) m.submitted = u.submitted; }
+    });
+  } else if (type === 'racing') {
+    updates.forEach(function(u) {
+      var m = data.racing.members.find(function(x){ return x.name.toLowerCase() === u.name.toLowerCase(); });
+      if (m && u.points !== undefined) m.points = u.points;
+    });
+  }
+  saveFamilyData(data);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// AGENTIC TASK RUNNER
+// ══════════════════════════════════════════════════════════════════════════════
+var _activeTasks = {};
+
+function renderTaskCard(taskId, title, steps) {
+  var html = '<div class="task-card" id="task-' + taskId + '">';
+  html += '<div class="task-title"><span class="task-badge">TASK</span>' + escapeHtml(title) + '</div>';
+  steps.forEach(function(s, i) {
+    html += '<div class="task-step step-pending" id="step-' + taskId + '-' + i + '">'
+      + '<div class="step-icon">&#x25CB;</div>'
+      + '<div><div class="step-desc">' + escapeHtml(s.desc) + '</div>'
+      + '<div class="step-result" id="step-result-' + taskId + '-' + i + '"></div></div>'
+      + '</div>';
+  });
+  html += '<div class="task-summary" id="task-summary-' + taskId + '">Starting…</div>';
+  html += '</div>';
+  return html;
+}
+
+function updateStep(taskId, stepIdx, state, result) {
+  var stepEl = document.getElementById('step-' + taskId + '-' + stepIdx);
+  if (!stepEl) return;
+  stepEl.className = 'task-step step-' + state;
+  var icons = { pending: '&#x25CB;', running: '&#x25CF;', done: '&#x2713;', error: '&#x2717;' };
+  var iconEl = stepEl.querySelector('.step-icon');
+  if (iconEl) iconEl.innerHTML = icons[state] || '&#x25CF;';
+  if (result !== undefined) {
+    var resEl = document.getElementById('step-result-' + taskId + '-' + stepIdx);
+    if (resEl) resEl.textContent = result;
+  }
+}
+
+function setTaskSummary(taskId, text) {
+  var el = document.getElementById('task-summary-' + taskId);
+  if (el) el.textContent = text;
+}
+
+async function runAgenticTask(goal) {
+  var conv = getActive();
+  if (!conv) conv = newConvo(null);
+  var taskId = 'T' + Date.now().toString(36);
+
+  // Push user message
+  conv.messages.push({ role: 'user', content: '/task ' + goal, ts: Date.now() });
+  saveConvos(convos);
+  currentView = 'chat'; saveView('chat');
+  render();
+
+  var chatInner = els.chat.querySelector('.chat-inner') || els.chat;
+  var planRow = document.createElement('div');
+  planRow.className = 'msg assistant';
+  planRow.innerHTML = '<div class="avatar">A</div><div class="body"><div class="typing"><span></span><span></span><span></span></div> <span class="muted">Planning task…</span></div>';
+  chatInner.appendChild(planRow);
+  els.chat.scrollTop = els.chat.scrollHeight;
+
+  // Step 1: Ask AI to produce a plan as JSON
+  var planPrompt = 'You are Falkor's task planner. The user wants to accomplish: "' + goal + '"\n\n'
+    + 'Produce a concise task plan as JSON only (no markdown, no prose). Format:\n'
+    + '{"title":"<short task title>","steps":[{"id":1,"desc":"<what to do>","type":"ai","prompt":"<exact prompt to send>"},...]}'
+    + '\n\nRules:\n- 3-7 steps max\n- type is always "ai"\n- prompt is the exact message to send to get that step done\n- be specific and actionable\n- JSON only, no extra text';
+
+  var memCtx = getMemoryContext();
+  var pin = loadPin() || '2967';
+  var model = (window.MODELS && window.MODELS[0]) ? window.MODELS[0].id : 'claude-sonnet-4-5';
+
+  var planResp, planJSON;
+  try {
+    var pr = await fetch('https://falkor-ai.luckdragon.io/chat/agentic', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
+      body: JSON.stringify({
+        message: planPrompt + (memCtx ? '\n\nContext:' + memCtx : ''),
+        history: [],
+        model: model,
+        uid: getPinUser()
+      })
+    });
+    var pd = await pr.json();
+    planResp = (pd.response || pd.reply || pd.content || '').trim();
+    // Extract JSON from response
+    var jsonMatch = planResp.match(/\{[\s\S]*\}/);
+    if (jsonMatch) planJSON = JSON.parse(jsonMatch[0]);
+  } catch(e) {
+    planRow.innerHTML = '<div class="avatar">A</div><div class="body"><span class="muted">Could not plan task: ' + escapeHtml(String(e)) + '</span></div>';
+    return;
+  }
+
+  if (!planJSON || !planJSON.steps || !planJSON.steps.length) {
+    planRow.innerHTML = '<div class="avatar">A</div><div class="body"><span class="muted">Could not generate a plan for that goal. Try being more specific.</span></div>';
+    return;
+  }
+
+  // Render task card
+  planRow.innerHTML = '<div class="avatar">A</div><div class="body">' + renderTaskCard(taskId, planJSON.title, planJSON.steps) + '</div>';
+  els.chat.scrollTop = els.chat.scrollHeight;
+
+  var results = [];
+  var allOk = true;
+
+  // Execute each step
+  for (var i = 0; i < planJSON.steps.length; i++) {
+    var step = planJSON.steps[i];
+    updateStep(taskId, i, 'running');
+    setTaskSummary(taskId, 'Step ' + (i+1) + ' of ' + planJSON.steps.length + '…');
+    els.chat.scrollTop = els.chat.scrollHeight;
+
+    try {
+      // Build history from previous results
+      var stepHistory = results.map(function(r, ri) {
+        return [
+          { role: 'user', content: planJSON.steps[ri].prompt },
+          { role: 'assistant', content: r }
+        ];
+      }).flat();
+
+      var contextualPrompt = step.prompt;
+      if (results.length > 0) {
+        contextualPrompt += '\n\n[Previous step result: ' + results[results.length-1].slice(0,300) + ']';
+      }
+
+      var sr = await fetch('https://falkor-ai.luckdragon.io/chat/agentic', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
+        body: JSON.stringify({
+          message: contextualPrompt + (memCtx ? '\n\nContext:' + memCtx : ''),
+          history: stepHistory,
+          model: model,
+          uid: getPinUser()
+        })
+      });
+      var sd = await sr.json();
+      var stepReply = (sd.response || sd.reply || sd.content || '').trim();
+
+      // Check for [REMEMBER: ...] tags in the reply
+      var memMatches = stepReply.match(/\[REMEMBER:\s*([^\]]+)\]/g);
+      if (memMatches) {
+        memMatches.forEach(function(mm) {
+          var fact = mm.replace(/\[REMEMBER:\s*/,'').replace(/\]$/,'').trim();
+          addMemory(fact);
+        });
+        stepReply = stepReply.replace(/\[REMEMBER:[^\]]*\]/g, '').trim();
+      }
+
+      results.push(stepReply);
+      var shortResult = stepReply.length > 120 ? stepReply.slice(0,117) + '…' : stepReply;
+      updateStep(taskId, i, 'done', shortResult);
+    } catch(e) {
+      updateStep(taskId, i, 'error', 'Error: ' + e.message);
+      allOk = false;
+      results.push('(error: ' + e.message + ')');
+    }
+
+    await new Promise(function(r){ setTimeout(r, 200); });
+    els.chat.scrollTop = els.chat.scrollHeight;
+  }
+
+  // Final summary
+  var summary = allOk
+    ? '&#x2705; All ' + planJSON.steps.length + ' steps complete!'
+    : '&#x26A0;&#xFE0F; Finished with some errors — check steps above.';
+  setTaskSummary(taskId, summary);
+
+  // Save to conversation
+  var finalText = '**Task: ' + planJSON.title + '**\n\n' + planJSON.steps.map(function(s,i){
+    return (i+1) + '. ' + s.desc + (results[i] ? '\n   → ' + results[i].slice(0,200) : '');
+  }).join('\n\n');
+  conv.messages.push({ role: 'assistant', content: finalText, ts: Date.now() });
+  if (conv.title === 'New chat') conv.title = '&#x1F3AF; ' + planJSON.title.slice(0,30);
+  saveConvos(convos);
+  els.chat.scrollTop = els.chat.scrollHeight;
+
+  // Speak completion
+  if (loadSpeakAuto && loadSpeakAuto()) {
+    speakMessage('Task complete: ' + planJSON.title + '. All ' + planJSON.steps.length + ' steps done.');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DRIVE MODE (hands-free)
+// ══════════════════════════════════════════════════════════════════════════════
+var _driveMode = false;
+var _driveRecog = null;
+
+function loadDriveMode() { return localStorage.getItem(DRIVE_KEY) === '1'; }
+function saveDriveMode(v) { localStorage.setItem(DRIVE_KEY, v ? '1' : '0'); }
+
+function startDriveMode() {
+  _driveMode = true;
+  saveDriveMode(true);
+  saveSpeakAuto(true); // always auto-speak in drive mode
+  var overlay = document.getElementById('driveOverlay');
+  if (overlay) { overlay.style.display = 'flex'; }
+  var dBtn = document.getElementById('driveToggle');
+  if (dBtn) { dBtn.style.color = 'var(--accent)'; dBtn.style.opacity = '1'; dBtn.title = 'Drive mode ON'; }
+  setDriveStatus('Listening for "Hey Falkor"…');
+  startDriveMic();
+}
+
+function stopDriveMode() {
+  _driveMode = false;
+  saveDriveMode(false);
+  var overlay = document.getElementById('driveOverlay');
+  if (overlay) { overlay.style.display = 'none'; }
+  var dBtn = document.getElementById('driveToggle');
+  if (dBtn) { dBtn.style.color = 'var(--muted)'; dBtn.style.opacity = '0.4'; dBtn.title = 'Drive mode OFF'; }
+  if (_driveRecog) { try { _driveRecog.stop(); } catch(e){} _driveRecog = null; }
+}
+
+function setDriveMsg(text) {
+  var el = document.getElementById('driveMsgEl');
+  if (el) el.textContent = text;
+}
+function setDriveStatus(text) {
+  var el = document.getElementById('driveStatusEl');
+  if (el) el.textContent = text;
+}
+function setDrivePulse(active) {
+  var el = document.getElementById('drivePulse');
+  if (!el) return;
+  if (active) {
+    el.style.opacity = '1';
+    el.style.animation = 'drive-pulse 1.2s ease-out infinite';
+  } else {
+    el.style.opacity = '0';
+    el.style.animation = 'none';
+  }
+}
+
+function startDriveMic() {
+  if (!_driveMode) return;
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return;
+  if (_driveRecog) { try { _driveRecog.stop(); } catch(e){} }
+  _driveRecog = new SR();
+  _driveRecog.lang = 'en-AU';
+  _driveRecog.continuous = false;
+  _driveRecog.interimResults = false;
+
+  _driveRecog.onstart = function() {
+    setDriveStatus('Listening…');
+    setDrivePulse(true);
+  };
+  _driveRecog.onresult = function(e) {
+    var t = e.results[0][0].transcript.trim();
+    if (!t) return;
+    setDriveMsg(t);
+    setDriveStatus('Thinking…');
+    setDrivePulse(false);
+    // Send to Falkor
+    send(t).then(function() {
+      // After AI replies, auto-restart mic after a pause
+      setTimeout(function() {
+        if (_driveMode) { setDriveStatus('Listening…'); startDriveMic(); }
+      }, 500);
+    }).catch(function() {
+      if (_driveMode) setTimeout(startDriveMic, 1000);
+    });
+  };
+  _driveRecog.onend = function() {
+    setDrivePulse(false);
+    if (_driveMode) setTimeout(startDriveMic, 800);
+  };
+  _driveRecog.onerror = function(e) {
+    setDrivePulse(false);
+    if (e.error === 'not-allowed') { stopDriveMode(); return; }
+    if (_driveMode) setTimeout(startDriveMic, 1500);
+  };
+
+  try { _driveRecog.start(); } catch(err) {}
+}
+
+// Override speakMessage to update drive overlay while speaking
+var _origSpeakMessage = null;
+function patchSpeakForDrive() {
+  if (_origSpeakMessage) return;
+  _origSpeakMessage = speakMessage;
+  speakMessage = function(text, btn) {
+    if (_driveMode) {
+      setDriveMsg(text.slice(0, 200));
+      setDriveStatus('Speaking…');
+    }
+    return _origSpeakMessage(text, btn);
+  };
+}
 function updateSpeakToggleBtn() {
   var btn = document.getElementById('speakToggle');
   if (!btn) return;
@@ -2628,9 +3186,85 @@ function updateSpeakToggleBtn() {
   };
 })();
 
+// ── Always-listening wake word "Hey Falkor" ──────────────────────────────────
+(function() {
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return;
+  var wake = new SR();
+  wake.continuous = true;
+  wake.lang = 'en-AU';
+  wake.interimResults = false;
+  var wakeActive = false;
+  var WAKE_PHRASES = ['hey falkor', 'hi falkor', 'ok falkor', 'okay falkor', 'aye falkor'];
+
+  function startWake() {
+    if (wakeActive) return;
+    try { wake.start(); wakeActive = true; } catch(e) {}
+  }
+
+  wake.onresult = function(e) {
+    for (var i = e.resultIndex; i < e.results.length; i++) {
+      var t = e.results[i][0].transcript.toLowerCase().trim();
+      if (WAKE_PHRASES.some(function(p){ return t.includes(p); })) {
+        var micBtn = document.getElementById('mic');
+        if (micBtn) {
+          // Pulse animation
+          micBtn.style.transition = 'transform 0.15s';
+          micBtn.style.transform = 'scale(1.5)';
+          micBtn.style.color = 'var(--accent)';
+          setTimeout(function() { micBtn.style.transform = 'scale(1)'; }, 200);
+          // Activate mic for next utterance
+          micBtn.click();
+        }
+        break;
+      }
+    }
+  };
+
+  wake.onend = function() {
+    wakeActive = false;
+    // Restart unless main mic is active (innerHTML has stop icon)
+    setTimeout(function() {
+      var micBtn = document.getElementById('mic');
+      if (micBtn && micBtn.innerHTML.includes('⏹')) return; // main mic listening
+      startWake();
+    }, 600);
+  };
+
+  wake.onerror = function(e) {
+    wakeActive = false;
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') return;
+    setTimeout(startWake, 3000);
+  };
+
+  // Start after main mic initialises
+  setTimeout(startWake, 3500);
+})();
+
 async function send(text) {
   let conv = getActive();
   if (!conv) conv = newConvo(null);
+
+  // Slash command: /remember <fact> → save to memory
+  if (text.toLowerCase().startsWith('/remember ')) {
+    var fact = text.slice(10).trim();
+    if (fact) {
+      addMemory(fact);
+      conv.messages.push({ role: 'user', content: text, ts: Date.now() });
+      conv.messages.push({ role: 'assistant', content: '&#x1F9E0; Got it — I'll remember that.', ts: Date.now() });
+      if (conv.title === 'New chat') conv.title = '&#x1F9E0; Memory';
+      saveConvos(convos); render();
+      if (loadSpeakAuto && loadSpeakAuto()) speakMessage("Got it, I'll remember that.");
+    }
+    return;
+  }
+
+  // Slash command: /task <goal> → agentic task runner
+  if (text.toLowerCase().startsWith('/task ')) {
+    var goal = text.slice(6).trim();
+    if (goal) runAgenticTask(goal);
+    return;
+  }
 
   // Slash command: /image <prompt> → DALL-E
   if (text.toLowerCase().startsWith('/image ')) {
@@ -2658,7 +3292,7 @@ async function send(text) {
     var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
     var timeoutId = setTimeout(function(){ if (ctrl) ctrl.abort(); }, 90000);
     try {
-      var r = await fetch('https://asgard-ai.luckdragon.io/image/generate', {
+      var r = await fetch('https://falkor-ai.luckdragon.io/image/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
         body: JSON.stringify({ prompt: prompt }),
@@ -2718,8 +3352,8 @@ async function send(text) {
     var endpoint;
     var body;
     if (hasImage) {
-      // Vision route — always go through asgard-ai /chat/vision
-      endpoint = 'https://asgard-ai.luckdragon.io/chat/vision';
+      // Vision route — always go through falkor-ai /chat/vision
+      endpoint = 'https://falkor-ai.luckdragon.io/chat/vision';
       body = { message: text, image_base64: pendingImage.base64, model: selectedModel };
       if (sys) body.system = sys;
       // Attach the image to the just-pushed user message so it renders in chat
@@ -2727,25 +3361,90 @@ async function send(text) {
       saveConvos(convos);
       pendingImage = null; renderAttachRow();
     } else {
-      // ALL providers (Claude, OpenAI, Gemini) route to asgard-ai /chat/agentic for unified tool access (drive_*, github_*, send_email, etc.)
-      endpoint = 'https://asgard-ai.luckdragon.io/chat/agentic';
-      body = { message: text, messages: conv.messages.slice(0, -1).map(m => ({ role: m.role, content: m.content })), model: selectedModel };
-      // Project context injection
+      // ALL providers route to falkor-ai. Anthropic gets real SSE streaming; others get agentic.
+      var _NL = String.fromCharCode(10);
       if (conv.projectId) {
         var _proj = (typeof PROJECTS_EFF !== 'undefined' ? PROJECTS_EFF : PROJECTS).find(function(p){return p.id === conv.projectId;});
         if (_proj) {
-          var _NL = String.fromCharCode(10); var _projCtx = '--- Active project context ---' + _NL + 'Project: ' + _proj.name + (_proj.url ? _NL + 'URL: ' + _proj.url : '') + (_proj.description ? _NL + 'Description: ' + _proj.description : '') + (_proj.status ? _NL + 'Status: ' + _proj.status : '') + _NL + '--- End project context ---';
+          var _projCtx = '--- Active project context ---' + _NL + 'Project: ' + _proj.name + (_proj.url ? _NL + 'URL: ' + _proj.url : '') + (_proj.description ? _NL + 'Description: ' + _proj.description : '') + (_proj.status ? _NL + 'Status: ' + _proj.status : '') + _NL + '--- End project context ---';
           sys = (sys ? sys + _NL + _NL : '') + _projCtx;
         }
       }
+      // Detect if streaming is appropriate: Anthropic model + no vision + no tool keywords
+      var toolKeywords = /\b(deploy|click|navigate|search|email|slack|github|drive|create file|open|edit site|screenshot|website)\b/i;
+      var useStream = modelMeta && modelMeta.provider === 'anthropic' && !toolKeywords.test(text);
+      if (useStream) {
+        // ── SSE streaming path ────────────────────────────────────────────────
+        endpoint = 'https://falkor-ai.luckdragon.io/chat/stream';
+        var streamHistory = conv.messages.slice(0, -1)
+          .filter(function(m){ return m.role === 'user' || m.role === 'assistant'; })
+          .map(function(m){ return { role: m.role, content: m.content }; });
+        body = { message: text, history: streamHistory, model: selectedModel, uid: getPinUser() };
+        if (sys) body.system = sys;
+        var headers2 = { 'Content-Type': 'application/json', 'X-Pin': loadPin() };
+        var streamResp = await fetch(endpoint, { method: 'POST', headers: headers2, body: JSON.stringify(body) });
+        if (streamResp.status === 401) { localStorage.removeItem('falkor.pin.v1'); window.location.href = '/login'; return; }
+        if (!streamResp.ok) throw new Error('HTTP ' + streamResp.status);
+        // Set up live typewriter bubble
+        typingRow.innerHTML = '<div class="avatar">A</div><div class="body"><span id="streamText"></span><span class="stream-cursor">|</span></div>';
+        var streamEl = document.getElementById('streamText');
+        var reader = streamResp.body.getReader();
+        var decoder = new TextDecoder();
+        var fullText = '';
+        var buf = '';
+        while (true) {
+          var _r = await reader.read();
+          if (_r.done) break;
+          buf += decoder.decode(_r.value, {stream: true});
+          var lines = buf.split('\n');
+          buf = lines.pop();
+          for (var li = 0; li < lines.length; li++) {
+            var line = lines[li];
+            if (!line.startsWith('data:')) continue;
+            var raw = line.slice(5).trim();
+            if (!raw || raw === '[DONE]') continue;
+            try {
+              var evt = JSON.parse(raw);
+              if (evt.type === 'content_block_delta' && evt.delta && evt.delta.type === 'text_delta') {
+                fullText += evt.delta.text;
+                if (streamEl) { streamEl.innerHTML = md(fullText); }
+                els.chat.scrollTop = els.chat.scrollHeight;
+              }
+            } catch(e2) {}
+          }
+        }
+        typingRow.remove();
+        var reply = fullText || '(empty response)';
+        conv.messages.push({ role: 'assistant', content: reply, provider: 'anthropic' });
+        conv.updatedAt = Date.now();
+        saveConvos(convos);
+        render();
+        // Auto-parse [REMEMBER: fact] tags from AI replies
+      var _remMatches = reply.match(/\[REMEMBER:\s*([^\]]+)\]/g);
+      if (_remMatches) {
+        _remMatches.forEach(function(mm) {
+          var fact = mm.replace(/\[REMEMBER:\s*/,'').replace(/\]$/,'').trim();
+          addMemory(fact);
+        });
+        reply = reply.replace(/\[REMEMBER:[^\]]*\]/g, '').trim();
+      }
+      if (loadSpeakAuto && loadSpeakAuto()) speakMessage(reply);
+        return;
+      }
+      // ── Agentic path (tools, non-Anthropic, or tool-keyword messages) ────────
+      endpoint = 'https://falkor-ai.luckdragon.io/chat/agentic';
+      body = { message: text, messages: conv.messages.slice(0, -1).map(m => ({ role: m.role, content: m.content })), model: selectedModel };
       if (sys) body.system = sys;
-      // Pass uid so memory is attributed correctly
       body.uid = getPinUser();
+      // Inject memory context into system if memories exist
+      var _memCtx = getMemoryContext();
+      if (_memCtx && !body.system) body.system = _memCtx;
+      else if (_memCtx && body.system) body.system = body.system + _memCtx;
     }
     var headers = { 'Content-Type': 'application/json', 'X-Pin': loadPin() };
     const r = await fetch(endpoint, { method: 'POST', headers: headers, body: JSON.stringify(body) });
     typingRow.remove();
-    if (r.status === 401) { localStorage.removeItem('asgard.pin.v1'); window.location.href = '/login'; return; }
+    if (r.status === 401) { localStorage.removeItem('falkor.pin.v1'); window.location.href = '/login'; return; }
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
     const reply = data.response || data.reply || data.text || data.content || data.message || '(empty response)';
@@ -2766,7 +3465,7 @@ async function send(text) {
 }
 
 // ---------- Wiring ----------
-els.newChat.addEventListener('click', () => { newConvo(null); currentView = 'chat'; saveView('chat'); render(); closeSidebarMobile(); els.input.focus(); });
+els.newChat.addEventListener('click', () => { newConvo(null); currentView = 'chat'; saveView('chat'); render(); greetUser(); closeSidebarMobile(); els.input.focus(); });
 els.form.addEventListener('submit', (e) => { e.preventDefault(); const v = els.input.value.trim(); if (!v) return; els.input.value = ''; els.input.style.height = 'auto'; send(v); });
 els.input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); els.form.requestSubmit(); } });
 els.input.addEventListener('input', () => { els.input.style.height = 'auto'; els.input.style.height = Math.min(els.input.scrollHeight, 220) + 'px'; });
@@ -2782,11 +3481,11 @@ document.addEventListener('keydown', function(e) {
 });
 document.querySelectorAll('[data-close]').forEach(function(b){ b.addEventListener('click', closeAllModals); });
 document.getElementById('btnLoadSrc').addEventListener('click', async function() {
-  var name = (document.getElementById('deployName').value || 'asgard').trim();
+  var name = (document.getElementById('deployName').value || 'falkor').trim();
   var btn = this; var st = document.getElementById('deployStatus');
   btn.textContent = 'Loading…'; btn.disabled = true; st.textContent = '';
   try {
-    var url = 'https://raw.githubusercontent.com/PaddyGallivan/asgard-source/main/workers/' + name + '.js';
+    var url = 'https://raw.githubusercontent.com/PaddyGallivan/falkor-source/main/workers/' + name + '.js';
     var r = await fetch(url);
     if (!r.ok) throw new Error('GitHub ' + r.status);
     var code = await r.text();
@@ -2827,7 +3526,7 @@ async function pollVersion() {
       var b = document.createElement('div');
       b.id = 'updateBanner';
       b.style.cssText = 'position:fixed;top:0;left:0;right:0;background:var(--accent);color:white;padding:8px 16px;text-align:center;font-size:13px;cursor:pointer;z-index:200;font-weight:500';
-      b.textContent = 'New Asgard version live: ' + d.version + ' (you have ' + LOADED_VERSION + ') — click to reload';
+      b.textContent = 'New Falkor version live: ' + d.version + ' (you have ' + LOADED_VERSION + ') — click to reload';
       b.addEventListener('click', function(){ location.reload(); });
       document.body.appendChild(b);
     }
@@ -2837,7 +3536,7 @@ setInterval(pollVersion, 60000);
 async function pollUnread() {
   try {
     var pin = loadPin(); if (!pin) return;
-    var r = await fetch('https://asgard-brain.luckdragon.io/d1/read', {
+    var r = await fetch('https://falkor-brain.luckdragon.io/d1/read', {
       method:'POST', headers:{'Content-Type':'application/json','X-Pin':pin},
       body: JSON.stringify({ sql: 'SELECT COUNT(*) as cnt FROM msg_inbox WHERE read_at IS NULL' })
     });
@@ -2845,7 +3544,7 @@ async function pollUnread() {
     var cnt = (d.results && d.results[0] && d.results[0].cnt) || 0;
     var badge = document.getElementById('unreadBadge');
     if (badge) { badge.textContent = cnt > 0 ? cnt : ''; badge.style.display = cnt > 0 ? 'inline-flex' : 'none'; }
-    if (cnt > 0 && !window._lastUnreadCnt) notify('\u1F4AC New message in Asgard', cnt + ' unread message' + (cnt>1?'s':''), { tag:'asgard-msg' });
+    if (cnt > 0 && !window._lastUnreadCnt) notify('\u1F4AC New message in Falkor', cnt + ' unread message' + (cnt>1?'s':''), { tag:'falkor-msg' });
     window._lastUnreadCnt = cnt;
   } catch(e) {}
 }
@@ -2866,7 +3565,7 @@ function runPinGate(then) {
   if (sessionStorage.getItem(PIN_VERIFY_KEY) === '1') { then(); return; }
   var overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:9999';
-  overlay.innerHTML = '<div style="background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:32px;max-width:340px;width:100%"><h2 style="margin:0 0 14px;font-size:18px">Asgard PIN</h2><p class="muted" style="margin:0 0 14px;font-size:13px">Enter your PIN to continue.</p><input type="password" id="gatePin" style="width:100%;padding:10px;background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:6px;font-size:16px;font-family:inherit" autofocus><div id="gateErr" style="color:var(--bad);font-size:12px;margin-top:8px;display:none">Wrong PIN</div><button id="gateBtn" style="width:100%;margin-top:14px;padding:10px;background:var(--accent);border:0;color:white;border-radius:6px;cursor:pointer;font-weight:600;font-size:14px">Unlock</button></div>';
+  overlay.innerHTML = '<div style="background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:32px;max-width:340px;width:100%"><h2 style="margin:0 0 14px;font-size:18px">Falkor PIN</h2><p class="muted" style="margin:0 0 14px;font-size:13px">Enter your PIN to continue.</p><input type="password" id="gatePin" style="width:100%;padding:10px;background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:6px;font-size:16px;font-family:inherit" autofocus><div id="gateErr" style="color:var(--bad);font-size:12px;margin-top:8px;display:none">Wrong PIN</div><button id="gateBtn" style="width:100%;margin-top:14px;padding:10px;background:var(--accent);border:0;color:white;border-radius:6px;cursor:pointer;font-weight:600;font-size:14px">Unlock</button></div>';
   document.body.appendChild(overlay);
   var input = document.getElementById('gatePin');
   var btn = document.getElementById('gateBtn');
@@ -2889,10 +3588,10 @@ function runPinGate(then) {
 var _healthState = {};
 async function pollHealthAlerts() {
   var checks = [
-    { name: 'AI',    url: 'https://asgard-ai.luckdragon.io/health' },
-    { name: 'Tools', url: 'https://asgard-tools.luckdragon.io/health' },
-    { name: 'Brain', url: 'https://asgard-brain.luckdragon.io/health' },
-    { name: 'Vault', url: 'https://asgard-vault.luckdragon.io/health' },
+    { name: 'AI',    url: 'https://falkor-ai.luckdragon.io/health' },
+    { name: 'Tools', url: 'https://falkor-tools.luckdragon.io/health' },
+    { name: 'Brain', url: 'https://falkor-brain.luckdragon.io/health' },
+    { name: 'Vault', url: 'https://falkor-vault.luckdragon.io/health' },
   ];
   var pin = loadPin();
   if (!pin) return; // not logged in
@@ -2905,13 +3604,13 @@ async function pollHealthAlerts() {
         injectAlertMessage('✅ ' + b.name + ' is back online.');
       } else if (_healthState[b.name] !== undefined && _healthState[b.name] !== false && !ok) {
         injectAlertMessage('⚠️ ' + b.name + ' is down (HTTP ' + r.status + '). I may not be able to use it right now.');
-        notify('Asgard Alert', b.name + ' appears to be down');
+        notify('Falkor Alert', b.name + ' appears to be down');
       }
       _healthState[b.name] = ok;
     } catch(e) {
       if (_healthState[b.name] !== undefined && _healthState[b.name] !== false) {
         injectAlertMessage('⚠️ ' + b.name + ' is unreachable. Check your connection.');
-        notify('Asgard Alert', b.name + ' is unreachable');
+        notify('Falkor Alert', b.name + ' is unreachable');
       }
       _healthState[b.name] = false;
     }
@@ -2933,39 +3632,142 @@ setTimeout(function() {
 runPinGate(function() {
   if (loadCloudSync() && convos.length === 0) {
     cloudSyncPull().then(function(){
-      if (convos.length === 0) newConvo(null);
+      if (convos.length === 0) { newConvo(null); greetUser(); }
       else if (!activeId || !getActive()) { activeId = convos[0].id; saveActive(activeId); }
       render();
       if (currentView === 'chat') els.input.focus();
     });
   } else {
-    if (convos.length === 0) newConvo(null);
+    if (convos.length === 0) { newConvo(null); greetUser(); }
     else if (!activeId || !getActive()) { activeId = convos[0].id; saveActive(activeId); }
     render();
     if (currentView === 'chat') els.input.focus();
   }
-  // Fetch products from asgard-brain D1 and re-render once loaded
-  loadProductsFromBrain().then(function(n){ console.log('[asgard] loaded ' + n + ' products from D1'); PRODUCTS_LOADING = false; render(); });
+  // Fetch products from falkor-brain D1 and re-render once loaded
+  loadProductsFromBrain().then(function(n){ console.log('[falkor] loaded ' + n + ' products from D1'); PRODUCTS_LOADING = false; render(); });
 });
 </script>
+
+<div id="driveOverlay" style="display:none;position:fixed;inset:0;background:#0d0d0d;z-index:200;flex-direction:column;align-items:center;justify-content:center;gap:20px">
+  <p style="font-size:11px;letter-spacing:0.25em;color:#d97757;text-transform:uppercase;margin:0">Falkor</p>
+  <div id="drivePulse" style="width:48px;height:48px;border-radius:50%;background:#d97757;opacity:0"></div>
+  <p id="driveMsgEl" style="font-size:clamp(20px,4vw,32px);color:white;max-width:80vw;text-align:center;line-height:1.4;margin:0">Listening…</p>
+  <p id="driveStatusEl" style="font-size:13px;color:#555;margin:0">Say "Hey Falkor" to start</p>
+  <button id="driveExitBtn" style="background:transparent;border:1px solid #333;color:#666;padding:8px 20px;border-radius:999px;cursor:pointer;font-size:12px;font-family:inherit;margin-top:12px">Exit drive mode</button>
+</div>
 </body>
 </html>`;
 
 function corsHeaders(request) {
   const allowed = [
-    'https://asgard.luckdragon.io',
-    'https://asgard-ai.luckdragon.io',
-    'https://asgard-tools.luckdragon.io',
-    'https://asgard-brain.luckdragon.io'
+    'https://falkor.luckdragon.io',
+    'https://falkor-ai.luckdragon.io',
+    'https://falkor-tools.luckdragon.io',
+    'https://falkor-brain.luckdragon.io'
   ];
   const origin = request && request.headers ? (request.headers.get('Origin') || '') : '';
-  const acao = allowed.includes(origin) ? origin : 'https://asgard.luckdragon.io';
+  const acao = allowed.includes(origin) ? origin : 'https://falkor.luckdragon.io';
   return {
     'Access-Control-Allow-Origin': acao,
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, X-Pin',
     'Vary': 'Origin'
   };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// INFRA PANEL (billing + self-heal status + auto-deploy webhook)
+// ══════════════════════════════════════════════════════════════════════════════
+var _infraCache = null;
+async function fetchInfraData() {
+  var pin = loadPin() || '2967';
+  var r = await fetch('https://falkor-tools.luckdragon.io/admin/billing', {
+    headers: { 'X-Pin': pin, 'Origin': 'https://falkor.luckdragon.io' }
+  });
+  if (!r.ok) throw new Error('Billing fetch ' + r.status);
+  return r.json();
+}
+async function fetchSelfHealStatus() {
+  var pin = loadPin() || '2967';
+  var r = await fetch('https://falkor-tools.luckdragon.io/admin/selfheal', {
+    headers: { 'X-Pin': pin, 'Origin': 'https://falkor.luckdragon.io' }
+  });
+  if (!r.ok) throw new Error('SelfHeal fetch ' + r.status);
+  return r.json();
+}
+async function renderInfraPanel() {
+  var panel = els.chat;
+  if (!panel) return;
+  panel.innerHTML = '<div class="infra-panel"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">'
+    + '<h2 style="margin:0;font-size:16px;font-weight:600">&#x26A1; Infrastructure</h2>'
+    + '<button class="infra-refresh" onclick="renderInfraPanel()">&#x21BB; Refresh</button>'
+    + '</div>'
+    + '<p style="color:var(--muted);font-size:13px">Loading…</p></div>';
+
+  try {
+    var [billing, heal] = await Promise.all([fetchInfraData(), fetchSelfHealStatus()]);
+    _infraCache = { billing, heal, ts: Date.now() };
+
+    var workers = billing.workers || [];
+    var healResults = (heal.results || []);
+
+    // Metric cards
+    var totalWorkers = workers.length;
+    var healthyCount = healResults.filter(function(h){ return h.ok; }).length;
+    var unhealthyCount = healResults.length - healthyCount;
+    var healedCount = healResults.filter(function(h){ return h.healed; }).length;
+
+    var html = '<div class="infra-panel">'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">'
+      + '<h2 style="margin:0;font-size:16px;font-weight:600">&#x26A1; Infrastructure</h2>'
+      + '<button class="infra-refresh" onclick="renderInfraPanel()">&#x21BB; Refresh</button>'
+      + '</div>';
+
+    html += '<div class="infra-grid">'
+      + '<div class="infra-card"><div class="ic-label">Workers</div><div class="ic-val">' + totalWorkers + '</div><div class="ic-sub">deployed</div></div>'
+      + '<div class="infra-card"><div class="ic-label">Backends healthy</div><div class="ic-val" style="color:var(--good)">' + healthyCount + '/' + healResults.length + '</div><div class="ic-sub">live check</div></div>'
+      + (unhealthyCount > 0 ? '<div class="infra-card"><div class="ic-label">Unhealthy</div><div class="ic-val" style="color:var(--bad)">' + unhealthyCount + '</div><div class="ic-sub">being healed</div></div>' : '')
+      + (healedCount > 0 ? '<div class="infra-card"><div class="ic-label">Auto-healed</div><div class="ic-val" style="color:var(--accent)">' + healedCount + '</div><div class="ic-sub">this check</div></div>' : '')
+      + '</div>';
+
+    // Billing info
+    var bill = billing.billing;
+    if (bill) {
+      html += '<h3 style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:16px 0 8px">Billing</h3>';
+      html += '<div class="infra-grid">';
+      if (bill.frequency) html += '<div class="infra-card"><div class="ic-label">Billing cycle</div><div class="ic-val" style="font-size:15px">' + bill.frequency + '</div></div>';
+      if (bill.balance !== undefined) html += '<div class="infra-card"><div class="ic-label">Balance</div><div class="ic-val" style="font-size:16px">$' + Number(bill.balance).toFixed(2) + '</div></div>';
+      if (bill.last_payment) html += '<div class="infra-card"><div class="ic-label">Last payment</div><div class="ic-val" style="font-size:15px">$' + Number(bill.last_payment.amount||0).toFixed(2) + '</div><div class="ic-sub">' + (bill.last_payment.date||'').slice(0,10) + '</div></div>';
+      html += '</div>';
+    }
+
+    // Worker list
+    html += '<h3 style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:16px 0 8px">Backend health</h3>';
+    healResults.forEach(function(h) {
+      var cls = h.ok ? 'ok' : 'fail';
+      var label = h.ok ? 'healthy' : (h.healed ? '&#x1F527; healed' : h.failCount + ' failures');
+      html += '<div class="heal-row"><div class="heal-dot ' + cls + '"></div>'
+        + '<span style="flex:1;color:var(--text)">' + escapeHtml(h.worker) + '</span>'
+        + '<span style="font-size:12px;color:' + (h.ok ? 'var(--good)' : 'var(--bad)') + '">' + label + '</span>'
+        + '</div>';
+    });
+
+    // All deployed workers
+    html += '<h3 style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:16px 0 8px">All workers (' + workers.length + ')</h3>';
+    workers.forEach(function(w) {
+      var mod = w.modified ? new Date(w.modified).toLocaleDateString() : '';
+      html += '<div class="heal-row"><span style="flex:1;color:var(--text)">' + escapeHtml(w.name) + '</span>'
+        + '<span style="font-size:11px;color:var(--muted)">' + mod + '</span></div>';
+    });
+
+    html += '<p style="font-size:11px;color:var(--muted);margin-top:12px">Self-healing runs every 5 min. After 3 consecutive failures Falkor auto-redeploys from GitHub main. Auto-deploy webhook: <code>POST /admin/webhook/github</code></p>';
+    html += '</div>';
+    panel.innerHTML = html;
+  } catch(e) {
+    panel.innerHTML = '<div class="infra-panel"><h2 style="margin:0 0 10px;font-size:16px">&#x26A1; Infrastructure</h2>'
+      + '<p style="color:var(--bad);font-size:13px">Error loading: ' + escapeHtml(e.message) + '</p>'
+      + '<button class="infra-refresh" onclick="renderInfraPanel()">Retry</button></div>';
+  }
 }
 
 export default {
@@ -2987,7 +3789,7 @@ export default {
         });
       }
       try {
-        const r = await fetch('https://asgard-brain.luckdragon.io/d1/query', {
+        const r = await fetch('https://falkor-brain.luckdragon.io/d1/query', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Pin': env.PADDY_PIN || '' },
           body: JSON.stringify({
@@ -3012,8 +3814,8 @@ export default {
       return new Response(null, { status: 302, headers: {
         'Location': '/login',
         'Set-Cookie': [
-          'asgard_pin=; Path=/; HttpOnly; Max-Age=0; SameSite=Lax',
-          'asgard_user=; Path=/; Max-Age=0; SameSite=Lax'
+          'falkor_pin=; Path=/; HttpOnly; Max-Age=0; SameSite=Lax',
+          'falkor_user=; Path=/; Max-Age=0; SameSite=Lax'
         ],
         'Cache-Control': 'no-store'
       }});
@@ -3028,7 +3830,7 @@ export default {
           const lockHtml = loginPage('<p class=locked>Too many attempts. Try again in 10 minutes.</p>', email);
           return new Response(lockHtml, { status: 429, headers: {'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'} });
         }
-        const user = ASGARD_USERS.find(u => u.email === email);
+        const user = FALKOR_USERS.find(u => u.email === email);
         if (user && password) {
           const ok = await verifyPassword(password, user.salt, user.hash);
           if (ok) {
@@ -3036,8 +3838,8 @@ export default {
             return new Response(null, { status: 302, headers: {
               'Location': '/',
               'Set-Cookie': [
-                'asgard_pin=2967; Path=/; HttpOnly; Max-Age=31536000; SameSite=Lax',
-                'asgard_user=' + user.userId + '; Path=/; Max-Age=31536000; SameSite=Lax'
+                'falkor_pin=2967; Path=/; HttpOnly; Max-Age=31536000; SameSite=Lax',
+                'falkor_user=' + user.userId + '; Path=/; Max-Age=31536000; SameSite=Lax'
               ],
               'Cache-Control': 'no-store'
             }});
@@ -3057,16 +3859,16 @@ export default {
     }
     if (path === '/privacy' || path === '/privacy/') {
       try {
-        const r = await fetch('https://raw.githubusercontent.com/PaddyGallivan/asgard-source/main/docs/PRIVACY.md', { cf: { cacheTtl: 300, cacheEverything: true } });
+        const r = await fetch('https://raw.githubusercontent.com/PaddyGallivan/falkor-source/main/docs/PRIVACY.md', { cf: { cacheTtl: 300, cacheEverything: true } });
         const md = await r.text();
         // Render as simple HTML so Chrome Web Store accepts it
-        const html = '<!doctype html><html><head><meta charset="utf-8"><title>Asgard Bridge — Privacy Policy</title><style>body{max-width:720px;margin:40px auto;padding:0 20px;font-family:-apple-system,system-ui,sans-serif;line-height:1.6;color:#222}h1{border-bottom:2px solid #d97757;padding-bottom:8px}h2{margin-top:32px;color:#444}code{background:#f4f4f4;padding:2px 6px;border-radius:3px}a{color:#d97757}</style></head><body><div id="content"></div><script>const md=' + JSON.stringify(md) + ';const html=md.replace(/^# (.+)$/gm,"<h1>$1</h1>").replace(/^## (.+)$/gm,"<h2>$1</h2>").replace(/^### (.+)$/gm,"<h3>$1</h3>").replace(/\\*\\*(.+?)\\*\\*/g,"<strong>$1</strong>").replace(/`([^`]+)`/g,"<code>$1</code>").replace(/^- (.+)$/gm,"<li>$1</li>").replace(/(<li>.*<\/li>\n?)+/g,m=>"<ul>"+m+"</ul>").replace(/\n\n/g,"</p><p>").replace(/^([^<].+)$/gm,m=>m.startsWith("<")?m:"<p>"+m+"</p>");document.getElementById("content").innerHTML=html;</script></body></html>';
+        const html = '<!doctype html><html><head><meta charset="utf-8"><title>Falkor Bridge — Privacy Policy</title><style>body{max-width:720px;margin:40px auto;padding:0 20px;font-family:-apple-system,system-ui,sans-serif;line-height:1.6;color:#222}h1{border-bottom:2px solid #d97757;padding-bottom:8px}h2{margin-top:32px;color:#444}code{background:#f4f4f4;padding:2px 6px;border-radius:3px}a{color:#d97757}</style></head><body><div id="content"></div><script>const md=' + JSON.stringify(md) + ';const html=md.replace(/^# (.+)$/gm,"<h1>$1</h1>").replace(/^## (.+)$/gm,"<h2>$1</h2>").replace(/^### (.+)$/gm,"<h3>$1</h3>").replace(/\\*\\*(.+?)\\*\\*/g,"<strong>$1</strong>").replace(/`([^`]+)`/g,"<code>$1</code>").replace(/^- (.+)$/gm,"<li>$1</li>").replace(/(<li>.*<\/li>\n?)+/g,m=>"<ul>"+m+"</ul>").replace(/\n\n/g,"</p><p>").replace(/^([^<].+)$/gm,m=>m.startsWith("<")?m:"<p>"+m+"</p>");document.getElementById("content").innerHTML=html;</script></body></html>';
         return new Response(html, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300', 'Access-Control-Allow-Origin': '*' } });
       } catch (e) { return new Response('Privacy fetch failed: ' + e.message, { status: 502 }); }
     }
     if (path === '/handover' || path === '/handover/' || path === '/about') {
       try {
-        const r = await fetch('https://raw.githubusercontent.com/PaddyGallivan/asgard-source/main/docs/HANDOVER.md', {
+        const r = await fetch('https://raw.githubusercontent.com/PaddyGallivan/falkor-source/main/docs/HANDOVER.md', {
           cf: { cacheTtl: 60, cacheEverything: true }
         });
         const md = await r.text();
@@ -3092,8 +3894,8 @@ export default {
 
     if (path === '/manifest.webmanifest' || path === '/manifest.json') {
       return Response.json({
-        name: 'Asgard',
-        short_name: 'Asgard',
+        name: 'Falkor',
+        short_name: 'Falkor',
         description: 'Luck Dragon infrastructure AI',
         start_url: '/',
         display: 'standalone',
@@ -3114,7 +3916,7 @@ export default {
     if (path === '/' || path === '/chat') {
       // Server-side auth gate: no cookie → redirect to /login
       const cookieHdr = request.headers.get('Cookie') || '';
-      const hasCookie = cookieHdr.split(';').map(s=>s.trim()).some(s=>s.startsWith('asgard_pin='));
+      const hasCookie = cookieHdr.split(';').map(s=>s.trim()).some(s=>s.startsWith('falkor_pin='));
       if (!hasCookie) {
         return new Response(null, { status: 302, headers: { 'Location': '/login', 'Cache-Control': 'no-store' } });
       }
@@ -3131,7 +3933,7 @@ export default {
         'Strict-Transport-Security': 'max-age=63072000; includeSubDomains',
         'Referrer-Policy': 'strict-origin-when-cross-origin',
         'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
-        'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src https://asgard-ai.luckdragon.io https://asgard-tools.luckdragon.io https://asgard-brain.luckdragon.io https://asgard-vault.luckdragon.io https:; img-src 'self' data: blob:; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'none';"
+        'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src https://falkor-ai.luckdragon.io https://falkor-tools.luckdragon.io https://falkor-brain.luckdragon.io https://falkor-vault.luckdragon.io https:; img-src 'self' data: blob:; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'none';"
       } });
     }
 
