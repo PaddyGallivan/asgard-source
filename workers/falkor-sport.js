@@ -319,9 +319,17 @@ async function getSportSummary(year, round, pin) {
     : 'unavailable';
 
   const roundGames = games.status === 'fulfilled' ? games.value : [];
-  const finals   = roundGames.filter(g => g.status === 'final');
-  const upcoming = roundGames.filter(g => g.status === 'upcoming');
-  const live     = roundGames.filter(g => g.status === 'live');
+  // Auto-detect current round from games if not supplied
+  const detectedRound = round || (roundGames.length > 0
+    ? Math.min(...roundGames.map(g => g.round))
+    : null);
+  // For summary, only show games for the current/next round
+  const currentRoundGames = detectedRound
+    ? roundGames.filter(g => g.round === detectedRound)
+    : roundGames.slice(0, 9);
+  const finals   = currentRoundGames.filter(g => g.status === 'final');
+  const upcoming = currentRoundGames.filter(g => g.status === 'upcoming');
+  const live     = currentRoundGames.filter(g => g.status === 'live');
 
   const resultsText = finals.map(g => `${g.home} ${g.homeScore} def ${g.away} ${g.awayScore}`).join('; ') || 'none yet';
   const upcomingText = upcoming.map(g => `${g.home} v ${g.away}`).join(', ') || 'none';
@@ -343,9 +351,10 @@ async function getSportSummary(year, round, pin) {
   return {
     year,
     round,
-    summary: `AFL Round ${round} ${year} — Top 5: ${top5}. Results: ${resultsText}. ${liveText ? 'Live: ' + liveText + '. ' : ''}Upcoming: ${upcomingText}.${compText} Racing: ${racingInfo}.`,
+    summary: `AFL Round ${detectedRound || '?'} ${year} — Top 5: ${top5}. Results: ${resultsText}. ${liveText ? 'Live: ' + liveText + '. ' : ''}Upcoming: ${upcomingText}.${compText} Racing: ${racingInfo}.`,
     ladder: ladder.status === 'fulfilled' ? ladder.value : [],
     roundGames: roundGames,
+    currentRound: detectedRound,
     racing: nextRace.status === 'fulfilled' ? nextRace.value : { ok: false },
   };
 }
@@ -445,3 +454,5 @@ export default {
     }
   },
 };
+
+     
