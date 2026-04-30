@@ -1,6 +1,7 @@
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if(url.pathname === '/manifest.json') return new Response(`{"name":"Save My Seat","short_name":"Save My Seat","start_url":"/","display":"standalone","background_color":"#07091a","theme_color":"#ffd23f","icons":[{"src":"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='#ffd23f'/%3E%3Ctext x='32' y='44' text-anchor='middle' font-size='36'%3E%F0%9F%AA%91%3C/text%3E%3C/svg%3E","sizes":"64x64","type":"image/svg+xml"},{"src":"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='42' fill='%23ffd23f'/%3E%3Ctext x='96' y='132' text-anchor='middle' font-size='108'%3E%F0%9F%AA%91%3C/text%3E%3C/svg%3E","sizes":"192x192","type":"image/svg+xml"},{"src":"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='112' fill='%23ffd23f'/%3E%3Ctext x='256' y='352' text-anchor='middle' font-size='288'%3E%F0%9F%AA%91%3C/text%3E%3C/svg%3E","sizes":"512x512","type":"image/svg+xml"}]}`, {headers:{'Content-Type':'application/manifest+json','Cache-Control':'public,max-age=86400'}});
     if(url.pathname==='/health') return new Response(JSON.stringify({ok:true,version:"12.7-splash"}),{headers:{'Content-Type':'application/json'}});
     return new Response(`<!doctype html>
 <html lang="en">
@@ -9,9 +10,10 @@ export default {
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="Save My Seat"/>
 <meta name="theme-color" content="#07091a" id="themeColor"/>
 <title>Save My Seat</title>
-<link rel="manifest" href="data:application/json;base64,eyJuYW1lIjoiU2F2ZSBNeSBTZWF0Iiwic2hvcnRfbmFtZSI6IlNNU1QiLCJzdGFydF91cmwiOiIvIiwiZGlzcGxheSI6InN0YW5kYWxvbmUiLCJiYWNrZ3JvdW5kX2NvbG9yIjoiIzA3MDkxYSIsInRoZW1lX2NvbG9yIjoiI2ZmZDIzZiIsImljb25zIjpbeyJzcmMiOiJkYXRhOmltYWdlL3N2Zyt4bWwsJTNDc3ZnIHhtbG5zPSdodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2Zycgdmlld0JveD0nMCAwIDY0IDY0JyUzRSUzQ3JlY3Qgd2lkdGg9JzY0JyBoZWlnaHQ9JzY0JyByeD0nMTQnIGZpbGw9JyNmZmQyM2YnLyUzRSUzQ3RleHQgeD0nMzInIHk9JzQ0JyB0ZXh0LWFuY2hvcj0nbWlkZGxlJyBmb250LXNpemU9JzM2JyUzRSVGMCU5RiVBQSU5MSUzQy90ZXh0JTNFJTNDL3N2ZyUzRSIsInNpemVzIjoiNjR4NjQiLCJ0eXBlIjoiaW1hZ2Uvc3ZnK3htbCJ9XX0="/>
+<link rel="manifest" href="data:application/json;base64,eyJuYW1lIjogIlNhdmUgTXkgU2VhdCIsICJzaG9ydF9uYW1lIjogIlNhdmUgTXkgU2VhdCIsICJzdGFydF91cmwiOiAiLyIsICJkaXNwbGF5IjogInN0YW5kYWxvbmUiLCAiYmFja2dyb3VuZF9jb2xvciI6ICIjMDcwOTFhIiwgInRoZW1lX2NvbG9yIjogIiNmZmQyM2YiLCAiaWNvbnMiOiBbeyJzcmMiOiAiZGF0YTppbWFnZS9zdmcreG1sLCUzQ3N2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCA2NCA2NCclM0UlM0NyZWN0IHdpZHRoPSc2NCcgaGVpZ2h0PSc2NCcgcng9JzE0JyBmaWxsPScjZmZkMjNmJy8lM0UlM0N0ZXh0IHg9JzMyJyB5PSc0NCcgdGV4dC1hbmNob3I9J21pZGRsZScgZm9udC1zaXplPSczNiclM0UlRjAlOUYlQUElOTElM0MvdGV4dCUzRSUzQy9zdmclM0UiLCAic2l6ZXMiOiAiNjR4NjQiLCAidHlwZSI6ICJpbWFnZS9zdmcreG1sIn0sIHsic3JjIjogImRhdGE6aW1hZ2Uvc3ZnK3htbCwlM0NzdmcgeG1sbnM9J2h0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnJyB2aWV3Qm94PScwIDAgMTkyIDE5MiclM0UlM0NyZWN0IHdpZHRoPScxOTInIGhlaWdodD0nMTkyJyByeD0nNDInIGZpbGw9JyUyM2ZmZDIzZicvJTNFJTNDdGV4dCB4PSc5NicgeT0nMTMyJyB0ZXh0LWFuY2hvcj0nbWlkZGxlJyBmb250LXNpemU9JzEwOCclM0UlRjAlOUYlQUElOTElM0MvdGV4dCUzRSUzQy9zdmclM0UiLCAic2l6ZXMiOiAiMTkyeDE5MiIsICJ0eXBlIjogImltYWdlL3N2Zyt4bWwifSwgeyJzcmMiOiAiZGF0YTppbWFnZS9zdmcreG1sLCUzQ3N2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCA1MTIgNTEyJyUzRSUzQ3JlY3Qgd2lkdGg9JzUxMicgaGVpZ2h0PSc1MTInIHJ4PScxMTInIGZpbGw9JyUyM2ZmZDIzZicvJTNFJTNDdGV4dCB4PScyNTYnIHk9JzM1MicgdGV4dC1hbmNob3I9J21pZGRsZScgZm9udC1zaXplPScyODgnJTNFJUYwJTlGJUFBJTkxJTNDL3RleHQlM0UlM0Mvc3ZnJTNFIiwgInNpemVzIjogIjUxMng1MTIiLCAidHlwZSI6ICJpbWFnZS9zdmcreG1sIn1dfQ=="/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23ffd23f'/%3E%3Ctext x='32' y='44' text-anchor='middle' font-size='36'%3E%F0%9F%AA%91%3C/text%3E%3C/svg%3E"/>
@@ -473,7 +475,7 @@ footer{text-align:center;font-size:11px;color:rgba(138,145,168,0.4);padding:12px
     <div class="kv"><div class="k">Status</div><div class="v" id="kvHolder">Free</div></div>
   </div>
 
-  <footer>Save My Seat v12.6 · savemyseat.au · 2026</footer>
+  <footer>Save My Seat v12.7 · savemyseat.au · 2026</footer>
 </div>
 
 <!-- CREW TAB -->
