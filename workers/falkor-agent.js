@@ -1,4 +1,4 @@
-// falkor-agent v1.0.0 — Durable Object per user
+// falkor-agent v1.0.1 — Durable Object per user
 // Phase 2 of the Falkor rebuild (formerly Asgard)
 // Persistent WebSocket hub + chat history + per-user memory
 // One DO instance per user (keyed by userId)
@@ -7,7 +7,7 @@ export class FalkorAgent {
   constructor(state, env) {
     this.state = state;
     this.env = env;
-    this.sessions = new Map(); // wsId → WebSocket
+    this.sessions = new Map(); // wsId -> WebSocket
     this.wsCount = 0;
   }
 
@@ -55,7 +55,7 @@ export class FalkorAgent {
       const history = await this.getHistory();
       const memory = await this.getMemory();
       return Response.json({
-        version: '1.0.0',
+        version: '1.0.1',
         activeSessions: this.sessions.size,
         historyLength: history.length,
         memoryKeys: Object.keys(memory).length,
@@ -77,11 +77,7 @@ export class FalkorAgent {
       try {
         const msg = JSON.parse(evt.data);
         if (msg.type === 'chat') {
-          const reply = await this.processChat(msg.text, msg.model || 'groq-fast', server);
-          // processChat broadcasts; if no WS passed, send directly
-          if (!msg.stream) {
-            server.send(JSON.stringify({ type: 'reply', text: reply, wsId }));
-          }
+          await this.processChat(msg.text, msg.model || 'groq-fast', server);
         } else if (msg.type === 'ping') {
           server.send(JSON.stringify({ type: 'pong' }));
         } else if (msg.type === 'history') {
@@ -121,19 +117,17 @@ export class FalkorAgent {
       .join('\n');
 
     const systemExtra = memoryLines
-      ? `\n\nUser facts you remember:\n${memoryLines}`
+      ? '\n\nUser facts you remember:\n' + memoryLines
       : '';
 
-    // Build messages for AI call
-    const messages = [
-      ...history.map(h => ({ role: h.role, content: h.content })),
-      { role: 'user', content: text },
-    ];
+    // Build context array for history (last 40 messages = 20 exchanges)
+    const context = history.slice(-40).map(h => ({ role: h.role, content: h.content }));
 
     // Broadcast user message to all WS sessions
     this.broadcast({ type: 'user_message', text, model });
 
     // Call asgard-ai router
+    // API format: { message: string, context: [...], model, max_tokens, system }
     let reply = '';
     try {
       const aiUrl = this.env.AI_WORKER_URL || 'https://asgard-ai.luckdragon.io';
@@ -144,8 +138,9 @@ export class FalkorAgent {
           'X-Pin': this.env.AGENT_PIN || '',
         },
         body: JSON.stringify({
-          messages,
-          system: `You are Falkor, an intelligent personal AI assistant for Paddy.${systemExtra}`,
+          message: text,
+          context,
+          system: 'You are Falkor, an intelligent personal AI assistant for Paddy.' + systemExtra,
           model,
           max_tokens: 2048,
         }),
@@ -153,15 +148,16 @@ export class FalkorAgent {
 
       if (resp.ok) {
         const data = await resp.json();
-        reply = data.content || data.reply || '';
+        reply = data.reply || data.content || '';
       } else {
-        reply = `[AI error: ${resp.status}]`;
+        const errBody = await resp.text().catch(() => '');
+        reply = '[AI error: ' + resp.status + (errBody ? ': ' + errBody.slice(0, 100) : '') + ']';
       }
     } catch (err) {
-      reply = `[Connection error: ${err.message}]`;
+      reply = '[Connection error: ' + err.message + ']';
     }
 
-    // Save to history (keep last 100 exchanges = 200 messages)
+    // Save to history (keep last 200 messages = 100 exchanges)
     history.push({ role: 'user', content: text, ts: Date.now() });
     history.push({ role: 'assistant', content: reply, ts: Date.now() });
     const trimmed = history.slice(-200);
@@ -225,8 +221,9 @@ export default {
       });
     }
 
-    // Auth check (skip for health endpoint)
     const url = new URL(request.url);
+
+    // Auth check (skip for health endpoint)
     if (url.pathname !== '/health') {
       const pin = request.headers.get('X-Pin') || url.searchParams.get('pin');
       const validPin = env.AGENT_PIN;
@@ -238,13 +235,12 @@ export default {
       }
     }
 
-    // Health check
+    // Health check (no auth needed)
     if (url.pathname === '/health') {
-      return Response.json({ status: 'ok', version: '1.0.0', worker: 'falkor-agent' });
+      return Response.json({ status: 'ok', version: '1.0.1', worker: 'falkor-agent' });
     }
 
-    // Route to user's Durable Object (one per user)
-    // userId from header, query param, or default to "paddy"
+    // Route to user's Durable Object (one per user, keyed by userId)
     const userId = request.headers.get('X-User-Id') || url.searchParams.get('uid') || 'paddy';
     const id = env.AGENT.idFromName(userId);
     const stub = env.AGENT.get(id);
