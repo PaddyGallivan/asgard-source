@@ -68,6 +68,30 @@ async function handleSubmit(request, env) {
 
   if (env.RESEND_KEY && checkoutUrl) {
     const firstName = name.split(" ")[0];
+    // Notify Paddy of every new submission
+    fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {"Authorization": "Bearer "+env.RESEND_KEY, "Content-Type": "application/json"},
+      body: JSON.stringify({
+        from: "Streamline <noreply@luckdragon.io>",
+        to: ["pgallivan@outlook.com"],
+        subject: "New submission: \""+title+"\" ("+tier+")",
+        html: "<div style='font-family:Inter,sans-serif;max-width:560px;padding:32px 24px'>"+
+          "<h2 style='color:#1e1b4b;margin:0 0 16px'>New idea submitted</h2>"+
+          "<table style='font-size:14px;color:#4c4885;border-collapse:collapse;width:100%'>"+
+          "<tr><td style='padding:6px 0;font-weight:600;width:120px'>Title</td><td>"+title+"</td></tr>"+
+          "<tr><td style='padding:6px 0;font-weight:600'>Tier</td><td>"+tier+"</td></tr>"+
+          "<tr><td style='padding:6px 0;font-weight:600'>Category</td><td>"+(category||"Utility")+"</td></tr>"+
+          "<tr><td style='padding:6px 0;font-weight:600'>Name</td><td>"+name+"</td></tr>"+
+          "<tr><td style='padding:6px 0;font-weight:600'>Email</td><td>"+email+"</td></tr>"+
+          "<tr><td style='padding:6px 0;font-weight:600'>Phone</td><td>"+(phone||"n/a")+"</td></tr>"+
+          "<tr><td style='padding:6px 0;font-weight:600;vertical-align:top'>Description</td><td>"+description+"</td></tr>"+
+          "</table>"+
+          "<p style='margin:20px 0 0;font-size:13px;color:#9490c0'>Awaiting payment &middot; Submission ID: "+(submissionId||"?")+"</p>"+
+          "</div>"
+      })
+    }).catch(()=>{});
+    // Confirmation email to customer
     fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {"Authorization": "Bearer "+env.RESEND_KEY, "Content-Type": "application/json"},
