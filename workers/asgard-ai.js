@@ -1,5 +1,5 @@
 // asgard-ai v5.7.2-stopgap-v11-tools: multi-provider (Anthropic/OpenAI/Gemini) + DALL-E + vision
-const VERSION = '6.2.1-groq-direct';
+const VERSION = '6.3.0-voice';
 const WORKER_NAME = "asgard-ai";
 
 // --- PIN auth helper (v1.1.0 security patch) ---
@@ -79,6 +79,8 @@ const ALLOWED_ORIGINS = [
   "https://asgard-dev.luckdragon.io",
   "https://kbt-trial-9gu.pages.dev",
   "https://superleague-youth.luckdragon.io",
+  "https://falkor.luckdragon.io",
+  "https://falkor-ui.luckdragon.io",
 ];
 function makeCors(origin) {
   const o = (origin && ALLOWED_ORIGINS.includes(origin)) ? origin : ALLOWED_ORIGINS[0];
@@ -1030,6 +1032,105 @@ async function handleSpeak(request, env) {
       prompt_tokens: text.length, completion_tokens: 0, cost_usd: cost, uid, sid });
   } catch (e) { console.error("spend log (speak elevenlabs):", e && (e.message || String(e))); }
   return new Response(r.body, { status: 200, headers: { ...CORS, "Content-Type": "audio/mpeg" } });
+}
+
+// ─── STT: Speech-to-Text via OpenAI Whisper (or Deepgram if key present) ─────
+async function handleSTT(request, env) {
+  const formData = await request.formData().catch(() => null);
+  if (!formData) return err("multipart/form-data with 'audio' field required", 400);
+  const audioFile = formData.get('audio');
+  if (!audioFile) return err("'audio' field missing", 400);
+  const uid = formData.get('uid') || request.headers.get("X-User-Id") || "paddy";
+
+  // Try Deepgram first (better accuracy) if key is present
+  if (env.DEEPGRAM_API_KEY) {
+    try {
+      const audioBuffer = await audioFile.arrayBuffer();
+      const mimeType = audioFile.type || 'audio/webm';
+      const r = await fetch("https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&punctuate=true", {
+        method: "POST",
+        headers: {
+          "Authorization": "Token " + env.DEEPGRAM_API_KEY,
+          "Content-Type": mimeType,
+        },
+        body: audioBuffer,
+      });
+      if (r.ok) {
+        const d = await r.json();
+        const transcript = d?.results?.channels?.[0]?.alternatives?.[0]?.transcript || "";
+        if (transcript) return json({ ok: true, text: transcript, provider: "deepgram" });
+      }
+    } catch(e) { console.error("Deepgram STT error:", e?.message); }
+  }
+
+  // Fallback: OpenAI Whisper
+  if (!env.OPENAI_API_KEY) return err("OPENAI_API_KEY missing — no STT provider available", 500);
+  const fd = new FormData();
+  fd.append("file", audioFile, audioFile.name || "audio.webm");
+  fd.append("model", "whisper-1");
+  fd.append("language", "en");
+  const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { "Authorization": "Bearer " + env.OPENAI_API_KEY },
+    body: fd,
+  });
+  if (!r.ok) { const t = await r.text(); return err("whisper " + r.status + ": " + t.slice(0,300), 502); }
+  const d = await r.json();
+  return json({ ok: true, text: d.text || "", provider: "openai-whisper" });
+}
+
+// ─── Weather via Open-Meteo (free, no key) ─────────────────────────────────
+async function handleWeather(request, env) {
+  const url = new URL(request.url);
+  const lat = url.searchParams.get('lat') || '-37.8';
+  const lon = url.searchParams.get('lon') || '144.9';
+  const r = await fetch(
+    `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+    `&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,precipitation_probability,uv_index` +
+    `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,sunrise,sunset` +
+    `&hourly=precipitation_probability&wind_speed_unit=kmh&temperature_unit=celsius&timezone=Australia/Melbourne&forecast_days=3`
+  );
+  if (!r.ok) return err("open-meteo " + r.status, 502);
+  const d = await r.json();
+  // Build PE-friendly summary
+  const c = d.current;
+  const today = d.daily;
+  const wmoDesc = (code) => {
+    if (code === 0) return 'Clear sky';
+    if (code <= 3) return 'Partly cloudy';
+    if (code <= 48) return 'Fog';
+    if (code <= 57) return 'Drizzle';
+    if (code <= 67) return 'Rain';
+    if (code <= 77) return 'Snow';
+    if (code <= 82) return 'Rain showers';
+    if (code <= 86) return 'Snow showers';
+    return 'Thunderstorm';
+  };
+  const suitable_for_pe = c.temperature_2m >= 8 && c.temperature_2m <= 36 &&
+    c.wind_speed_10m < 40 && (today.precipitation_sum?.[0] || 0) < 5 &&
+    (c.uv_index || 0) < 9;
+  return json({
+    ok: true,
+    current: {
+      temp: c.temperature_2m,
+      feels_like: c.apparent_temperature,
+      condition: wmoDesc(c.weather_code),
+      wind_kmh: c.wind_speed_10m,
+      uv: c.uv_index,
+      rain_chance: c.precipitation_probability,
+    },
+    today: {
+      max: today.temperature_2m_max?.[0],
+      min: today.temperature_2m_min?.[0],
+      rain_mm: today.precipitation_sum?.[0],
+      sunrise: today.sunrise?.[0],
+      sunset: today.sunset?.[0],
+    },
+    pe_suitable: suitable_for_pe,
+    pe_note: suitable_for_pe
+      ? "✅ Good conditions for outdoor PE"
+      : `⚠️ Check before going outside — ${c.temperature_2m < 8 ? 'cold' : c.temperature_2m > 36 ? 'too hot' : (c.uv_index||0) >= 9 ? 'UV extreme' : 'rain risk'}`,
+  });
 }
 
 async function handleFeatureRequest(request, env) {
@@ -2659,7 +2760,7 @@ export default {
       if (path === "/health") {
         return json({
           ok: true, worker: WORKER_NAME, version: VERSION,
-          routes: ["/health","/chat/smart","/chat/stream","/chat/agent","/chat/agentic","/sync/state","/admin/errors","/bridge/enqueue","/bridge/poll","/bridge/result","/chat/vision","/image/generate","/speak","/feature-request","/conversations","/history","/memory","/memory/clear","/slack/post","/telegram/send","/telegram/setup","/discord/send","/discord/interactions","/discord/register-commands","/discord/invite","/prefs","/ranking","/presence","/github/*","/vercel/*","/drive/upload","/drive/search","/drive/delete","/drive/ld-mkdir","/drive/ld-search","/drive/ld-copy","/google/oauth-start","/google/oauth-callback","/agent/propose"],
+          routes: ["/health","/chat/smart","/chat/stream","/chat/agent","/chat/agentic","/sync/state","/admin/errors","/bridge/enqueue","/bridge/poll","/bridge/result","/chat/vision","/image/generate","/speak","/tts","/stt","/weather","/feature-request","/conversations","/history","/memory","/memory/clear","/slack/post","/telegram/send","/telegram/setup","/discord/send","/discord/interactions","/discord/register-commands","/discord/invite","/prefs","/ranking","/presence","/github/*","/vercel/*","/drive/upload","/drive/search","/drive/delete","/drive/ld-mkdir","/drive/ld-search","/drive/ld-copy","/google/oauth-start","/google/oauth-callback","/agent/propose"],
           models: Object.keys(MODELS),
           providers: {
             groq: !!env.GROQ_API_KEY,
@@ -2720,6 +2821,9 @@ export default {
       if (path === "/chat/vision"  && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleChatVision(request, env); }
       if (path === "/image/generate" && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleImageGenerate(request, env); }
       if (path === "/speak"        && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleSpeak(request, env); }
+      if (path === "/tts"          && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleSpeak(request, env); }
+      if (path === "/stt"          && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleSTT(request, env); }
+      if (path === "/weather"      && method === "GET")  { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleWeather(request, env); }
       if (path === "/feature-request" && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleFeatureRequest(request, env); }
       if (path === "/memory"       && method === "GET")  { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleMemoryGet(request, env); }
       if (path === "/memory/clear" && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleMemoryClear(request, env); }
