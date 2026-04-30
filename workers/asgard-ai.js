@@ -1,5 +1,5 @@
 // asgard-ai v5.7.2-stopgap-v11-tools: multi-provider (Anthropic/OpenAI/Gemini) + DALL-E + vision
-const VERSION = '6.2.0-phase1-groq-gateway';
+const VERSION = '6.2.1-groq-direct';
 const WORKER_NAME = "asgard-ai";
 
 // --- PIN auth helper (v1.1.0 security patch) ---
@@ -177,10 +177,11 @@ async function callAnthropic(env, { model, messages, system, max_tokens = 1024, 
   const body = { model, max_tokens, system: system || SYSTEM_PROMPT, messages };
   if (tools && tools.length) body.tools = tools;
   if (stream) body.stream = true;
-  const gwUrl = CF_GATEWAY_BASE + "/anthropic/v1/messages";
-  const gwHeaders = { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" };
-  if (env.CF_API_TOKEN) gwHeaders["cf-aig-authorization"] = "Bearer " + env.CF_API_TOKEN;
-  return fetch(gwUrl, { method: "POST", headers: gwHeaders, body: JSON.stringify(body) });
+  return fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify(body),
+  });
 }
 
 async function callOpenAI(env, { model, messages, system, max_tokens = 1024, stream = false }) {
@@ -195,9 +196,7 @@ async function callOpenAI(env, { model, messages, system, max_tokens = 1024, str
   if (isNewParam) body.max_completion_tokens = max_tokens;
   else body.max_tokens = max_tokens;
   if (stream) body.stream = true;
-  const _oaiUrl = CF_GATEWAY_BASE + "/openai/v1/chat/completions";
-  const _oaiExtraHdrs = (env.CF_API_TOKEN) ? {"cf-aig-authorization": "Bearer " + env.CF_API_TOKEN} : {};
-  return fetch(_oaiUrl, {
+  return fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": "Bearer " + env.OPENAI_API_KEY },
     body: JSON.stringify(body),
@@ -231,13 +230,12 @@ async function callGroq(env, { model, messages, system, max_tokens = 1024, strea
     : messages;
   const body = { model, messages: groqMessages, max_tokens };
   if (stream) body.stream = true;
-  const gwUrl = CF_GATEWAY_BASE + "/groq/openai/v1/chat/completions";
-  const headers = {
-    "Content-Type": "application/json",
-    "Authorization": "Bearer " + env.GROQ_API_KEY,
-  };
-  if (env.CF_API_TOKEN) headers["cf-aig-authorization"] = "Bearer " + env.CF_API_TOKEN;
-  return fetch(gwUrl, { method: "POST", headers, body: JSON.stringify(body) });
+  // Direct Groq endpoint — fast, no gateway auth needed
+  return fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + env.GROQ_API_KEY },
+    body: JSON.stringify(body),
+  });
 }
 
 
