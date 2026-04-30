@@ -75,10 +75,10 @@ async function identifyPin(request, env) {
   return null;
 }
 const ALLOWED_ORIGINS = [
-  "https://asgard.pgallivan.workers.dev",
-  "https://asgard-dev.pgallivan.workers.dev",
+  "https://asgard.luckdragon.io",
+  "https://asgard-dev.luckdragon.io",
   "https://kbt-trial-9gu.pages.dev",
-  "https://superleague-youth.pgallivan.workers.dev",
+  "https://superleague-youth.luckdragon.io",
 ];
 function makeCors(origin) {
   const o = (origin && ALLOWED_ORIGINS.includes(origin)) ? origin : ALLOWED_ORIGINS[0];
@@ -89,7 +89,7 @@ function makeCors(origin) {
     "Vary": "Origin",
   };
 }
-const CORS = makeCors("https://asgard.pgallivan.workers.dev");
+const CORS = makeCors("https://asgard.luckdragon.io");
 const SYSTEM_PROMPT = "You are Asgard AI for Paddy, Jacky, and George. Be direct, efficient, action-oriented. Be concrete, name projects, no fluff. You have persistent memory — use save_memory to record important facts (project states, decisions, warnings) and read_messages/send_message for team comms.";
 
 // Model registry: key = shorthand, value = {provider, full model id}
@@ -113,7 +113,7 @@ const MODELS = {
 };
 const DEFAULT_MODEL = "haiku";
 // THUNDER_MEMORY constant removed 2026-04-23 — memory now in asgard-prod.facts
-const ASGARD_BRAIN   = "https://asgard-brain.pgallivan.workers.dev";
+const ASGARD_BRAIN   = "https://asgard-brain.luckdragon.io";
 
 // Compression tuning (from v9)
 const COMPRESS_THRESHOLD = 30;
@@ -334,7 +334,7 @@ async function handleDiscordInteractions(request, env) {
     if (cmd === "status") {
       let msg = "🏰 **Asgard Status**\n";
       try {
-        const h = await fetch("https://asgard-ai.pgallivan.workers.dev/health").then(r => r.json());
+        const h = await fetch("https://asgard-ai.luckdragon.io/health").then(r => r.json());
         msg += `Version: ${h.version || "?"}\n`;
         msg += `Drive: ${h.features?.drive ? "✅" : "❌"}  Discord: ✅  D1: ${h.features?.d1 ? "✅" : "❌"}`;
       } catch { msg += "Could not reach health endpoint"; }
@@ -1882,7 +1882,7 @@ const AGENTIC_TOOLS_GEMINI = [{ function_declarations: AGENTIC_TOOLS_OPENAI.map(
 async function agenticGetSecret(key, env) {
   if (env && env[key]) return env[key];
   try {
-    const r = await fetch("https://asgard-vault.pgallivan.workers.dev/secret/" + encodeURIComponent(key),
+    const r = await fetch("https://asgard-vault.luckdragon.io/secret/" + encodeURIComponent(key),
       { headers: { "X-Pin": (env.PADDY_PIN || '') } });
     if (!r.ok) return null;
     return (await r.text()).trim();
@@ -1925,12 +1925,12 @@ async function agenticExecuteTool(name, input, env) {
     if (name === "http_request") {
       const { url, method = "GET", headers = {}, body } = input || {};
       // Default User-Agent so APIs like GitHub don't 403 us
-      const finalHeaders = Object.assign({ 'User-Agent': 'Asgard-Agent/1.0 (+https://asgard.pgallivan.workers.dev)' }, headers || {});
+      const finalHeaders = Object.assign({ 'User-Agent': 'Asgard-Agent/1.0 (+https://asgard.luckdragon.io)' }, headers || {});
       const opts = { method, headers: finalHeaders };
       if (body !== undefined && body !== null) opts.body = body;
       // CF blocks worker-to-worker loopback within the same account → returns 1042.
       // Detect that URL pattern and short-circuit with a useful explanation so the model can pivot.
-      const isLoopback = /^https?:\/\/[^\/]*\.pgallivan\.workers\.dev/i.test(String(url || ""));
+      const isLoopback = /^https?:\/\/[^\/]*\.luckdragon.io/i.test(String(url || ""));
       try {
         const r = await fetch(url, opts);
         const text = await r.text();
