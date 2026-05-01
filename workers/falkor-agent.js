@@ -142,20 +142,36 @@ function detectAction(text) {
 async function executeAction(action, userId, userCtx, pin, env) {
   switch (action.type) {
     case 'email': {
-      // Send email via falkor-workflows /send-email
-      const email = userCtx.email || 'pgallivan@outlook.com';
+      const toAddr = action.to || userCtx.email || 'pgallivan@outlook.com';
+      const resendKey = (env && env.RESEND_API_KEY) || '';
+      if (resendKey) {
+        try {
+          const r = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + resendKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              from: 'Falkor <falkor@luckdragon.io>',
+              to: [toAddr],
+              subject: action.subject || 'Message from Falkor',
+              text: action.body || action.content || '',
+            }),
+          });
+          const rd = await r.json().catch(() => ({}));
+          if (rd.id) return `Sent to ${toAddr} ✓`;
+          return `Couldn't send — Resend said: ${JSON.stringify(rd).slice(0,100)}`;
+        } catch(e) {
+          return `Email failed: ${e.message}`;
+        }
+      }
+      // Fallback: log via workflows
       try {
         await fetch(`${WORKFLOWS_URL}/email`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
-          body: JSON.stringify({
-            to: email,
-            subject: action.subject,
-            html: `<p>${action.body}</p>`,
-          }),
+          body: JSON.stringify({ to: toAddr, subject: action.subject, html: `<p>${action.body || action.content}</p>` }),
         });
       } catch { /* non-fatal */ }
-      return `I'll send that to ${email}. Give me a moment.`;
+      return `Queued to ${toAddr} — no direct send key available.`;
     }
     case 'note': {
       try {
@@ -499,10 +515,19 @@ export class FalkorAgent {
     const contextHistory = history.slice(-40).map(h => ({ role: h.role, content: h.content }));
 
     const systemPrompt = [
-      `You are Falkor, ${userCtx.name}'s intelligent personal AI assistant — like Jarvis.`,
-      `${userCtx.name} is ${userCtx.desc}`,
-      `Always address ${userCtx.name} by name. Be concise, specific, and proactive.`,
-      `You already know what's happening in ${userCtx.name}'s world today — use the live context below to give immediate, useful answers without needing to be asked.`,
+      `You are Falkor — ${userCtx.name}'s personal AI. Think Jarvis from Iron Man: sharp, warm, occasionally dry, always useful. You are not a generic assistant. You are ${userCtx.name}'s AI.`,
+      `About ${userCtx.name}: ${userCtx.desc}`,
+      `## Personality rules (never break these):`,
+      `- Address ${userCtx.name} by first name naturally — not every sentence, but often enough that it feels personal`,
+      `- Be concise. No padding, no "Certainly!", no "Great question!". Get to the point.`,
+      `- Dry wit is welcome. A well-timed quip beats a paragraph of explanation.`,
+      `- Be confident. Don't hedge everything. If you know, say it. If you don't, say that briefly.`,
+      `- When you can DO something (send email, set reminder, check scores), do it — don't just explain how.`,
+      `- If you notice something important in the live context that ${userCtx.name} hasn't asked about, mention it.`,
+      `- Never start a reply with "I" as the first word. Vary your openings.`,
+      `- Short replies are almost always better. Match the energy of the message.`,
+      `## What ${userCtx.name} cares about most:`,
+      `${userCtx.interests.join(', ')}`,
       systemExtra,
       liveContext,
       ragContext,
