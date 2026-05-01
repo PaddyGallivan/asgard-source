@@ -345,3 +345,7 @@ End of handover. **PIN is `<ASK MONA — PIN provided out-of-band, not stored in
 - Added Sport Portal and Carnival Timing to active products table ✅
 - All 5 sport portal URLs verified live ✅
 - PIN in use: <PADDY_PIN — retrieve from vault out-of-band>
+
+
+## Phase 20 (2026-05-02)
+- Phase 20 ✅ Streaming: asgard-ai normalized SSE (Groq+Anthropic→{"t":token}), falkor-agent v1.9.1 WS token broadcast, falkor-ui real-time bubble streaming
