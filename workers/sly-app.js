@@ -1,4 +1,5 @@
 // sly-app v5.3 — standalone serve + Squiggle proxy
+// Updated 2026-05-02: all sly-api calls now use sly-api.luckdragon.io (no pgallivan refs)
 export default {
   async fetch(req, env) {
     const u = new URL(req.url);
@@ -6,7 +7,6 @@ export default {
     if (p.includes('service-worker') || (p.includes('sw') && p.endsWith('.js'))) return new Response('', {status:404});
     if (p.startsWith('/api/') && req.method === 'OPTIONS') return new Response(null, {status:204, headers:{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET,POST,PATCH,PUT,DELETE,OPTIONS','Access-Control-Allow-Headers':'Content-Type,Authorization'}});
 
-    // PIN bridge → coach login via sly-api
     if (p === '/api/login' && req.method === 'POST') {
       try {
         const bd = await req.json().catch(() => ({}));
@@ -24,10 +24,9 @@ export default {
       } catch (e) { return new Response(JSON.stringify({ok:false,error:String(e)}), {status:500}); }
     }
 
-    // Squiggle proxy — bypass UA / CORS issues
     if (p === '/api/squiggle') {
       const q = u.searchParams;
-      const url = `https://api.squiggle.com.au/?q=games;year=${q.get('year')||'2026'};round=${q.get('round')||''}`;;
+      const url = `https://api.squiggle.com.au/?q=games;year=${q.get('year')||'2026'};round=${q.get('round')||''}`;
       try {
         const r = await fetch(url, {headers:{'User-Agent':'SLY-Fantasy-AFL/1.0 (sly-app worker; paddy@luckdragon.io)'}});
         const text = await r.text();
@@ -37,18 +36,15 @@ export default {
       }
     }
 
-    // Banter compat
     if ((p === '/api/banter' || p === '/api/chat') && (req.method === 'GET' || req.method === 'POST')) {
       const r = await fetch('https://sly-api.luckdragon.io/api/messages'+u.search, {method:req.method, headers:req.headers, body:req.method==='POST'?req.body:undefined});
       return new Response(await r.text(), {status:r.status, headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'*'}});
     }
 
-    // Forward all /api/* to sly-api
     if (p.startsWith('/api/')) {
       return fetch('https://sly-api.luckdragon.io'+p+u.search, {method:req.method, headers:req.headers, body:req.body});
     }
 
-    // SPA — serve standalone HTML
     const html = await env.SLY_STATIC.get('standalone-index.html');
     if (!html) return new Response('Standalone HTML not in KV', {status:500});
     return new Response(html, {headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-cache, no-store, must-revalidate, max-age=0'}});
