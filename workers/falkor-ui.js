@@ -367,28 +367,23 @@ function uid() { return Date.now().toString(36) + Math.random().toString(36).sli
 
 function renderMD(text) {
   if (!text) return '';
-  let s = text
+  var BK = '\x60';
+  var codeBlockRe = new RegExp(BK+BK+BK+'(\\w*)\\n?([\\s\\S]*?)'+BK+BK+BK, 'g');
+  var inlineCodeRe = new RegExp(BK+'([^'+BK+']+)'+BK, 'g');
+  var s = text
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    // Code blocks first
-    .replace(/\`\`\`(\w*)\n?([\s\S]*?)\`\`\`/g, (_, lang, code) =>
-      '<pre><button class="copy-code-btn" onclick="(function(b){var t=b.closest(\'pre\').querySelector(\'code\').innerText;navigator.clipboard.writeText(t).then(()=>{b.textContent=\'✓ Copied\';setTimeout(()=>b.textContent=\'Copy\',1500)}).catch(()=>{});})(this)">Copy</button><code class="lang-' + lang + '">' + code.trim() + '</code></pre>')
-    // Inline code
-    .replace(/\`([^\`]+)\`/g, '<code>$1</code>')
-    // Bold
+    .replace(codeBlockRe, function(_, lang, code) {
+      return '<pre><button class="copy-code-btn" onclick="window.copyCode(this)">Copy</button><code class="lang-'+(lang||'')+'">' + code.trim() + '</code></pre>';
+    })
+    .replace(inlineCodeRe, '<code>$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    // Italic
-    .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>')
-    // Links
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-    // Markdown headers
+    .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
     .replace(/^### (.+)$/gm, '<strong style="font-size:1.05em;display:block;margin:6px 0 2px">$1</strong>')
     .replace(/^## (.+)$/gm, '<strong style="font-size:1.1em;display:block;margin:8px 0 3px">$1</strong>')
     .replace(/^# (.+)$/gm, '<strong style="font-size:1.2em;display:block;margin:10px 0 4px">$1</strong>')
-    // Bullet lists
     .replace(/^[-*] (.+)$/gm, '<div style="padding-left:14px;margin:1px 0">• $1</div>')
-    // Numbered lists
     .replace(/^(\d+)\. (.+)$/gm, '<div style="padding-left:14px;margin:1px 0">$1. $2</div>')
-    // Newlines to br (but not inside pre)
     .replace(/\n/g, '<br>');
   return s;
 }
@@ -1298,6 +1293,16 @@ function urlB64ToUint8(base64String) {
 }
 
 let swRegistration = null;
+
+window.copyCode = function(btn) {
+  var code = btn.closest('pre').querySelector('code');
+  var t = code ? code.innerText : '';
+  if (!t) return;
+  navigator.clipboard.writeText(t).then(function() {
+    btn.textContent = '✓ Copied';
+    setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+  }).catch(function() {});
+};
 
 async function togglePush() {
   if (!('Notification' in window) || !swRegistration) {
