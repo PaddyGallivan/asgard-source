@@ -1,28 +1,36 @@
-// falkor-web v1.1.0 — Web search + scraping sub-agent
-// Uses Tavily API for search (key in secrets). Falls back to DuckDuckGo.
+// falkor-web v1.2.0 — Web search + scraping sub-agent
+// v1.2.0: Added X-Service-Token secondary auth for internal Worker-to-Worker calls
 // v1.1.0: DDG results now also ingested into falkor-brain (was Tavily-only)
 // Endpoints:
 //   POST /search  — semantic web search, returns ranked results + snippets
 //   POST /fetch   — fetch and extract clean text from a URL
 //   GET  /health  — version check
 
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 const WORKER_NAME = 'falkor-web';
 const BRAIN_URL = 'https://falkor-brain.luckdragon.io';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, X-Pin',
+  'Access-Control-Allow-Headers': 'Content-Type, X-Pin, X-Service-Token',
 };
 
 function json(obj, status = 200) {
   return new Response(JSON.stringify(obj), { status, headers: { 'Content-Type': 'application/json', ...CORS } });
 }
+
+// Accept either X-Pin (AGENT_PIN) or X-Service-Token (SERVICE_TOKEN) for internal W2W calls
 function pinOk(request, env) {
+  // Check X-Pin first (standard fleet auth)
   const pin = request.headers.get('X-Pin') || '';
-  if (!env.AGENT_PIN) return true;
-  return pin === env.AGENT_PIN;
+  if (env.AGENT_PIN && pin === env.AGENT_PIN) return true;
+  // Check X-Service-Token (internal service-to-service auth)
+  const svcToken = request.headers.get('X-Service-Token') || '';
+  if (env.SERVICE_TOKEN && svcToken === env.SERVICE_TOKEN) return true;
+  // If neither secret is configured, allow all (dev mode)
+  if (!env.AGENT_PIN && !env.SERVICE_TOKEN) return true;
+  return false;
 }
 
 async function ingestIntoBrain(query, answer, results, env) {
@@ -97,7 +105,6 @@ export default {
             url: t.FirstURL || '',
             snippet: t.Text?.slice(0, 200) || '',
           }));
-          // v1.1.0: Ingest DDG results into brain too
           await ingestIntoBrain(query, answer, results, env);
           return json({ ok: true, query, answer, results, provider: 'duckduckgo', count: results.length });
         }
@@ -114,7 +121,7 @@ export default {
 
       try {
         const r = await fetch(targetUrl, {
-          headers: { 'User-Agent': 'Falkor-Web/1.1 (AI assistant; +https://falkor.luckdragon.io)' },
+          headers: { 'User-Agent': 'Falkor-Web/1.2 (AI assistant; +https://falkor.luckdragon.io)' },
           cf: { cacheEverything: false },
         });
         if (!r.ok) return json({ ok: false, error: `Fetch failed: ${r.status}` }, 502);
