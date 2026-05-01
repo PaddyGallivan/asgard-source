@@ -611,6 +611,63 @@ function SportPanel({ pin }) {
   );
 }
 
+
+// SitesPanel — live links to all ventures from project-hub-db
+function SitesPanel(){
+  const [projects,setProjects]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [search,setSearch]=useState('');
+  const [filter,setFilter]=useState('all');
+
+  useEffect(()=>{
+    fetch('https://falkor-dashboard.luckdragon.io/api/projects')
+      .then(r=>r.json())
+      .then(d=>{ setProjects(d.projects||[]); setLoading(false); })
+      .catch(()=>setLoading(false));
+  },[]);
+
+  const CATS = ['all',...[...new Set(projects.map(p=>p.category).filter(Boolean))]];
+  const live = projects.filter(p=>{
+    const q = search.toLowerCase();
+    const matchQ = !q || (p.name||'').toLowerCase().includes(q) || (p.desc||'').toLowerCase().includes(q);
+    const matchF = filter==='all' || p.category===filter;
+    return matchQ && matchF;
+  });
+
+  const statusColor = s => s==='live'?'#2ecc71':s==='building'?'#f39c12':s==='idea'?'#9b59b6':'#7f8c8d';
+
+  return(
+    <div style={{flex:1,overflowY:'auto',padding:'16px',background:'var(--bg)'}}>
+      <div style={{marginBottom:'12px',display:'flex',gap:'8px',flexWrap:'wrap',alignItems:'center'}}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search sites..."
+          style={{flex:1,minWidth:'160px',padding:'7px 12px',borderRadius:'8px',border:'1px solid var(--border)',background:'var(--panel)',color:'var(--text)',fontSize:'13px'}}/>
+        <select value={filter} onChange={e=>setFilter(e.target.value)}
+          style={{padding:'7px 10px',borderRadius:'8px',border:'1px solid var(--border)',background:'var(--panel)',color:'var(--text)',fontSize:'13px'}}>
+          {CATS.map(c=><option key={c} value={c}>{c==='all'?'All categories':c}</option>)}
+        </select>
+      </div>
+      {loading && <p style={{color:'var(--muted)',textAlign:'center',marginTop:'40px'}}>Loading sites...</p>}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:'12px'}}>
+        {live.map(p=>(
+          <div key={p.id||p.name} style={{background:'var(--panel)',borderRadius:'10px',padding:'14px',border:'1px solid var(--border)',display:'flex',flexDirection:'column',gap:'8px'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px'}}>
+              <span style={{fontWeight:600,fontSize:'14px',lineHeight:'1.3'}}>{p.name}</span>
+              <span style={{fontSize:'11px',padding:'2px 7px',borderRadius:'20px',background:statusColor(p.status)+'22',color:statusColor(p.status),whiteSpace:'nowrap',flexShrink:0}}>{p.status||'?'}</span>
+            </div>
+            {p.desc && <p style={{fontSize:'12px',color:'var(--muted)',margin:0,lineHeight:'1.4'}}>{p.desc}</p>}
+            <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'auto',paddingTop:'4px'}}>
+              {p.url && <a href={p.url} target="_blank" rel="noopener" style={{fontSize:'12px',padding:'4px 10px',borderRadius:'6px',background:'var(--accent)',color:'#fff',textDecoration:'none',fontWeight:500}}>&#127760; Visit</a>}
+              {p.github && <a href={p.github} target="_blank" rel="noopener" style={{fontSize:'12px',padding:'4px 10px',borderRadius:'6px',background:'var(--border)',color:'var(--text)',textDecoration:'none'}}>GitHub</a>}
+              {!p.url && !p.github && <span style={{fontSize:'11px',color:'var(--muted)',fontStyle:'italic'}}>No links yet</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+      {!loading && live.length===0 && <p style={{color:'var(--muted)',textAlign:'center',marginTop:'40px'}}>No matches</p>}
+    </div>
+  );
+}
+
 // MessageBubble
 function MessageBubble({msg}){
   return(
@@ -959,6 +1016,7 @@ function App(){
           <span className="topbar-title">{activeConvo?.title||'Falkor'}</span>
           <button className="icon-btn" style={{fontSize:'13px',padding:'4px 10px',background:view==='chat'?'var(--border)':'transparent'}} onClick={()=>setView('chat')}>💬</button>
           <button className="icon-btn" style={{fontSize:'13px',padding:'4px 10px',background:view==='sport'?'var(--border)':'transparent'}} onClick={()=>setView('sport')}>🏈</button>
+          <button className="icon-btn" style={{fontSize:'13px',padding:'4px 10px',background:view==='sites'?'var(--border)':'transparent'}} onClick={()=>setView('sites')}>&#127760;</button>
           <select className="model-select" value={model} onChange={e=>{setModelS(e.target.value);LS.setModel(e.target.value);}}>
             {MODELS.map(m=><option key={m.key} value={m.key}>{m.label}</option>)}
           </select>
@@ -969,6 +1027,8 @@ function App(){
         </div>
 
         {view==='sport' && <SportPanel pin={LS.pin()}/>}
+
+        {view==='sites' && <SitesPanel/>}
 
         {view==='chat' && (
           <>
