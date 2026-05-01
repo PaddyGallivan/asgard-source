@@ -14,8 +14,9 @@
 //
 // Bindings: DB (asgard-prod), RESEND_API_KEY (secret), AGENT_PIN (secret)
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const WORKER_NAME = 'falkor-workflows';
+const PUSH_URL = 'https://falkor-push.luckdragon.io';
 
 // Williamstown Primary School coordinates
 const WPS_LAT = -37.8594;
@@ -139,7 +140,13 @@ async function runPEWeatherAlert(env) {
       subject: `⚠️ PE Alert: ${issues[0]}`,
       html,
     });
-    return { sent: true, issues, temp: c.temp, uv: c.uv };
+    await sendPush(env, {
+      title: '⚠️ PE Alert: ' + issues[0],
+      body: 'Check conditions before outdoor PE today. ' + issues.join(', '),
+      url: 'https://falkor.luckdragon.io',
+      tag: 'pe-weather',
+    });
+        return { sent: true, issues, temp: c.temp, uv: c.uv };
   }
 
   return { sent: false, suitable: true, temp: c.temp, uv: c.uv, condition: c.condition };
@@ -203,10 +210,30 @@ ${sections.join('\n')}
     html,
   });
 
-  return { sent: true, date, sections: sections.length };
+  await sendPush(env, {
+    title: '🐉 Falkor Daily — ' + date,
+    body: 'Your morning briefing is ready. Weather, AFL, calendar & more.',
+    url: 'https://falkor.luckdragon.io',
+    tag: 'daily-summary',
+  });
+    return { sent: true, date, sections: sections.length };
 }
 
 // ─── Cron dispatcher ─────────────────────────────────────────────────────────
+
+// ─── Push notification helper ─────────────────────────────────────────────────
+async function sendPush(env, { title, body, url = 'https://falkor.luckdragon.io', tag = 'falkor' }) {
+  try {
+    await fetch(PUSH_URL + '/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Pin': env.AGENT_PIN },
+      body: JSON.stringify({ title, body, url, tag }),
+    });
+  } catch (e) {
+    console.warn('sendPush failed:', e.message);
+  }
+}
+
 async function runScheduled(cron, env) {
   const hour = new Date().getUTCHours(); // 21 = 7am AEST (UTC+10)
   const minute = new Date().getUTCMinutes();
