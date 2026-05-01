@@ -449,7 +449,7 @@ const HTML = `<!DOCTYPE html>
       color: var(--text); outline: none;
     }
 
-    @media (max-width: 380px) {
+    @media (max-width: 430px) {
       .clock { font-size: 3.4rem; }
       .tap-place { font-size: 4.5rem; }
       #countdown-num { font-size: 9rem; }
@@ -730,7 +730,7 @@ const HTML = `<!DOCTYPE html>
     </div>
 
     <div class="text-center text-muted text-xs mt-32">
-      Works offline · No app install · Free to use<br>
+      Auto-reconnects · No app install · Join &amp; observe free<br>
       <span style="opacity:0.5">Carnival Timing · carnivaltiming.com</span>
     </div>
   </div>
@@ -2322,7 +2322,7 @@ function renderAdminView(race) {
   }
 
   live.classList.remove('hidden'); done.classList.add('hidden');
-  document.getElementById('admin-race-lbl').textContent = \`\${race.age} \${race.gender} · \${race.event}\`;
+  document.getElementById('admin-race-lbl').textContent = \`\${race.age||''} \${race.gender||''} · \${race.event||''}\`;
 
   const badge  = document.getElementById('admin-state-badge');
   const goBtn  = document.getElementById('admin-go-btn');
@@ -2667,7 +2667,7 @@ function initStarterView() {
     if (race.state==='armed') {
       w.classList.add('hidden'); a.classList.remove('hidden');
       document.getElementById('starter-race-info').textContent =
-        \`\${race.age} \${race.gender} · \${race.event}\`;
+        \`\${race.age||''} \${race.gender||''} · \${race.event||''}\`;
     } else {
       w.classList.remove('hidden'); a.classList.add('hidden');
       starterListenStop();
@@ -3504,7 +3504,7 @@ function renderXCAdminView(xc) {
   }
   setup.classList.add('hidden'); live.classList.remove('hidden');
 
-  document.getElementById('xc-race-lbl').textContent = \`\${xc.age} \${xc.gender} · \${xc.event}\`;
+  document.getElementById('xc-race-lbl').textContent = \`\${xc.age||''} \${xc.gender||''} · \${xc.event||''}\`;
   const badge  = document.getElementById('xc-state-badge');
   const goBtn  = document.getElementById('xc-go-btn');
   const pubBtn = document.getElementById('xc-publish-btn');
@@ -4251,7 +4251,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 </script>
 </body>
-</html><!-- v8.5.3 new helper functions injected below </script> to keep patch clean -->
+</html><!-- v8.5.4 new helper functions injected below </script> to keep patch clean -->
 <script>
 // ════════════════════════════════════════════════════════════
 // v8.5.1 HELPERS
@@ -4841,7 +4841,7 @@ function xcDetectBeep() {
 const HEADERS = {
   'Content-Type': 'text/html; charset=utf-8',
   'Cache-Control': 'public, max-age=300, stale-while-revalidate=60',
-  'X-CT-Version': 'v8.5.3',
+  'X-CT-Version': 'v8.5.4',
   'X-Frame-Options': 'SAMEORIGIN',
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
@@ -4860,7 +4860,7 @@ export default {
     return new Response(HTML, { headers: {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'public, max-age=300, stale-while-revalidate=60',
-      'X-CT-Version': 'v8.5.3',
+      'X-CT-Version': 'v8.5.4',
       'X-Frame-Options': 'SAMEORIGIN',
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'strict-origin-when-cross-origin',
@@ -4869,4 +4869,4 @@ export default {
     }});
   }
 };
-
+
