@@ -1,5 +1,5 @@
 // asgard-ai v5.7.2-stopgap-v11-tools: multi-provider (Anthropic/OpenAI/Gemini) + DALL-E + vision
-const VERSION = '6.3.0-voice';
+const VERSION = '6.4.0';
 const WORKER_NAME = "asgard-ai";
 
 // --- PIN auth helper (v1.1.0 security patch) ---
@@ -786,6 +786,15 @@ async function handleChatSmart(request, env) {
   if (memCtx) systemText += '\n\n--- Memory context ---\n' + memCtx + '\n--- End memory ---';
   if (summary) {
     systemText += "\n\n--- Summary of earlier turns ---\n" + summary + "\n--- End summary ---";
+  }
+  // v6.4.0: Honour caller-supplied system context (live context from falkor-agent)
+  if (body.system) systemText += '\n\n--- Caller context (live data) ---\n' + body.system + '\n--- End caller context ---';
+  if (body.context && Array.isArray(body.context)) {
+    // Merge caller's context history into messages (override DB history if provided)
+    if (body.context.length > 0) {
+      const callerMessages = [...body.context, { role: "user", content: message }];
+      messages.splice(0, messages.length, ...callerMessages);
+    }
   }
 
   const result = await generate(env, {
