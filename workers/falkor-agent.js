@@ -1,4 +1,4 @@
-// falkor-agent v1.7.0 — Phase 20: Always Briefed + Auto-Memory + Action Handlers
+// falkor-agent v1.7.1 — null guards + message/text field compat: Always Briefed + Auto-Memory + Action Handlers
 // v1.7.0 adds:
 //   1. Live context pre-loader — fetches weather/calendar/sport/tips before first reply
 //   2. Auto-memory — every 5 turns, Haiku extracts memorable facts → falkor-brain
@@ -73,6 +73,7 @@ const AGENTS = {
 const AGENT_MODEL_OVERRIDES = { sport: 'haiku', kbt: 'haiku' };
 
 function routeIntent(text) {
+  if (!text) return null;
   const t = text.toLowerCase();
   if (/\b(afl|footy|football|ladder|tip|tipping|squiggle|racing|horse|race|round|score|fixture|essendon|collingwood|hawks|bombers|cats|demons|carlton|richmond|western bulldogs|fremantle|geelong|hawthorn|melbourne|port adelaide|gold coast|gws|brisbane|sydney|west coast|st kilda|north melbourne|adelaide)\b/.test(t))
     return { agent: 'sport', action: 'summary' };
@@ -125,6 +126,7 @@ async function callSubAgent(agentKey, action, text, pin, aiPin) {
 
 // ── Action handler — detect and execute Jarvis-style actions ─────────────────
 function detectAction(text) {
+  if (!text) return null;
   const t = text.toLowerCase().trim();
   // Email actions
   if (/\b(email me|send me|email summary|send (a )?summary|mail me)\b/.test(t))
@@ -327,7 +329,8 @@ export class FalkorAgent {
 
     if (path === '/chat' && request.method === 'POST') {
       const body = await request.json();
-      const { text, model, productContext } = body;
+      const { model, productContext } = body;
+      const text = body.text || body.message || '';
       const userId = request.headers.get('X-User-Id') || body.userId || 'paddy';
       const reply = await this.processChat(text, model || 'groq-fast', null, productContext, userId);
       return corsJson({ reply });
@@ -363,7 +366,7 @@ export class FalkorAgent {
       const memory = await this.getMemory();
       const ctxTs = await this.state.storage.get('liveContextTs');
       return corsJson({
-        version: '1.7.0',
+        version: '1.7.1',
         activeSessions: this.sessions.size,
         historyLength: history.length,
         memoryKeys: Object.keys(memory).length,
