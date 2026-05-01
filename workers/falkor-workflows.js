@@ -1,4 +1,4 @@
-// falkor-workflows v2.1.4 — Scheduled workflows + Jarvis-level autonomy
+// falkor-workflows v2.2.0 — Scheduled workflows + Jarvis-level autonomy
 // Cron: 0 21 * * * (7am AEST), 30 21 * * * (7:30am AEST), 0 */2 * * * (every 2h)
 //
 // Scheduled jobs:
@@ -15,7 +15,7 @@
 //
 // Bindings: DB (asgard-prod), PROJECTS_DB (project-hub-db), RESEND_API_KEY, AGENT_PIN, WEB_SERVICE (falkor-web)
 
-const VERSION = '2.1.4';
+const VERSION = '2.2.0';
 const WORKER_NAME = 'falkor-workflows';
 const PUSH_URL = 'https://falkor-push.luckdragon.io';
 const SPORT_URL = 'https://falkor-sport.luckdragon.io';
@@ -163,28 +163,36 @@ async function runPEWeatherAlert(env) {
 // ─── Workflow 2: Daily Falkor Briefing v2 ─────────────────────────────────────
 async function runDailySummary(env) {
   const pin = env.AGENT_PIN || '';
-  const date = new Date().toLocaleDateString('en-AU', {
+  const now = new Date();
+  const date = now.toLocaleDateString('en-AU', {
     weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Australia/Melbourne'
   });
 
-  const [weather, kbtSummary, sportSummary, ventures] = await Promise.allSettled([
+  // Fetch all data in parallel
+  const [weather, kbtSummary, sportSummary, ventures, calToday, calTomorrow] = await Promise.allSettled([
     getWeather(env, WPS_LAT, WPS_LON),
     fetch(KBT_URL + '/summary', { headers: { 'X-Pin': pin } }).then(function(r) { return r.json(); }),
     fetch(SPORT_URL + '/summary', { headers: { 'X-Pin': pin } }).then(function(r) { return r.json(); }),
     getTopVentures(env, 5),
+    fetch(CALENDAR_URL + '/today', { headers: { 'X-Pin': pin } }).then(function(r) { return r.json(); }).catch(function() { return null; }),
+    fetch(CALENDAR_URL + '/tomorrow', { headers: { 'X-Pin': pin } }).then(function(r) { return r.json(); }).catch(function() { return null; }),
   ]);
 
   const w = weather.status === 'fulfilled' ? weather.value : null;
   const kbt = kbtSummary.status === 'fulfilled' ? kbtSummary.value : null;
   const sport = sportSummary.status === 'fulfilled' ? sportSummary.value : null;
   const topVentures = ventures.status === 'fulfilled' ? ventures.value : [];
+  const calTodayData = calToday.status === 'fulfilled' ? calToday.value : null;
+  const calTomorrowData = calTomorrow.status === 'fulfilled' ? calTomorrow.value : null;
+  const todayEvents = (calTodayData && calTodayData.events) ? calTodayData.events : [];
+  const tomorrowEvents = (calTomorrowData && calTomorrowData.events) ? calTomorrowData.events : [];
 
   const sections = [];
 
   // ── Weather ──
   if (w) {
     const c = w.current;
-    const peNote = w.pe_note || (c.uv >= 9 ? 'High UV today — hats mandatory.' : c.temp > 30 ? 'Hot one today — consider indoor PE.' : 'All clear for outdoor PE.');
+    const peNote = w.pe_note || (c.uv >= 9 ? 'High UV — hats mandatory.' : c.temp > 30 ? 'Hot one — consider indoor PE.' : c.rain_chance > 60 ? 'Rain likely today.' : 'All clear for outdoor PE.');
     sections.push(
       '<h3>🌤️ Weather — Williamstown</h3>' +
       '<p>' + c.condition + ', <strong>' + c.temp + '°C</strong> (feels ' + c.feels_like + '°C) · UV <strong>' + c.uv + '</strong> · Wind ' + c.wind_kmh + 'km/h · Rain ' + c.rain_chance + '%</p>' +
@@ -192,17 +200,36 @@ async function runDailySummary(env) {
     );
   }
 
+  // ── Calendar ──
+  var calHtml = '<h3>📅 Calendar</h3>';
+  var hasCalContent = false;
+  if (todayEvents.length > 0) {
+    calHtml += '<p><strong>Today:</strong> ' + todayEvents.map(function(e) {
+      return (e.time ? e.time + ' — ' : '') + (e.summary || e.title || String(e));
+    }).join('; ') + '</p>';
+    hasCalContent = true;
+  } else {
+    calHtml += '<p><em>Today: nothing scheduled</em></p>';
+    hasCalContent = true;
+  }
+  if (tomorrowEvents.length > 0) {
+    calHtml += '<p><strong>Tomorrow:</strong> ' + tomorrowEvents.map(function(e) {
+      return (e.time ? e.time + ' — ' : '') + (e.summary || e.title || String(e));
+    }).join('; ') + '</p>';
+  }
+  if (hasCalContent) sections.push(calHtml);
+
   // ── Top Venture Priorities ──
   if (topVentures.length > 0) {
     var rows = topVentures.map(function(v) {
       var age = v.last_updated ? Math.round((Date.now() - new Date(v.last_updated).getTime()) / 86400000) : null;
-      var staleness = age !== null && age > 14 ? ' <span style=\"color:#e67e22\">(no activity ' + age + ' days)</span>' : '';
+      var staleness = age !== null && age > 14 ? ' <span style="color:#e67e22">(stale ' + age + 'd)</span>' : '';
       return '<tr><td><strong>' + v.name + '</strong>' + staleness + '</td><td>' + (v.status || '') + '</td><td>$' + ((v.y1 || 0) / 1000).toFixed(0) + 'k</td><td>' + (v.next || '—') + '</td></tr>';
     }).join('');
     sections.push(
       '<h3>🎯 Top Priorities</h3>' +
-      '<table style=\"border-collapse:collapse;width:100%\">' +
-      '<tr style=\"background:#f0f0f0\"><th style=\"text-align:left;padding:4px 8px\">Venture</th><th>Status</th><th>Y1</th><th>Next action</th></tr>' +
+      '<table style="border-collapse:collapse;width:100%">' +
+      '<tr style="background:#f0f0f0"><th style="text-align:left;padding:4px 8px">Venture</th><th>Status</th><th>Y1</th><th>Next action</th></tr>' +
       rows + '</table>'
     );
   }
@@ -210,28 +237,75 @@ async function runDailySummary(env) {
   // ── AFL & Tipping ──
   if (sport && sport.ok) {
     const tipping = sport.tipping_summary || {};
-    sections.push(
-      '<h3>🏈 AFL & Tipping</h3>' +
-      '<p>' + (sport.round_description || 'Season in progress') + '</p>' +
-      (tipping.leader ? '<p>Leaderboard: <strong>' + tipping.leader + '</strong> leads with ' + tipping.leader_points + ' pts</p>' : '')
-    );
+    var aflHtml = '<h3>🏈 AFL & Tipping</h3>';
+    if (sport.round_description) aflHtml += '<p>' + sport.round_description + '</p>';
+    if (sport.todays_games && sport.todays_games.length > 0) {
+      sport.todays_games.forEach(function(game) {
+        var score = game.score ? ' — <strong>' + game.score + '</strong>' : (game.time ? ' · ' + game.time : '');
+        aflHtml += '<p>🏟️ ' + game.home + ' vs ' + game.away + score + '</p>';
+      });
+    } else if (sport.next_game) {
+      const ng = sport.next_game;
+      aflHtml += '<p>Next game: ' + ng.home + ' vs ' + ng.away + (ng.date ? ' — ' + ng.date : '') + '</p>';
+    }
+    if (tipping.leader) {
+      aflHtml += '<p>Leaderboard: <strong>' + tipping.leader + '</strong> — ' + (tipping.leader_points || '?') + ' pts';
+      if (tipping.paddy_rank) aflHtml += ' · Paddy #' + tipping.paddy_rank;
+      aflHtml += '</p>';
+    }
+    if (sport.family_tips_due) aflHtml += '<p><strong>⚠️ Family tips due today!</strong></p>';
+    sections.push(aflHtml);
   }
 
   // ── KBT ──
   if (kbt && kbt.ok) {
-    sections.push(
-      '<h3>🎮 KBT Trivia</h3>' +
-      '<p>Upcoming events: <strong>' + kbt.upcoming_events + '</strong> · Bank: <strong>' + kbt.question_bank_size + '</strong> questions</p>'
-    );
+    var kbtHtml = '<h3>🎮 KBT Trivia</h3>';
+    kbtHtml += '<p>Upcoming: <strong>' + (kbt.upcoming_events || 0) + '</strong> events · Bank: <strong>' + (kbt.question_bank_size || '?') + '</strong> questions</p>';
+    if (kbt.next_event) kbtHtml += '<p>Next: ' + kbt.next_event + '</p>';
+    sections.push(kbtHtml);
   }
 
+  // ── AI Opener (Groq) — punchy Jarvis-style greeting ──
+  var opener = '';
+  try {
+    var briefFacts = 'Date: ' + date +
+      (w ? '. Weather: ' + w.current.temp + '°C, ' + w.current.condition + ', UV ' + w.current.uv : '') +
+      (todayEvents.length > 0 ? '. Calendar today: ' + todayEvents.map(function(e){return e.summary||e.title||'';}).join(', ') : '. Nothing on calendar today') +
+      (sport && sport.ok && sport.round_description ? '. AFL: ' + sport.round_description : '') +
+      (topVentures.length > 0 ? '. Ventures: ' + topVentures.length + ' active' : '');
+    const aiResp = await fetch('https://asgard-ai.luckdragon.io/chat/smart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Pin': '535554' },
+      body: JSON.stringify({
+        message: 'Write a sharp 2-sentence morning greeting for Paddy in Jarvis-from-Iron-Man style. Facts: ' + briefFacts + '. No emojis. Dry and confident. Address him as "Paddy". Max 35 words.',
+        model: 'groq-fast',
+        max_tokens: 80,
+      }),
+    });
+    if (aiResp && aiResp.ok) {
+      const aiData = await aiResp.json().catch(function() { return {}; });
+      opener = aiData.reply || '';
+    }
+  } catch(e) { /* opener optional */ }
+
+  const openerHtml = opener
+    ? '<p style="font-style:italic;color:#444;font-size:1.05em;border-left:3px solid #999;padding-left:12px;margin:12px 0">' + opener + '</p>'
+    : '';
+
   const html = '<h2>🐉 Good morning, Paddy! — ' + date + '</h2>' +
+    openerHtml +
     sections.join('\n') +
-    '<hr/><p><em>Falkor · <a href=\"https://falkor.luckdragon.io\">falkor.luckdragon.io</a></em></p>';
+    '<hr/><p><em>Falkor · <a href="https://falkor.luckdragon.io">falkor.luckdragon.io</a></em></p>';
+
+  const pushParts = [];
+  if (w) pushParts.push(w.current.temp + '°C UV' + w.current.uv);
+  if (todayEvents.length > 0) pushParts.push('📅 ' + todayEvents.length + ' event' + (todayEvents.length > 1 ? 's' : '') + ' today');
+  if (sport && sport.ok && sport.todays_games && sport.todays_games.length > 0) pushParts.push('🏈 Game day');
+  const pushBody = pushParts.join(' · ') || 'Morning briefing ready.';
 
   await sendEmail(env, { to: PADDY_EMAIL, subject: '🐉 Falkor Daily — ' + date, html });
-  await sendPush(env, { title: '🐉 Falkor — ' + date, body: 'Morning briefing: weather, priorities, AFL & KBT ready.', tag: 'daily-summary' });
-  return { sent: true, date, sections: sections.length, ventures: topVentures.length };
+  await sendPush(env, { title: '🐉 Falkor — ' + date, body: pushBody, tag: 'daily-summary' });
+  return { sent: true, date, sections: sections.length, ventures: topVentures.length, calendar_today: todayEvents.length, opener_generated: !!opener };
 }
 
 // ─── Smart Proactive Rules Engine v2 ─────────────────────────────────────────
