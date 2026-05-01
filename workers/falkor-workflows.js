@@ -1,4 +1,4 @@
-// falkor-workflows v2.0.0 — Scheduled workflows + Jarvis-level autonomy
+// falkor-workflows v2.1.4 — Scheduled workflows + Jarvis-level autonomy
 // Cron: 0 21 * * * (7am AEST), 30 21 * * * (7:30am AEST), 0 */2 * * * (every 2h)
 //
 // Scheduled jobs:
@@ -13,9 +13,9 @@
 //   POST /smart-alerts/trigger   — run smart alerts now
 //   GET  /health                 — version + bindings status
 //
-// Bindings: DB (asgard-prod), PROJECTS_DB (project-hub-db), RESEND_API_KEY, AGENT_PIN
+// Bindings: DB (asgard-prod), PROJECTS_DB (project-hub-db), RESEND_API_KEY, AGENT_PIN, WEB_SERVICE (falkor-web)
 
-const VERSION = '2.0.0';
+const VERSION = '2.1.4';
 const WORKER_NAME = 'falkor-workflows';
 const PUSH_URL = 'https://falkor-push.luckdragon.io';
 const SPORT_URL = 'https://falkor-sport.luckdragon.io';
@@ -414,6 +414,219 @@ async function runSmartAlerts(env) {
   return { fired, total: fired.length };
 }
 
+
+// ─── Phase 22: Autonomous Task Executor ──────────────────────────────────────
+const WEB_URL = 'https://falkor-web.luckdragon.io';
+
+async function createTask(env, { title, type = 'research', query, params = {}, userId = 'paddy', notify = 1 }) {
+  if (!env.DB) throw new Error('DB not bound');
+  await env.DB.prepare(
+    'CREATE TABLE IF NOT EXISTS falkor_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT DEFAULT \'paddy\', title TEXT NOT NULL, type TEXT DEFAULT \'research\', query TEXT, params TEXT, status TEXT DEFAULT \'pending\', result TEXT, error TEXT, notify INTEGER DEFAULT 1, created_at INTEGER DEFAULT (unixepoch()), started_at INTEGER, completed_at INTEGER)'
+  ).run();
+  const row = await env.DB.prepare(
+    'INSERT INTO falkor_tasks (user_id, title, type, query, params, notify) VALUES (?, ?, ?, ?, ?, ?) RETURNING id'
+  ).bind(userId, title, type, query || title, JSON.stringify(params), notify).first();
+  return row ? row.id : null;
+}
+
+async function runTaskExecutor(env) {
+  if (!env.DB) return { skipped: true, reason: 'no DB' };
+  const pin = env.AGENT_PIN || '';
+
+  // Ensure table exists
+  await env.DB.prepare(
+    'CREATE TABLE IF NOT EXISTS falkor_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT DEFAULT \'paddy\', title TEXT NOT NULL, type TEXT DEFAULT \'research\', query TEXT, params TEXT, status TEXT DEFAULT \'pending\', result TEXT, error TEXT, notify INTEGER DEFAULT 1, created_at INTEGER DEFAULT (unixepoch()), started_at INTEGER, completed_at INTEGER)'
+  ).run();
+
+  // Pick ONE pending task
+  const task = await env.DB.prepare(
+    'SELECT * FROM falkor_tasks WHERE status = \'pending\' ORDER BY created_at ASC LIMIT 1'
+  ).first();
+
+  if (!task) return { ran: 0 };
+
+  // Mark running
+  await env.DB.prepare('UPDATE falkor_tasks SET status = \'running\', started_at = ? WHERE id = ?')
+    .bind(Date.now(), task.id).run();
+
+  const params = JSON.parse(task.params || '{}');
+  let result = null;
+  let error = null;
+
+  try {
+    switch (task.type) {
+
+      // ── Research: try falkor-web (Tavily), fall back to DuckDuckGo ────────
+      case 'research': {
+        var searchAnswer = '';
+        var searchResults = [];
+
+        // Attempt 1: falkor-web via Service Binding (direct W2W, no network hop)
+        try {
+          var fwHeaders = { 'Content-Type': 'application/json', 'X-Pin': pin };
+          var fwResp;
+          if (env.WEB_SERVICE) {
+            // Service binding: direct Worker-to-Worker call
+            fwResp = await env.WEB_SERVICE.fetch('https://falkor-web.luckdragon.io/search', {
+              method: 'POST',
+              headers: fwHeaders,
+              body: JSON.stringify({ query: task.query }),
+            });
+          } else {
+            // Fallback: try workers.dev URL (avoids luckdragon.io proxy loop)
+            fwResp = await fetch(WEB_URL + '/search', {
+              method: 'POST',
+              headers: fwHeaders,
+              body: JSON.stringify({ query: task.query }),
+            });
+          }
+          if (fwResp.ok) {
+            var fwData = await fwResp.json();
+            if (fwData && fwData.ok) {
+              searchAnswer = fwData.answer || '';
+              searchResults = fwData.results || [];
+            }
+          }
+        } catch(e2) { console.warn('falkor-web search failed:', e2.message); }
+
+        // Fallback: DuckDuckGo Instant Answer (no key needed)
+        if (!searchAnswer && searchResults.length === 0) {
+          try {
+            var ddgUrl = 'https://api.duckduckgo.com/?q=' + encodeURIComponent(task.query) + '&format=json&no_html=1&skip_disambig=1';
+            var ddgResp = await fetch(ddgUrl);
+            if (ddgResp.ok) {
+              var ddg = await ddgResp.json();
+              searchAnswer = ddg.AbstractText || ddg.Answer || '';
+              searchResults = (ddg.RelatedTopics || []).slice(0, 5).map(function(t2) {
+                return { title: t2.Text ? t2.Text.slice(0,60) : '', snippet: t2.Text || '' };
+              }).filter(function(t2) { return t2.snippet; });
+            }
+          } catch(e3) { console.warn('DDG fallback failed:', e3.message); }
+        }
+
+        if (!searchAnswer && searchResults.length === 0) {
+          result = 'Could not fetch search results for: ' + task.query;
+          break;
+        }
+
+        var topResults = searchResults.slice(0, 5).map(function(r2, i2) {
+          return (i2+1) + '. ' + (r2.title || '') + '\n   ' + (r2.snippet || r2.content || '').slice(0, 180);
+        }).join('\n');
+        result = ('🔍 ' + task.query + '\n\n' + (searchAnswer ? '📌 ' + searchAnswer + '\n\n' : '') + (topResults ? '📰 Top results:\n' + topResults : '')).slice(0, 1800);
+        break;
+      }
+
+      // ── Tipping report: standings + email family ─────────────────────────
+      case 'tipping_report': {
+        const sportResp = await fetch('https://falkor-sport.luckdragon.io/tipping', {
+          headers: { 'X-Pin': pin }
+        });
+        const sportData = sportResp.ok ? await sportResp.json() : null;
+        if (sportData && sportData.ok) {
+          const entries = (sportData.entries || []).slice(0, 10);
+          result = 'Tipping standings:\n' + entries.map(function(e, i) {
+            return (i+1) + '. ' + e.name + ' — ' + e.points + ' pts';
+          }).join('\n');
+          // Email family
+          const to = params.to || 'pgallivan@outlook.com';
+          await sendEmail(env, {
+            to,
+            subject: '🏈 Tipping Report — ' + new Date().toLocaleDateString('en-AU'),
+            html: '<h2>🏈 Family Tipping Standings</h2><ol>' + entries.map(function(e) {
+              return '<li><strong>' + e.name + '</strong> — ' + e.points + ' pts</li>';
+            }).join('') + '</ol>',
+          });
+        } else {
+          result = 'Could not fetch tipping data.';
+        }
+        break;
+      }
+
+      // ── Venture report: top priorities + next actions ────────────────────
+      case 'venture_report': {
+        const ventures = await getTopVentures(env, 8);
+        result = 'Top venture priorities:\n' + ventures.map(function(v, i) {
+          return (i+1) + '. ' + v.name + ' [' + (v.status||'?') + '] — Next: ' + (v.next || '—');
+        }).join('\n');
+        await sendEmail(env, {
+          to: 'pgallivan@outlook.com',
+          subject: '🎯 Venture Priorities — ' + new Date().toLocaleDateString('en-AU'),
+          html: '<h2>🎯 Top Priorities</h2><table style=\"border-collapse:collapse\"><tr style=\"background:#f0f0f0\"><th style=\"padding:6px 12px;text-align:left\">Venture</th><th>Status</th><th>Next Action</th></tr>' +
+            ventures.map(function(v) {
+              return '<tr><td style=\"padding:6px 12px\"><strong>' + v.name + '</strong></td><td>' + (v.status||'—') + '</td><td>' + (v.next||'—') + '</td></tr>';
+            }).join('') + '</table>',
+        });
+        break;
+      }
+
+      // ── KBT prep: generate trivia questions ──────────────────────────────
+      case 'kbt_prep': {
+        const topic = params.topic || task.query || 'general knowledge';
+        const kbtResp = await fetch('https://falkor-kbt.luckdragon.io/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
+          body: JSON.stringify({ topic, count: params.count || 10 }),
+        });
+        const kbtData = kbtResp.ok ? await kbtResp.json() : null;
+        if (kbtData && kbtData.questions) {
+          result = 'Generated ' + kbtData.questions.length + ' questions on "' + topic + '"';
+          await sendEmail(env, {
+            to: 'pgallivan@outlook.com',
+            subject: '🎮 KBT Questions — ' + topic,
+            html: '<h2>🎮 KBT Questions: ' + topic + '</h2><ol>' +
+              kbtData.questions.map(function(q) {
+                return '<li><strong>' + (q.question || q) + '</strong>' + (q.answer ? '<br><em>Answer: ' + q.answer + '</em>' : '') + '</li>';
+              }).join('') + '</ol>',
+          });
+        } else {
+          result = 'Could not generate KBT questions.';
+        }
+        break;
+      }
+
+      // ── Generic email ────────────────────────────────────────────────────
+      case 'email': {
+        await sendEmail(env, {
+          to: params.to || 'pgallivan@outlook.com',
+          subject: params.subject || task.title,
+          html: '<p>' + (params.body || task.query) + '</p>',
+        });
+        result = 'Email sent to ' + (params.to || 'pgallivan@outlook.com');
+        break;
+      }
+
+      default:
+        result = 'Unknown task type: ' + task.type;
+    }
+  } catch (e) {
+    error = e.message;
+    result = 'Task failed: ' + e.message;
+  }
+
+  // Mark done
+  await env.DB.prepare('UPDATE falkor_tasks SET status = ?, result = ?, error = ?, completed_at = ? WHERE id = ?')
+    .bind(error ? 'failed' : 'done', result, error || null, Date.now(), task.id).run();
+
+  // Notify via push + email
+  if (task.notify) {
+    await sendPush(env, {
+      title: error ? '❌ Task failed: ' + task.title : '✅ Task done: ' + task.title,
+      body: (result || '').slice(0, 120),
+      url: 'https://falkor.luckdragon.io',
+      tag: 'task-' + task.id,
+    });
+    if (!error) {
+      await sendEmail(env, {
+        to: 'pgallivan@outlook.com',
+        subject: '✅ Falkor task done: ' + task.title,
+        html: '<h2>✅ ' + task.title + '</h2><pre style=\"white-space:pre-wrap;font-family:sans-serif\">' + (result || '') + '</pre><p><em>Completed at ' + new Date().toLocaleString('en-AU', {timeZone:'Australia/Melbourne'}) + '</em></p>',
+      }).catch(function() {});
+    }
+  }
+
+  await logRun(env, 'task_executor', { taskId: task.id, type: task.type, title: task.title, ok: !error });
+  return { ran: 1, taskId: task.id, type: task.type, ok: !error };
+}
 // ─── Cron dispatcher ──────────────────────────────────────────────────────────
 async function runScheduled(cron, env) {
   const hour = new Date().getUTCHours();
@@ -421,6 +634,9 @@ async function runScheduled(cron, env) {
 
   // Smart rules run every cron tick
   await runSmartAlerts(env).catch(function(e) { console.warn('smart alerts:', e.message); });
+
+  // Task executor runs every tick — picks up 1 pending task
+  await runTaskExecutor(env).catch(function(e) { console.warn('task executor:', e.message); });
 
   // 9pm UTC = 7am AEST → PE Weather Alert
   if (hour === 21 && minute < 15) {
@@ -508,6 +724,33 @@ export default {
         const rows = await env.DB.prepare('SELECT workflow, result, error, ran_at FROM falkor_workflow_runs ORDER BY ran_at DESC LIMIT 20').all();
         return json({ ok: true, runs: rows.results });
       } catch (e) { return err(e?.message, 500); }
+    }
+
+
+
+    // Task queue endpoints
+    if (path === '/tasks' && method === 'GET') {
+      if (!env.DB) return err('DB not bound', 500);
+      try {
+        await env.DB.prepare('CREATE TABLE IF NOT EXISTS falkor_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT DEFAULT \'paddy\', title TEXT NOT NULL, type TEXT DEFAULT \'research\', query TEXT, params TEXT, status TEXT DEFAULT \'pending\', result TEXT, error TEXT, notify INTEGER DEFAULT 1, created_at INTEGER DEFAULT (unixepoch()), started_at INTEGER, completed_at INTEGER)').run();
+        const rows = await env.DB.prepare('SELECT id, user_id, title, type, status, result, error, created_at, completed_at FROM falkor_tasks ORDER BY created_at DESC LIMIT 30').all();
+        return json({ ok: true, tasks: rows.results });
+      } catch (e) { return err(e?.message, 500); }
+    }
+
+    if (path === '/tasks' && method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const { title, type, query, params, notify } = body;
+      if (!title) return err('title required');
+      try {
+        const id = await createTask(env, { title, type: type || 'research', query: query || title, params: params || {}, notify: notify !== false ? 1 : 0 });
+        return json({ ok: true, id, message: 'Task queued — Falkor will handle it.' });
+      } catch (e) { return err(e?.message, 500); }
+    }
+
+    if (path === '/tasks/run' && method === 'POST') {
+      const result = await runTaskExecutor(env).catch(function(e) { return { error: e.message }; });
+      return json({ ok: true, result });
     }
 
     return json({ error: 'Not found', path }, 404);
