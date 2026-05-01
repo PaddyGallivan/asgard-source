@@ -1,4 +1,4 @@
-// falkor-agent v1.7.1 — null guards + message/text field compat: Always Briefed + Auto-Memory + Action Handlers
+// falkor-agent v1.7.2 — null guards + message/text field compat: Always Briefed + Auto-Memory + Action Handlers
 // v1.7.0 adds:
 //   1. Live context pre-loader — fetches weather/calendar/sport/tips before first reply
 //   2. Auto-memory — every 5 turns, Haiku extracts memorable facts → falkor-brain
@@ -70,7 +70,7 @@ const AGENTS = {
   code:      'https://falkor-code.luckdragon.io',
 };
 
-const AGENT_MODEL_OVERRIDES = { sport: 'haiku', kbt: 'haiku' };
+const AGENT_MODEL_OVERRIDES = { sport: 'haiku', kbt: 'haiku', web: 'haiku' };
 
 function routeIntent(text) {
   if (!text) return null;
@@ -366,7 +366,7 @@ export class FalkorAgent {
       const memory = await this.getMemory();
       const ctxTs = await this.state.storage.get('liveContextTs');
       return corsJson({
-        version: '1.7.1',
+        version: '1.7.2',
         activeSessions: this.sessions.size,
         historyLength: history.length,
         memoryKeys: Object.keys(memory).length,
@@ -476,8 +476,15 @@ export class FalkorAgent {
       if (AGENT_MODEL_OVERRIDES[intent.agent]) model = AGENT_MODEL_OVERRIDES[intent.agent];
       const agentData = await callSubAgent(intent.agent, intent.action, text, pin, aiPin);
       if (agentData) {
-        pendingAgentCtx = '\n\nLive data from falkor-' + intent.agent + ':\n' +
-          JSON.stringify(agentData, null, 2).slice(0, 1500);
+        // Special handling for web search: use the answer field prominently
+        if (intent.agent === 'web' && agentData.answer) {
+          const snippets = (agentData.results || []).slice(0, 3)
+            .map(r => `- ${r.title}: ${r.snippet || ''}`.slice(0, 120)).join('\n');
+          pendingAgentCtx = `\n\n## Web Search Results for "${text}"\nAnswer: ${agentData.answer}\n${snippets}\n\n(Use these results to answer the user — do not say you cannot search.)`;
+        } else {
+          pendingAgentCtx = '\n\nLive data from falkor-' + intent.agent + ':\n' +
+            JSON.stringify(agentData, null, 2).slice(0, 1500);
+        }
         if (intent.agent === 'sport' || intent.agent === 'kbt') {
           fetch(`${BRAIN_URL}/remember`, {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
@@ -528,6 +535,7 @@ export class FalkorAgent {
       `- When you can DO something (send email, set reminder, check scores), do it — don't just explain how.`,
       `- If you notice something important in the live context that ${userCtx.name} hasn't asked about, mention it.`,
       `- Never start a reply with "I" as the first word. Vary your openings.`,
+      `- When web search results are provided in your context (marked "## Web Search Results"), USE them to answer — never say you cannot search or browse the internet. The results are already fetched for you.`,
       `- Short replies are almost always better. Match the energy of the message.`,
       `## What ${userCtx.name} cares about most:`,
       `${userCtx.interests.join(', ')}`,
