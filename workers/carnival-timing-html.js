@@ -2211,22 +2211,16 @@ function openRosterModal() {
   const el = document.createElement('div');
   el.id = 'roster-modal';
   el.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:16px;padding-top:60px;overflow-y:auto';
-  el.innerHTML = `
-    <div style="background:var(--surface);border-radius:16px;padding:20px;max-width:420px;width:100%">
-      <div style="font-weight:700;font-size:1rem;margin-bottom:4px">📋 Paste Athlete Roster</div>
-      <div style="color:var(--muted);font-size:.8rem;margin-bottom:10px">
-        One athlete per line. Format: <strong>Lane, Name, House</strong><br>
-        Example: <code style="font-size:.75rem;color:var(--accent)">1, Jake Smith, Red</code>
-      </div>
-      <textarea id="roster-text" placeholder="1, Jake Smith, Red
-2, Sam Jones, Blue
-3, Mia Brown, Green"
-        style="width:100%;min-height:160px;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.85rem;font-family:monospace;resize:vertical"></textarea>
-      <div style="display:flex;gap:8px;margin-top:12px">
-        <button class="btn btn-primary" style="flex:1" onclick="applyRoster()">Apply to Lanes</button>
-        <button class="btn btn-secondary" onclick="document.getElementById(\'roster-modal\').remove()">Cancel</button>
-      </div>
-    </div>`;
+  const ph = '1, Jake Smith, Red\n2, Sam Jones, Blue\n3, Mia Brown, Green';
+  el.innerHTML = '<div style="background:var(--surface);border-radius:16px;padding:20px;max-width:420px;width:100%">'
+    + '<div style="font-weight:700;font-size:1rem;margin-bottom:4px">Paste Athlete Roster</div>'
+    + '<div style="color:var(--muted);font-size:.8rem;margin-bottom:10px">One per line: <strong>Lane, Name, House</strong><br>'
+    + 'E.g. <code style="color:var(--accent)">1, Jake Smith, Red</code></div>'
+    + '<textarea id="roster-text" placeholder="' + ph + '" style="width:100%;min-height:160px;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.85rem;font-family:monospace;resize:vertical"></textarea>'
+    + '<div style="display:flex;gap:8px;margin-top:12px">'
+    + '<button class="btn btn-primary" style="flex:1" onclick="applyRoster()">Apply to Lanes</button>'
+    + '<button class="btn btn-secondary" onclick="document.getElementById(\'roster-modal\').remove()">Cancel</button>'
+    + '</div></div>';
   document.body.appendChild(el);
   el.addEventListener('click', e => { if (e.target === el) el.remove(); });
 }
