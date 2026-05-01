@@ -1,3 +1,6 @@
+--fdd0ac67e370df5fcff2458f7f937aba275e8b3598c5304bff6cd58799cd
+Content-Disposition: form-data; name="worker.js"
+
 const PUSH_URL = 'https://falkor-push.luckdragon.io';
 
 const JSON_MANIFEST = JSON.stringify({
@@ -937,6 +940,7 @@ function App() {
   const drivingModeRef   = useRef(drivingMode);
   const activeIdRef      = useRef(activeId);
   const streamTimerRef   = useRef(null);
+  const streamingMsgId   = useRef(null);
 
   useEffect(() => { voiceEnabledRef.current = voiceEnabled; }, [voiceEnabled]);
   useEffect(() => { showVoiceRef.current = showVoice; }, [showVoice]);
@@ -967,23 +971,61 @@ function App() {
     ws.onmessage = evt => {
       try {
         const msg = JSON.parse(evt.data);
+
+        // ── Real-time token streaming ─────────────────────────────────────
+        if (msg.type === 'token') {
+          const { msgId, text } = msg;
+          const cid = activeIdRef.current;
+          if (!streamingMsgId.current) {
+            // First token for this message — create bubble immediately
+            streamingMsgId.current = msgId;
+            setTyping(false);
+            setConvos(prev => prev.map(c => c.id === cid
+              ? { ...c, messages:[...(c.messages||[]), { id:msgId, role:'assistant', content:text, ts:Date.now() }] }
+              : c));
+          } else {
+            // Subsequent tokens — update accumulated text in bubble
+            setConvos(prev => prev.map(c => c.id === cid
+              ? { ...c, messages:(c.messages||[]).map(m => m.id === msgId ? { ...m, content:text } : m) }
+              : c));
+          }
+        }
+
+        // ── Final reply (finalize bubble or typewriter fallback) ──────────
         if (msg.type === 'assistant_reply') {
           setTyping(false);
           const fullText = msg.text || '';
-          const msgId = uid();
           const cid = activeIdRef.current;
-          setConvos(prev => prev.map(c => c.id === cid ? { ...c, messages:[...(c.messages||[]), { id:msgId, role:'assistant', content:'', ts:Date.now() }] } : c));
-          let i = 0;
-          if (streamTimerRef.current) clearInterval(streamTimerRef.current);
-          streamTimerRef.current = setInterval(() => {
-            i++;
-            setConvos(prev => prev.map(c => c.id === cid ? { ...c, messages:(c.messages||[]).map(m => m.id === msgId ? { ...m, content:fullText.slice(0,i) } : m) } : c));
-            if (i >= fullText.length) {
-              clearInterval(streamTimerRef.current); streamTimerRef.current = null;
-              if (drivingModeRef.current) { setVoiceReply(fullText); speakText(fullText); }
-              else if (voiceEnabledRef.current && !showVoiceRef.current) speakText(fullText);
-            }
-          }, 18);
+
+          if (streamingMsgId.current) {
+            // Was streaming — just finalize content (no re-typewriter)
+            const smId = streamingMsgId.current;
+            streamingMsgId.current = null;
+            setConvos(prev => prev.map(c => c.id === cid
+              ? { ...c, messages:(c.messages||[]).map(m => m.id === smId ? { ...m, content:fullText } : m) }
+              : c));
+            if (drivingModeRef.current) { setVoiceReply(fullText); speakText(fullText); }
+            else if (voiceEnabledRef.current && !showVoiceRef.current) speakText(fullText);
+          } else {
+            // Non-streaming fallback — typewriter effect
+            const msgId = uid();
+            setConvos(prev => prev.map(c => c.id === cid
+              ? { ...c, messages:[...(c.messages||[]), { id:msgId, role:'assistant', content:'', ts:Date.now() }] }
+              : c));
+            let i = 0;
+            if (streamTimerRef.current) clearInterval(streamTimerRef.current);
+            streamTimerRef.current = setInterval(() => {
+              i++;
+              setConvos(prev => prev.map(c => c.id === cid
+                ? { ...c, messages:(c.messages||[]).map(m => m.id === msgId ? { ...m, content:fullText.slice(0,i) } : m) }
+                : c));
+              if (i >= fullText.length) {
+                clearInterval(streamTimerRef.current); streamTimerRef.current = null;
+                if (drivingModeRef.current) { setVoiceReply(fullText); speakText(fullText); }
+                else if (voiceEnabledRef.current && !showVoiceRef.current) speakText(fullText);
+              }
+            }, 18);
+          }
         }
       } catch {}
     };
@@ -1363,3 +1405,5 @@ window.addEventListener('load', async () => {
     });
   }
 };
+
+--fdd0ac67e370df5fcff2458f7f937aba275e8b3598c5304bff6cd58799cd--
