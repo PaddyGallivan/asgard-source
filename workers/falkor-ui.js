@@ -1,9 +1,85 @@
+const PUSH_URL = 'https://falkor-push.luckdragon.io';
+
+const JSON_MANIFEST = JSON.stringify({
+  name: 'Falkor',
+  short_name: 'Falkor',
+  description: 'Your personal AI assistant',
+  start_url: '/',
+  display: 'standalone',
+  background_color: '#0f0f11',
+  theme_color: '#6c63ff',
+  icons: [
+    { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+    { src: '/icon-512.png', sizes: '512x512', type: 'image/png' }
+  ]
+});
+
+const SW_CODE = `
+const CACHE = 'falkor-v1';
+const CACHE_URLS = ['/'];
+
+self.addEventListener('install', e => {
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(CACHE_URLS)));
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', e => {
+  e.waitUntil(caches.keys().then(keys =>
+    Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+  ));
+  self.clients.claim();
+});
+
+self.addEventListener('fetch', e => {
+  if (e.request.method !== 'GET') return;
+  e.respondWith(
+    fetch(e.request).catch(() => caches.match(e.request))
+  );
+});
+
+self.addEventListener('push', e => {
+  if (!e.data) return;
+  try {
+    const d = e.data.json();
+    e.waitUntil(self.registration.showNotification(d.title || 'Falkor', {
+      body: d.body || '',
+      icon: d.icon || '/icon-192.png',
+      badge: '/icon-192.png',
+      tag: d.tag || 'falkor',
+      data: { url: d.url || 'https://falkor.luckdragon.io' },
+      requireInteraction: false,
+    }));
+  } catch(err) { console.error('push parse error', err); }
+});
+
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const target = e.notification.data?.url || 'https://falkor.luckdragon.io';
+  e.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+    for (const c of list) {
+      if (c.url === target && 'focus' in c) return c.focus();
+    }
+    return clients.openWindow(target);
+  }));
+});
+`;
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === '/health') {
-      return new Response(JSON.stringify({status:'ok',version:'1.3.0',worker:'falkor-ui'}), {
+      return new Response(JSON.stringify({status:'ok',version:'1.5.0',worker:'falkor-ui'}), {
         headers: {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}
+      });
+    }
+    if (url.pathname === '/manifest.json') {
+      return new Response(JSON_MANIFEST, {
+        headers: { 'Content-Type': 'application/manifest+json', 'Cache-Control': 'public, max-age=86400' }
+      });
+    }
+    if (url.pathname === '/sw.js') {
+      return new Response(SW_CODE, {
+        headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache' }
       });
     }
     const HTML = `<!DOCTYPE html>
@@ -11,6 +87,12 @@ export default {
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Falkor</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#6c63ff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Falkor">
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
@@ -873,6 +955,81 @@ function App(){
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+</script>
+
+<script>
+// ── Service Worker + Push ────────────────────────────────────────────────────
+const PUSH_URL = 'https://falkor-push.luckdragon.io';
+const VAPID_PUB = 'BBR12QaqhEyIeIZkENXgDmJDCgIFQgEjSDgTxrPPp6hkdf-MfCC9X6Qp1Q6fU0sX8HAmiklVJciQPLLWbgkC_UU';
+
+function urlB64ToUint8(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+let swRegistration = null;
+
+async function initSW() {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    swRegistration = await navigator.serviceWorker.register('/sw.js');
+    console.log('SW registered');
+  } catch(e) { console.warn('SW failed:', e); }
+}
+
+async function togglePush() {
+  if (!('Notification' in window) || !swRegistration) {
+    alert('Notifications not supported on this browser/device.');
+    return;
+  }
+  const btn = document.getElementById('bell-btn');
+  const existing = await swRegistration.pushManager.getSubscription();
+  if (existing) {
+    // Unsubscribe
+    await existing.unsubscribe();
+    await fetch(PUSH_URL + '/unsubscribe', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ endpoint: existing.endpoint })
+    });
+    if (btn) { btn.style.color = ''; btn.title = 'Enable notifications'; }
+    return;
+  }
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') { alert('Please allow notifications to enable Falkor push alerts.'); return; }
+  try {
+    const sub = await swRegistration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlB64ToUint8(VAPID_PUB)
+    });
+    const p256dh = btoa(String.fromCharCode(...new Uint8Array(sub.getKey('p256dh')))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+    const auth   = btoa(String.fromCharCode(...new Uint8Array(sub.getKey('auth')))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+    let deviceId = localStorage.getItem('falkor-device-id');
+    if (!deviceId) { deviceId = crypto.randomUUID(); localStorage.setItem('falkor-device-id', deviceId); }
+    await fetch(PUSH_URL + '/subscribe', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ endpoint: sub.endpoint, keys: { p256dh, auth }, deviceId })
+    });
+    if (btn) { btn.style.color = 'var(--accent)'; btn.title = 'Notifications ON (click to disable)'; }
+    new Notification('Falkor notifications enabled!', { body: 'You\'ll get push alerts for daily briefings, weather, and fleet issues.' });
+  } catch(e) { console.error('Push subscribe failed:', e); alert('Push subscription failed: ' + e.message); }
+}
+
+// Check existing subscription state on load
+async function checkPushState() {
+  if (!swRegistration) return;
+  const sub = await swRegistration.pushManager.getSubscription().catch(() => null);
+  const btn = document.getElementById('bell-btn');
+  if (sub && btn) { btn.style.color = 'var(--accent)'; btn.title = 'Notifications ON (click to disable)'; }
+}
+
+window.addEventListener('load', async () => {
+  await initSW();
+  await checkPushState();
+});
 </script>
 </body>
 </html>
