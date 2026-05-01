@@ -82,7 +82,7 @@ export default {
         headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache' }
       });
     }
-    const HTML = `<!DOCTYPE html>
+    const HTML = String.raw`<!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
