@@ -229,14 +229,14 @@ function VoiceWaveform({ analyserRef, active }) {
 function VoiceModal({ voiceState, transcript, reply, analyserRef, onMicClick, onClose }) {
   const statusMap = {
     idle:       '\ud83c\udf99\ufe0f Tap mic to speak',
-    listening:  '\ud83d\udd34 Listeningâ¦',
-    processing: '\u2699\ufe0f Processingâ¦',
-    speaking:   '\ud83d\udd0a Speakingâ¦',
+    listening:  '\ud83d\udd34 ListeningÃ¢ÂÂ¦',
+    processing: '\u2699\ufe0f ProcessingÃ¢ÂÂ¦',
+    speaking:   '\ud83d\udd0a SpeakingÃ¢ÂÂ¦',
   };
   return (
     <div className="voice-overlay">
-      <button className="voice-close" onClick={onClose}>â</button>
-      <div className="voice-dragon">ð</div>
+      <button className="voice-close" onClick={onClose}>Ã¢ÂÂ</button>
+      <div className="voice-dragon">Ã°ÂÂÂ</div>
       <div className="voice-status">{statusMap[voiceState] || ''}</div>
       <VoiceWaveform analyserRef={analyserRef} active={voiceState==='listening'||voiceState==='speaking'} />
       {transcript && <div className="voice-transcript">"{transcript}"</div>}
@@ -275,13 +275,13 @@ function LoginScreen({ onLogin }) {
   return (
     <div className="login-wrap">
       <div className="login-card">
-        <div className="login-logo">ð Falkor</div>
+        <div className="login-logo">Ã°ÂÂÂ Falkor</div>
         <div className="login-sub">Your personal AI assistant</div>
         {error && <div className="err-msg">{error}</div>}
         <form onSubmit={handleSubmit}>
           <div className="field"><label>Email</label><input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com" required autoFocus /></div>
-          <div className="field"><label>Password</label><input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="â¢â¢â¢â¢â¢â¢â¢â¢" required /></div>
-          <button className="btn" type="submit" disabled={loading}>{loading ? 'Signing inâ¦' : 'Sign in'}</button>
+          <div className="field"><label>Password</label><input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Ã¢ÂÂ¢Ã¢ÂÂ¢Ã¢ÂÂ¢Ã¢ÂÂ¢Ã¢ÂÂ¢Ã¢ÂÂ¢Ã¢ÂÂ¢Ã¢ÂÂ¢" required /></div>
+          <button className="btn" type="submit" disabled={loading}>{loading ? 'Signing inÃ¢ÂÂ¦' : 'Sign in'}</button>
         </form>
       </div>
     </div>
@@ -297,10 +297,10 @@ function SettingsPanel({ onClose, theme, onThemeToggle, voiceEnabled, onVoiceTog
   return (
     <div className="settings-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div className="settings-panel">
-        <div className="settings-title">âï¸ Settings</div>
+        <div className="settings-title">Ã¢ÂÂÃ¯Â¸Â Settings</div>
         <hr className="divider"/>
         <div className="setting-row"><span className="setting-label">Theme (light)</span><div className={'toggle '+(theme==='light'?'on':'')} onClick={onThemeToggle}/></div>
-        <div className="setting-row"><span className="setting-label">ðï¸ Voice replies</span><div className={'toggle '+(voiceEnabled?'on':'')} onClick={onVoiceToggle}/></div>
+        <div className="setting-row"><span className="setting-label">Ã°ÂÂÂÃ¯Â¸Â Voice replies</span><div className={'toggle '+(voiceEnabled?'on':'')} onClick={onVoiceToggle}/></div>
         <div className="setting-row"><span className="setting-label" style={{fontSize:12,color:'var(--muted)'}}>Say &quot;Hey Falkor&quot; to activate voice</span></div>
         <hr className="divider"/>
         <div className="setting-row"><span className="setting-label">Agent</span><span className="setting-val">falkor-agent.luckdragon.io</span></div>
@@ -361,7 +361,7 @@ function SportPanel({ pin }) {
   return (
     <div style={{flex:1,overflow:'auto',padding:'16px 20px'}}>
       <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'16px',flexWrap:'wrap'}}>
-        <span style={{fontSize:'18px',fontWeight:700}}>ð AFL {YEAR}</span>
+        <span style={{fontSize:'18px',fontWeight:700}}>Ã°ÂÂÂ AFL {YEAR}</span>
         <span style={{color:'var(--muted)',fontSize:'13px'}}>Round</span>
         <select value={rnd} onChange={e=>setRnd(Number(e.target.value))} style={{background:'var(--input-bg)',border:'1px solid var(--border)',borderRadius:'6px',color:'var(--text)',padding:'4px 8px',fontSize:'13px'}}>
           {Array.from({length:24},(_,i)=>i+1).map(r=><option key={r} value={r}>R{r}</option>)}
@@ -371,7 +371,7 @@ function SportPanel({ pin }) {
           {['ladder','results','tips','comp'].map(t=><button key={t} style={TB(t)} onClick={()=>setTab(t)}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>)}
         </div>
       </div>
-      {loading && <div style={{color:'var(--muted)',fontSize:'13px',padding:'20px'}}>Loadingâ¦</div>}
+      {loading && <div style={{color:'var(--muted)',fontSize:'13px',padding:'20px'}}>LoadingÃ¢ÂÂ¦</div>}
       {!loading && tab==='ladder' && ladder && (
         <table className="sport-table">
           <thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>D</th><th>Pts</th><th>%</th></tr></thead>
@@ -395,19 +395,19 @@ function SportPanel({ pin }) {
               <div style={{display:'flex',alignItems:'center',gap:'8px',justifyContent:'space-between',flexWrap:'wrap'}}>
                 <div style={{display:'flex',gap:'12px',alignItems:'center',flex:1}}>
                   <span style={{fontWeight:g.winner===g.home?700:400,flex:1,textAlign:'right'}}>{g.home}</span>
-                  <span style={{color:'var(--muted)',fontSize:'12px',flexShrink:0}}>{g.status==='upcoming'?'vs':g.homeScore+' â '+g.awayScore}</span>
+                  <span style={{color:'var(--muted)',fontSize:'12px',flexShrink:0}}>{g.status==='upcoming'?'vs':g.homeScore+' Ã¢ÂÂ '+g.awayScore}</span>
                   <span style={{fontWeight:g.winner===g.away?700:400,flex:1}}>{g.away}</span>
                 </div>
                 <span style={{fontSize:'11px',padding:'3px 8px',borderRadius:'20px',flexShrink:0,background:g.status==='final'?'rgba(34,197,94,.15)':g.status==='live'?'rgba(245,158,11,.15)':'var(--border)',color:g.status==='final'?'var(--success)':g.status==='live'?'#f59e0b':'var(--muted)'}}>{g.status==='final'?'Final':g.status==='live'?'LIVE':g.date?.slice(0,10)||'TBC'}</span>
               </div>
-              {g.venue&&<div style={{fontSize:'11px',color:'var(--muted)',marginTop:'4px'}}>ð {g.venue}</div>}
+              {g.venue&&<div style={{fontSize:'11px',color:'var(--muted)',marginTop:'4px'}}>Ã°ÂÂÂ {g.venue}</div>}
             </div>
           ))}
         </div>
       )}
       {!loading && tab==='tips' && (
         <div style={{display:'flex',flexDirection:'column',gap:'8px'}}>
-          <div style={{fontSize:'12px',color:'var(--muted)',marginBottom:'4px'}}>AI model tips â Round {rnd} (Squiggle)</div>
+          <div style={{fontSize:'12px',color:'var(--muted)',marginBottom:'4px'}}>AI model tips Ã¢ÂÂ Round {rnd} (Squiggle)</div>
           {tips.length===0&&<div style={{color:'var(--muted)',fontSize:'13px'}}>No tips available yet for Round {rnd}</div>}
           {tips.map((t,i)=>(
             <div key={i} style={{background:'var(--panel)',border:'1px solid var(--border)',borderRadius:'10px',padding:'12px 16px',display:'flex',alignItems:'center',gap:'12px'}}>
@@ -438,14 +438,14 @@ function SportPanel({ pin }) {
                     )).reduce((acc,el,i)=>i===0?[el]:[...acc,<span key="v" style={{color:'var(--muted)',fontSize:'12px',flexShrink:0}}>vs</span>,el],[])}
                     {done&&myTip&&<span style={{fontSize:'13px',flexShrink:0,color:g.winner===myTip?'var(--success)':'var(--danger)'}}>{g.winner===myTip?'\u2713':'\u2717'}</span>}
                   </div>
-                  {done&&<div style={{fontSize:'11px',color:'var(--muted)',marginTop:'4px'}}>Final: {g.home} {g.homeScore} â {g.awayScore} {g.away}</div>}
+                  {done&&<div style={{fontSize:'11px',color:'var(--muted)',marginTop:'4px'}}>Final: {g.home} {g.homeScore} Ã¢ÂÂ {g.awayScore} {g.away}</div>}
                 </div>
               );
             })}
           </div>
           {comp?.season?.length>0&&(
             <div>
-              <div style={{fontWeight:600,marginBottom:'10px',fontSize:'14px'}}>ð Season {YEAR} Leaderboard</div>
+              <div style={{fontWeight:600,marginBottom:'10px',fontSize:'14px'}}>Ã°ÂÂÂ Season {YEAR} Leaderboard</div>
               <table className="sport-table">
                 <thead><tr><th>#</th><th>Player</th><th style={{textAlign:'center'}}>Correct</th><th style={{textAlign:'center'}}>Total</th><th style={{textAlign:'center'}}>%</th></tr></thead>
                 <tbody>{comp.season.map((p,i)=>(
@@ -460,7 +460,7 @@ function SportPanel({ pin }) {
               </table>
             </div>
           )}
-          {comp?.season?.length===0&&<div style={{color:'var(--muted)',fontSize:'13px'}}>No tips submitted yet â be the first!</div>}
+          {comp?.season?.length===0&&<div style={{color:'var(--muted)',fontSize:'13px'}}>No tips submitted yet Ã¢ÂÂ be the first!</div>}
         </div>
       )}
     </div>
@@ -471,7 +471,7 @@ function SportPanel({ pin }) {
 function MessageBubble({msg}){
   return(
     <div className={'msg-row '+msg.role}>
-      <div className="msg-role">{msg.role==='user'?'You':'ð Falkor'}</div>
+      <div className="msg-role">{msg.role==='user'?'You':'Ã°ÂÂÂ Falkor'}</div>
       <div className="msg-bubble" dangerouslySetInnerHTML={{__html:renderMD(msg.content||'')}}/>
     </div>
   );
@@ -479,7 +479,7 @@ function MessageBubble({msg}){
 function TypingIndicator(){
   return(
     <div className="msg-row assistant">
-      <div className="msg-role">ð Falkor</div>
+      <div className="msg-role">Ã°ÂÂÂ Falkor</div>
       <div className="msg-bubble" style={{padding:'12px 16px'}}>
         <span className="typing-dot"/><span className="typing-dot"/><span className="typing-dot"/>
       </div>
@@ -600,7 +600,7 @@ function App(){
       const t=Array.from(e.results).slice(-1)[0]?.[0]?.transcript?.toLowerCase()||'';
       if(t.includes('hey falkor')&&!showVoiceRef.current&&!drivingModeRef.current){
         setShowVoice(true);
-        toast('ð Hey! I\'m listeningâ¦');
+        toast('Ã°ÂÂÂ Hey! I\'m listeningÃ¢ÂÂ¦');
       }
     };
     recog.onerror=()=>{};
@@ -722,7 +722,7 @@ function App(){
   // sendMessage
   function sendMessage(text,fileContent){
     if(!text.trim()&&!fileContent)return;
-    if(wsRef.current?.readyState!==1){toast('Reconnectingâ¦');return;}
+    if(wsRef.current?.readyState!==1){toast('ReconnectingÃ¢ÂÂ¦');return;}
     let cid=activeIdRef.current;
     const exists=convos.find(c=>c.id===cid);
     if(!cid||!exists){
@@ -771,15 +771,15 @@ function App(){
       {/* Driving mode overlay */}
       {drivingMode && (
         <div className="driving-overlay">
-          <button className="driving-exit" onClick={()=>setDrivingMode(false)}>â Exit Driving Mode</button>
-          <div className="driving-dragon">ð</div>
+          <button className="driving-exit" onClick={()=>setDrivingMode(false)}>Ã¢ÂÂ Exit Driving Mode</button>
+          <div className="driving-dragon">Ã°ÂÂÂ</div>
           <div className="driving-name">Falkor</div>
           <VoiceWaveform analyserRef={analyserRef} active={voiceState==='listening'||voiceState==='speaking'} />
-          <div className="driving-status">{voiceState==='listening'?'ð´ Listeningâ¦':voiceState==='processing'?'âï¸ Thinkingâ¦':voiceState==='speaking'?'ð Speakingâ¦':'Tap to speak'}</div>
+          <div className="driving-status">{voiceState==='listening'?'Ã°ÂÂÂ´ ListeningÃ¢ÂÂ¦':voiceState==='processing'?'Ã¢ÂÂÃ¯Â¸Â ThinkingÃ¢ÂÂ¦':voiceState==='speaking'?'Ã°ÂÂÂ SpeakingÃ¢ÂÂ¦':'Tap to speak'}</div>
           {voiceTranscript?<div className="driving-transcript">"{voiceTranscript}"</div>:null}
           {voiceReply?<div className="driving-reply">{voiceReply}</div>:null}
           <button className={'driving-mic '+(voiceState==='listening'?'listening':voiceState==='speaking'?'speaking':'')} onClick={handleMicClick} disabled={voiceState==='processing'||voiceState==='speaking'}>
-            {voiceState==='listening'?'â¹':voiceState==='speaking'?'ð':'ð¤'}
+            {voiceState==='listening'?'Ã¢ÂÂ¹':voiceState==='speaking'?'Ã°ÂÂÂ':'Ã°ÂÂÂ¤'}
           </button>
         </div>
       )}
@@ -790,38 +790,38 @@ function App(){
       {/* Sidebar */
       <aside className={'sidebar'+(sidebarOpen?' open':'')}>
         <div className="sidebar-top">
-          <span className="logo-text">ð Falkor</span>
-          <button className="icon-btn" onClick={()=>setSidebarOpen(false)}>â</button>
+          <span className="logo-text">Ã°ÂÂÂ Falkor</span>
+          <button className="icon-btn" onClick={()=>setSidebarOpen(false)}>Ã¢ÂÂ</button>
         </div>
         <button className="btn new-chat-btn" onClick={newConvo}>+ New Chat</button>
         <div className="convo-list">
           {convos.map(c=>(
             <div key={c.id} className={'convo-item'+(c.id===activeId?' active':'')} onClick={()=>{setActiveId(c.id);setSidebarOpen(false);}}>
-              ð¬ {c.title||'New chat'}
+              Ã°ÂÂÂ¬ {c.title||'New chat'}
               <span className="convo-del" onClick={e=>{e.stopPropagation();deleteConvo(c.id);}}>\u2715</span>
             </div>
           ))}
         </div>
         <div className="sidebar-footer">
           <span className="user-pill">{user?.email||user?.name||'User'}</span>
-          <button className="icon-btn" onClick={()=>setShowSettings(true)}>âï¸</button>
+          <button className="icon-btn" onClick={()=>setShowSettings(true)}>Ã¢ÂÂÃ¯Â¸Â</button>
         </div>
       </aside>
 
       {/* Main */
       <main className="main">
         <div className="topbar">
-          <button className="icon-btn" onClick={()=>setSidebarOpen(true)}>â°</button>
+          <button className="icon-btn" onClick={()=>setSidebarOpen(true)}>Ã¢ÂÂ°</button>
           <span className="topbar-title">{activeConvo?.title||'Falkor'}</span>
-          <button className="icon-btn" style={{fontSize:'13px',padding:'4px 10px',background:view==='chat'?'var(--border)':'transparent'}} onClick={()=>setView('chat')}>ð¬</button>
-          <button className="icon-btn" style={{fontSize:'13px',padding:'4px 10px',background:view==='sport'?'var(--border)':'transparent'}} onClick={()=>setView('sport')}>ð</button>
+          <button className="icon-btn" style={{fontSize:'13px',padding:'4px 10px',background:view==='chat'?'var(--border)':'transparent'}} onClick={()=>setView('chat')}>Ã°ÂÂÂ¬</button>
+          <button className="icon-btn" style={{fontSize:'13px',padding:'4px 10px',background:view==='sport'?'var(--border)':'transparent'}} onClick={()=>setView('sport')}>Ã°ÂÂÂ</button>
           <select className="model-select" value={model} onChange={e=>{setModelS(e.target.value);LS.setModel(e.target.value);}}>
             {MODELS.map(m=><option key={m.key} value={m.key}>{m.label}</option>)}
           </select>
           <div className={'ws-dot'+(wsState==='connected'?' connected':wsState==='connecting'?' connecting':'')}/>
-          <button className={'voice-btn'+(voiceEnabled?' active':'')} style={{background:'none',border:'none',cursor:'pointer',fontSize:'18px',padding:'4px 6px',borderRadius:'6px',color:voiceEnabled?'var(--accent)':'var(--muted)'}} onClick={()=>setShowVoice(true)} title="Voice">ð¤</button>
-          <button className="icon-btn" style={{fontSize:'16px'}} onClick={()=>setDrivingMode(true)} title="Driving mode">ð</button>
-          <button className="icon-btn" onClick={()=>setShowSettings(true)}>âï¸</button>
+          <button className={'voice-btn'+(voiceEnabled?' active':'')} style={{background:'none',border:'none',cursor:'pointer',fontSize:'18px',padding:'4px 6px',borderRadius:'6px',color:voiceEnabled?'var(--accent)':'var(--muted)'}} onClick={()=>setShowVoice(true)} title="Voice">Ã°ÂÂÂ¤</button>
+          <button className="icon-btn" style={{fontSize:'16px'}} onClick={()=>setDrivingMode(true)} title="Driving mode">Ã°ÂÂÂ</button>
+          <button className="icon-btn" onClick={()=>setShowSettings(true)}>Ã¢ÂÂÃ¯Â¸Â</button>
         </div>
 
         {view==='sport' && <SportPanel pin={LS.pin()}/>}
@@ -830,7 +830,7 @@ function App(){
           <>
             {!activeConvo ? (
               <div className="empty">
-                <div className="empty-icon">ð</div>
+                <div className="empty-icon">Ã°ÂÂÂ</div>
                 <div className="empty-title">Hey {user?.name||'there'}!</div>
                 <div className="empty-sub">Start a conversation or ask me anything.</div>
                 <button className="btn" style={{width:'auto',padding:'10px 24px',marginTop:'8px'}} onClick={newConvo}>Start chat</button>
@@ -845,20 +845,20 @@ function App(){
             <div className="composer">
               {attachment && (
                 <div className="attach-row">
-                  ð {attachment.name}
-                  <span className="attach-remove" onClick={()=>setAttachment(null)}>â</span>
+                  Ã°ÂÂÂ {attachment.name}
+                  <span className="attach-remove" onClick={()=>setAttachment(null)}>Ã¢ÂÂ</span>
                 </div>
               )}
               <div className={'composer-inner'+(dragOver?' drag-over':'')} onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)} onDrop={handleDrop}>
                 <textarea ref={taRef} value={input} onChange={e=>setInput(e.target.value)}
                   onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();doSend();}}}
-                  placeholder="Message Falkorâ¦" rows={1}
+                  placeholder="Message FalkorÃ¢ÂÂ¦" rows={1}
                   onInput={e=>{e.target.style.height='auto';e.target.style.height=e.target.scrollHeight+'px';}}
                 />
                 <input id="file-input" type="file" style={{display:'none'}} onChange={handleFileInput}/>
-                <button className="icon-btn" onClick={()=>document.getElementById('file-input').click()} title="Attach">ð</button>
-                <button className={'voice-btn'+(voiceEnabled?' active':'')} style={{background:'none',border:'none',cursor:'pointer',fontSize:'18px',padding:'4px 6px',borderRadius:'6px'}} onClick={()=>setShowVoice(true)} title="Voice">ð¤</button>
-                <button className="send-btn" onClick={doSend} disabled={(!input.trim()&&!attachment)||wsState!=='connected'}>â¤</button>
+                <button className="icon-btn" onClick={()=>document.getElementById('file-input').click()} title="Attach">Ã°ÂÂÂ</button>
+                <button className={'voice-btn'+(voiceEnabled?' active':'')} style={{background:'none',border:'none',cursor:'pointer',fontSize:'18px',padding:'4px 6px',borderRadius:'6px'}} onClick={()=>setShowVoice(true)} title="Voice">Ã°ÂÂÂ¤</button>
+                <button className="send-btn" onClick={doSend} disabled={(!input.trim()&&!attachment)||wsState!=='connected'}>Ã¢ÂÂ¤</button>
               </div>
             </div>
           </>
