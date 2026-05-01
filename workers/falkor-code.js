@@ -3,7 +3,7 @@
 // v1.2.0: GitHub push webhook (/webhook) — auto-deploy changed workers on push to main
 //         Fixed FLEET paths (flat workers/*.js, not workers/*/index.js)
 
-const VERSION = '1.2.0';
+const VERSION = '1.2.1';
 const VAULT_URL = 'https://asgard-vault.pgallivan.workers.dev';
 const GITHUB_REPO = 'LuckDragonAsgard/asgard-source';
 const DEPLOY_URL = 'https://asgard-tools.luckdragon.io/admin/deploy';
@@ -98,15 +98,26 @@ async function getGitHubFile(path, token) {
   });
   if (!r.ok) return null;
   const data = await r.json();
-  return data.content ? atob(data.content.replace(/\n/g, '')) : null;
+  if (!data.content) return null;
+  // Fix: properly decode base64 → UTF-8 string (avoids binary string corruption)
+  const b64 = data.content.replace(/\n/g, '');
+  const binary = atob(b64);
+  const bytes2 = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes2[i] = binary.charCodeAt(i);
+  return new TextDecoder('utf-8').decode(bytes2);
 }
 
 async function deployWorker(workerName, sourceCode, pin) {
-  const code_b64 = btoa(unescape(encodeURIComponent(sourceCode)));
+  // Fix: proper UTF-8 encoding (avoids binary string expansion bug)
+  const enc = new TextEncoder();
+  const bytes = enc.encode(sourceCode);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  const code_b64 = btoa(bin);
   const r = await fetch(DEPLOY_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Pin': pin, 'User-Agent': 'Mozilla/5.0 (falkor-code) Chrome/124.0.0.0' },
-    body: JSON.stringify({ worker_name: workerName, code_b64 }),
+    body: JSON.stringify({ worker_name: workerName, code_b64, skip_auto_commit: true }),
   });
   return { ok: r.ok, status: r.status, result: await r.json().catch(() => ({ error: 'invalid JSON' })) };
 }
