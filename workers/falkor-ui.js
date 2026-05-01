@@ -68,7 +68,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === '/health') {
-      return new Response(JSON.stringify({status:'ok',version:'1.5.0',worker:'falkor-ui'}), {
+      return new Response(JSON.stringify({status:'ok',version:'1.6.0',worker:'falkor-ui'}), {
         headers: {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}
       });
     }
@@ -334,38 +334,95 @@ function VoiceModal({ voiceState, transcript, reply, analyserRef, onMicClick, on
   );
 }
 
-// LoginScreen
-function LoginScreen({ onLogin }) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+// UserSelectScreen — multi-user login
+const USER_AVATARS = { paddy: '🏃', jacky: '⚡', george: '🎯', default: '👤' };
+
+function UserSelectScreen({ onLogin }) {
+  const [users, setUsers] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [pin, setPinVal] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  async function handleSubmit(e) {
-    e.preventDefault(); setLoading(true); setError('');
+
+  useEffect(() => {
+    fetch(USERS_URL + '/user/list')
+      .then(r => r.json())
+      .then(d => setUsers(d.users || []))
+      .catch(() => setUsers([{ id:'paddy', name:'Paddy', role:'admin' }]));
+  }, []);
+
+  async function handleVerify(e) {
+    e.preventDefault();
+    if (!selected || !pin) return;
+    setLoading(true); setError('');
     try {
-      await fetch(AUTH_URL + '/login', {
-        method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
-        body:'email='+encodeURIComponent(email)+'&password='+encodeURIComponent(password),
-        redirect:'manual', credentials:'include',
+      const r = await fetch(USERS_URL + '/user/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: selected.id, pin }),
       });
-      const test = await fetch(AGENT_URL + '/status', { headers:{'X-Pin':'535554'} }).catch(()=>null);
-      if (test && test.ok) { LS.setPin('535554'); onLogin({ email, name: email.split('@')[0] }); }
-      else setError('Incorrect email or password.');
+      const d = await r.json();
+      if (d.success) {
+        if (d.agentPin) LS.setAgentPin(d.agentPin);
+        onLogin(d.user);
+      } else {
+        setError('Wrong PIN. Try again.');
+        setPinVal('');
+      }
     } catch { setError('Connection error. Try again.'); }
     setLoading(false);
   }
-  return (
-    <div className="login-wrap">
-      <div className="login-card">
-        <div className="login-logo">🐉 Falkor</div>
-        <div className="login-sub">Your personal AI assistant</div>
-        {error && <div className="err-msg">{error}</div>}
-        <form onSubmit={handleSubmit}>
-          <div className="field"><label>Email</label><input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com" required autoFocus /></div>
-          <div className="field"><label>Password</label><input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••" required /></div>
-          <button className="btn" type="submit" disabled={loading}>{loading ? 'Signing in…' : 'Sign in'}</button>
-        </form>
+
+  if (selected) {
+    return (
+      <div className="login-wrap">
+        <div className="login-card" style={{maxWidth:320}}>
+          <div style={{textAlign:'center',marginBottom:20}}>
+            <div style={{fontSize:48}}>{USER_AVATARS[selected.id]||USER_AVATARS.default}</div>
+            <div className="login-logo" style={{marginTop:8}}>{selected.name}</div>
+            <div className="login-sub">Enter your PIN to continue</div>
+          </div>
+          <form onSubmit={handleVerify}>
+            <div className="field">
+              <input
+                type="password" inputMode="numeric" maxLength={8}
+                placeholder="PIN"
+                value={pin}
+                onChange={e=>setPinVal(e.target.value)}
+                autoFocus
+                style={{textAlign:'center',letterSpacing:8,fontSize:22}}
+              />
+            </div>
+            {error && <div style={{color:'var(--danger)',fontSize:13,marginBottom:12,textAlign:'center'}}>{error}</div>}
+            <button className="btn" disabled={loading||!pin}>
+              {loading ? 'Checking…' : 'Enter'}
+            </button>
+          </form>
+          <button onClick={()=>{setSelected(null);setPinVal('');setError('');}}
+            style={{marginTop:14,background:'none',border:'none',color:'var(--muted)',cursor:'pointer',width:'100%',fontSize:13}}>
+            ← Back
+          </button>
+        </div>
       </div>
+    );
+  }
+
+  return (
+    <div className="user-select">
+      <div style={{textAlign:'center'}}>
+        <div style={{fontSize:36,marginBottom:4}}>🐉</div>
+        <h2>Who's this?</h2>
+      </div>
+      <div className="user-cards">
+        {users.map(u => (
+          <div key={u.id} className="user-card" onClick={()=>setSelected(u)}>
+            <div className="avatar">{USER_AVATARS[u.id]||USER_AVATARS.default}</div>
+            <div className="uname">{u.name}</div>
+            <div className="urole">{u.role==='admin'?'Admin':'Member'}</div>
+          </div>
+        ))}
+      </div>
+      <div className="login-sub" style={{textAlign:'center'}}>Select your profile to continue</div>
     </div>
   );
 }
@@ -630,7 +687,7 @@ function App(){
     if(!user||!LS.pin())return;
     if(wsRef.current&&wsRef.current.readyState<2)return;
     setWsState('connecting');
-    const ws=new WebSocket(AGENT_URL.replace('https://','wss://')+'/?pin='+LS.pin());
+    const ws=new WebSocket(AGENT_URL.replace('https://','wss://')+'/?pin='+(LS.agentPin()||LS.pin()));
     wsRef.current=ws;
     ws.onopen=()=>{setWsState('connected');clearTimeout(reconnTimer.current);};
     ws.onmessage=(evt)=>{
@@ -817,7 +874,7 @@ function App(){
     const m={id:uid(),role:'user',content:text,ts:Date.now()};
     setConvos(prev=>prev.map(c=>c.id===cid?{...c,messages:[...(c.messages||[]),m],title:c.title||text.slice(0,40)}:c));
     setInput('');setAttachment(null);setTyping(true);
-    wsRef.current.send(JSON.stringify({type:'chat',content:text,model,...(fileContent?{file:fileContent}:{})}));
+    wsRef.current.send(JSON.stringify({type:'chat',content:text,model,userId:LS.userId(),...(fileContent?{file:fileContent}:{})}));
   }
 
   async function doSend(){
@@ -845,7 +902,7 @@ function App(){
   function handleDrop(e){e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)setAttachment(f);}
   function handleFileInput(e){const f=e.target.files[0];if(f)setAttachment(f);e.target.value='';}
 
-  if(!user)return <LoginScreen onLogin={(u)=>{LS.setPin('535554');localStorage.setItem('falkor.user',JSON.stringify(u));setUser(u);}}/>;
+  if(!user)return <UserSelectScreen onLogin={(u)=>{localStorage.setItem('falkor.user',JSON.stringify(u));setUser(u);}}/>;
 
   return (
     <div className="app">
