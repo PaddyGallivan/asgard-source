@@ -1,4 +1,4 @@
-// Carnival Timing v8.6.0 — Falkor auto-AI (race summaries + flag times on publish)
+// Carnival Timing v8.6.0 — slit camera video finish Falkor auto-AI (race summaries + flag times on publish)
 const HTML = `<!DOCTYPE html>
 <html lang="en-AU">
 <head>
@@ -301,26 +301,12 @@ const HTML = `<!DOCTYPE html>
     .role-card .r-desc { font-size: 0.73rem; color: var(--muted); margin-top: 3px; }
     .role-card.full { grid-column: 1 / -1; }
 
-    /* ── Video Finish ── */
-    .vf-preview { width:100%; aspect-ratio:16/9; background:#000; border-radius:12px; object-fit:cover; display:block; }
-    .vf-canvas  { width:100%; aspect-ratio:16/9; background:#111; border-radius:12px; display:block; touch-action:none; }
-    .vf-time-big { font-size:2.8rem; font-weight:800; font-family:'Menlo','Courier New',monospace; text-align:center; letter-spacing:-1px; line-height:1; }
-    .vf-time-sub { font-size:0.78rem; color:var(--muted); text-align:center; margin-top:4px; }
-    .vf-frame-row { display:flex; gap:10px; align-items:center; justify-content:center; margin:10px 0; }
-.vf-lane-btn { padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:var(--surface-2);color:var(--text);font-size:0.85rem;cursor:pointer; }
-.vf-lane-btn.active { background:var(--accent);color:#000;border-color:var(--accent);font-weight:700; }
-    .vf-step { width:56px; height:56px; border-radius:50%; font-size:1.4rem; font-weight:700; background:var(--surface); border:2px solid var(--border); display:flex; align-items:center; justify-content:center; cursor:pointer; user-select:none; -webkit-user-select:none; }
-    .vf-step:active { background:var(--accent); color:#fff; }
-    .vf-scrubber { flex:1; accent-color:var(--accent); }
-    .vf-mark-row { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--border); }
-    .vf-mark-row:last-child { border-bottom:none; }
-    .vf-mark-pos  { width:28px; height:28px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; font-size:0.82rem; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
-    .vf-mark-pos.empty { background:var(--surface); color:var(--muted); border:2px solid var(--border); }
-    .vf-mark-name { flex:1; font-weight:600; font-size:0.9rem; }
-    .vf-mark-time { font-family:'Menlo',monospace; font-size:0.9rem; color:var(--accent); font-weight:700; min-width:58px; text-align:right; }
+    /* ── Video Finish (slit camera) ── */
+    .vf-canvas  { width:100%; aspect-ratio:16/9; background:#111; border-radius:12px; display:block; touch-action:none; cursor:ew-resize; }
+    .vf-slit-wrap { position:relative; overflow:hidden; border-radius:10px; border:1px solid var(--border); background:#000; margin-top:12px; }
+    .vf-slit-display { width:100%; height:140px; display:block; background:#111; cursor:default; }
     .vf-mark-btn  { padding:6px 14px; font-size:0.8rem; border-radius:8px; background:var(--surface); border:1.5px solid var(--border); font-weight:600; cursor:pointer; }
     .vf-mark-btn:active { background:var(--accent); color:#fff; border-color:var(--accent); }
-    .vf-mark-btn.done { background:rgba(20,184,166,0.12); border-color:var(--accent); color:var(--accent); }
     .vf-rec { display:inline-flex; align-items:center; gap:6px; font-size:0.82rem; font-weight:700; color:#ef4444; }
     .vf-rec-dot { width:10px; height:10px; border-radius:50%; background:#ef4444; animation:vf-pulse 1s infinite; }
     @keyframes vf-pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
@@ -1287,7 +1273,7 @@ const HTML = `<!DOCTYPE html>
     <div class="conn-dot" id="vf-dot"></div><span id="vf-dot-lbl" style="font-size:0.65rem;font-weight:700;letter-spacing:.05em;color:var(--muted)"></span>
     <div>
       <div class="header-title">Video Finish</div>
-      <div class="header-sub" id="vf-header-sub">Waiting for race…</div>
+      <div class="header-sub" id="vf-header-sub">Slit camera timing</div>
     </div>
     <div class="header-right">
       <span id="vf-badge" class="badge" style="display:none"></span>
@@ -1296,66 +1282,64 @@ const HTML = `<!DOCTYPE html>
   </div>
   <div class="content">
 
-    <!-- LIVE DETECTION -->
-    <div id="vf-capture-panel">
-      <!-- Canvas shows live camera + lane-strip overlay -->
-      <canvas id="vf-live-canvas" class="vf-canvas"></canvas>
-      <video id="vf-video-preview" style="display:none" autoplay muted playsinline></video>
+    <!-- Live camera with draggable slit line -->
+    <canvas id="vf-live-canvas" class="vf-canvas" title="Drag to position slit line over finish line"></canvas>
+    <video id="vf-video-preview" style="display:none" autoplay muted playsinline></video>
 
-      <!-- Status bar -->
-      <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
-        <div id="vf-status-dot" style="width:10px;height:10px;border-radius:50%;background:var(--muted);flex-shrink:0"></div>
-        <div id="vf-race-status" style="font-size:0.85rem;font-weight:600;color:var(--text);flex:1">Starting camera…</div>
-        <div id="vf-detect-count" style="font-size:0.78rem;color:var(--muted)"></div>
-      </div>
+    <!-- Status bar -->
+    <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
+      <div id="vf-status-dot" style="width:10px;height:10px;border-radius:50%;background:var(--muted);flex-shrink:0"></div>
+      <div id="vf-race-status" style="font-size:0.85rem;font-weight:600;color:var(--text);flex:1">Starting camera…</div>
+      <div id="vf-detect-count" style="font-size:0.78rem;color:var(--muted)"></div>
+    </div>
 
-      <!-- Settings -->
-      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center">
-        <div style="display:flex;gap:4px">
-          <button id="vf-mode-swim-btn" class="btn btn-primary"    style="font-size:0.8rem;padding:6px 12px" onclick="vfSetMode('swim')">Swim</button>
-          <button id="vf-mode-track-btn" class="btn btn-secondary" style="font-size:0.8rem;padding:6px 12px" onclick="vfSetMode('track')">Track</button>
-          <button id="vf-cam-flip-btn" class="btn btn-secondary" style="font-size:0.8rem;padding:6px 10px" title="Switch front/back camera" onclick="vfFlipCamera()">📷↕</button>
-        </div>
-        <div id="vf-lane-row" style="display:flex;gap:4px;align-items:center">
-          <span style="font-size:0.78rem;color:var(--muted)">Lanes:</span>
-          <button class="vf-lane-btn active" data-lanes="4" onclick="vfSetLanes(4)">4</button>
-          <button class="vf-lane-btn" data-lanes="6" onclick="vfSetLanes(6)">6</button>
-          <button class="vf-lane-btn" data-lanes="8" onclick="vfSetLanes(8)">8</button>
-        </div>
-        <div style="display:flex;align-items:center;gap:6px">
-          <span style="font-size:0.78rem;color:var(--muted)">Progress top</span>
-          <input type="number" id="vf-progress-input" value="2" min="1" max="8"
-            style="width:42px;padding:4px 6px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.85rem;text-align:center">
-        </div>
-      </div>
+    <!-- Slit image (finish line photo) -->
+    <div class="vf-slit-wrap">
+      <canvas id="vf-slit-canvas" class="vf-slit-display"></canvas>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:3px">
+      <span id="vf-slit-lbl-left" style="font-size:0.7rem;color:var(--muted)">← earlier</span>
+      <span style="font-size:0.7rem;color:var(--muted);font-weight:600">FINISH LINE PHOTO</span>
+      <span id="vf-slit-lbl-right" style="font-size:0.7rem;color:var(--muted)">now →</span>
+    </div>
 
-      <!-- Offset -->
-      <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 10px;background:var(--surface-2);border-radius:8px">
-        <div style="flex:1;font-size:0.76rem;color:var(--muted)">Camera lag offset (ms subtracted for GO→detect lag)</div>
-        <input type="number" id="vf-offset-input" value="75" min="0" max="999"
-          style="width:52px;padding:4px 6px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.85rem;text-align:center">
+    <!-- Controls -->
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center">
+      <button id="vf-cam-flip-btn" class="btn btn-secondary" style="font-size:0.8rem;padding:6px 10px" title="Switch camera" onclick="vfFlipCamera()">📷↕</button>
+      <div style="display:flex;align-items:center;gap:6px;flex:1">
+        <span style="font-size:0.78rem;color:var(--muted);white-space:nowrap">Sensitivity</span>
+        <input type="range" id="vf-sensitivity" min="1" max="10" value="6" style="flex:1;accent-color:var(--accent)">
+        <span id="vf-sens-val" style="font-size:0.78rem;color:var(--muted);min-width:16px">6</span>
       </div>
+      <button class="btn btn-secondary" style="font-size:0.78rem;padding:6px 10px" onclick="vfExportSlit()" title="Save finish line photo">💾 Photo</button>
+    </div>
 
-      <!-- Results -->
-      <div style="margin-top:14px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-          <div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Finishes</div>
-          <button class="btn btn-secondary" style="font-size:0.72rem;padding:4px 10px" onclick="vfManualAdd()">+ Add Manual</button>
-        </div>
-        <div id="vf-mark-list"><div class="text-muted text-sm text-center mt-8">Waiting for race…</div></div>
-      </div>
+    <!-- Offset -->
+    <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 10px;background:var(--surface-2);border-radius:8px">
+      <div style="flex:1;font-size:0.76rem;color:var(--muted)">Camera lag offset (ms)</div>
+      <input type="number" id="vf-offset-input" value="0" min="0" max="999"
+        style="width:52px;padding:4px 6px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.85rem;text-align:center">
+      <div style="font-size:0.76rem;color:var(--muted)">Progress top</div>
+      <input type="number" id="vf-progress-input" value="2" min="1" max="8"
+        style="width:42px;padding:4px 6px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.85rem;text-align:center">
+    </div>
 
-      <!-- Publish -->
-      <div style="margin-top:16px">
-        <button id="vf-publish-btn" class="btn btn-primary" style="width:100%" onclick="vfPublish()">
-          Publish Times →
-        </button>
+    <!-- Results -->
+    <div style="margin-top:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Finishes</div>
+        <button class="btn btn-secondary" style="font-size:0.72rem;padding:4px 10px" onclick="vfManualAdd()">+ Add Manual</button>
       </div>
+      <div id="vf-mark-list"><div class="text-muted text-sm text-center mt-8">Waiting for race…</div></div>
+    </div>
+
+    <!-- Publish -->
+    <div style="margin-top:16px">
+      <button id="vf-publish-btn" class="btn btn-primary" style="width:100%" onclick="vfPublish()">Publish Times →</button>
     </div>
 
   </div>
 </div>
-
 <!-- ════════════════════════════════════════
      SCREEN: JOIN PAGE (QR)
 ════════════════════════════════════════ -->
@@ -1959,7 +1943,7 @@ function showRolePicker() {
     roles.push({ id:'observer-xc',icon:'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:middle"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',label:'XC Observer',   desc:'Watch finish order',    full: sport==='xc' });
   }
   if (['track','swim','mixed'].includes(sport)) {
-    roles.push({ id:'video-finish', icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:middle"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>', label:'Video Finish', desc:'Frame-accurate auto-timing', full:true });
+    roles.push({ id:'video-finish', icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:middle"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>', label:'Video Finish', desc:'Slit camera — pro finish line photo + auto-detect', full:true });
   }
   roles.push({ id:'share',   icon:'<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:middle"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>', label:'Join Page',  desc:'QR code for participants', full:true });
   roles.push({ id:'results', icon:'<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:middle"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>', label:'Results',    desc:'View all results',          full:true });
@@ -3571,84 +3555,124 @@ async function exportCSV() {
 // ════════════════════════════════════════
 // ── VIDEO FINISH ─────────────────────────────────────────────────────────────
 // STATE
-let vfStream           = null;
-let vfRaceStartMs      = 0;
-let vfOfflineMode      = false;
-let vfMode             = 'swim';    // 'swim' | 'track'
-let vfLaneCount        = 4;
-let vfDetections       = [];
-let vfLiveRafId        = null;
-let vfLiveOffscr       = null;
-let vfLiveState        = 'idle';    // 'calibrating'|'ready'|'detecting'|'done'
-let vfLiveThresholds   = null;
-let vfLivePrev         = null;
-let vfLaneFound        = [];
-let vfCalData          = null;
+// ── Video Finish: slit camera state ──────────────────────────────────────────
+let vfStream        = null;
+let vfRaceStartMs   = 0;
+let vfOfflineMode   = false;
+let vfDetections    = [];
+let vfLiveRafId     = null;
+let vfLiveState     = 'idle';   // idle|calibrating|ready|detecting|done
+let vfLiveOffscr    = null;
+let vfFacingMode2   = 'environment';  // renamed to avoid conflict with Task7 var
+// Slit camera
+let vfSlitInternal  = null;     // canvas holding full slit history
+let vfSlitICtx      = null;
+const VF_SLIT_W     = 5400;    // ~90s at 60fps
+const VF_SLIT_H     = 200;
+let vfSlitPos       = 0;        // columns written
+let vfGoColumn      = -1;       // column where GO fired
+let vfSlitX         = 0.5;     // slit line position (0–1)
+let vfBgAccum       = null;    // Float32Array[VF_SLIT_H] background model
+let vfBgN           = 0;
+let vfLastDetectCol = -999;
+let vfDragging      = false;
 
-function vfGetOffset()   { return parseInt(document.getElementById('vf-offset-input')?.value||75,10)||0; }
-function vfGetProgress() { return parseInt(document.getElementById('vf-progress-input')?.value||2,10)||2; }
-
-// ── Mode / lane UI ────────────────────────────────────────────────────────────
-function vfSetMode(mode) {
-  vfMode = mode;
-  document.getElementById('vf-mode-swim-btn').className  = mode==='swim'  ? 'btn btn-primary'   : 'btn btn-secondary';
-  document.getElementById('vf-mode-track-btn').className = mode==='track' ? 'btn btn-primary'   : 'btn btn-secondary';
-  document.getElementById('vf-lane-row').style.display   = mode==='swim'  ? 'flex' : 'none';
-  if (vfLiveState !== 'idle') vfRestartCalibration();
-}
-function vfSetLanes(n) {
-  vfLaneCount = n;
-  document.querySelectorAll('.vf-lane-btn').forEach(b => b.classList.toggle('active', parseInt(b.dataset.lanes)===n));
-  if (vfLiveState !== 'idle') vfRestartCalibration();
-}
+function vfGetOffset()      { return parseInt(document.getElementById('vf-offset-input')?.value||0,10)||0; }
+function vfGetProgress()    { return parseInt(document.getElementById('vf-progress-input')?.value||2,10)||2; }
+function vfGetSensitivity() { return parseInt(document.getElementById('vf-sensitivity')?.value||6,10)||6; }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 function initVideoFinish() {
   requestWakeLock(); syncClock();
-  vfSetMode('swim');
 
-  // Watch race state from Firebase
+  // Init slit canvas (OffscreenCanvas not available in all mobile browsers — use regular canvas)
+  vfSlitInternal = document.createElement('canvas');
+  vfSlitInternal.width  = VF_SLIT_W;
+  vfSlitInternal.height = VF_SLIT_H;
+  vfSlitICtx = vfSlitInternal.getContext('2d', { willReadFrequently: true });
+  vfSlitICtx.fillStyle = '#111';
+  vfSlitICtx.fillRect(0, 0, VF_SLIT_W, VF_SLIT_H);
+  vfSlitPos       = 0;
+  vfGoColumn      = -1;
+  vfBgAccum       = new Float32Array(VF_SLIT_H);
+  vfBgN           = 0;
+  vfLiveState     = 'idle';
+  vfDetections    = [];
+  vfLiveRafId     = null;
+  vfLastDetectCol = -999;
+  vfSlitX         = 0.5;
+
+  // Sensitivity slider live label
+  const sensSlider = document.getElementById('vf-sensitivity');
+  if (sensSlider) sensSlider.oninput = () => {
+    const lbl = document.getElementById('vf-sens-val');
+    if (lbl) lbl.textContent = sensSlider.value;
+  };
+
+  // Wire up slit line drag on live canvas
+  const liveCanvas = document.getElementById('vf-live-canvas');
+  if (liveCanvas) {
+    liveCanvas.addEventListener('mousedown',  vfDragStart, { passive: false });
+    liveCanvas.addEventListener('mousemove',  vfDragMove,  { passive: false });
+    window.addEventListener('mouseup',        vfDragEnd);
+    liveCanvas.addEventListener('touchstart', vfDragStart, { passive: false });
+    liveCanvas.addEventListener('touchmove',  vfDragMove,  { passive: false });
+    window.addEventListener('touchend',       vfDragEnd);
+  }
+
+  // Watch race state
   const ref = cRef('race/current');
   ref.on('value', snap => {
     const rc = snap.val();
     if (!rc) return;
-    if (rc.state==='live' && rc.startedAtServer) {
-      vfRaceStartMs = rc.startedAtServer;
-      vfOfflineMode = false;
-      if (vfLiveState === 'ready') {
-        vfLiveState = 'detecting';
-        vfLivePrev  = new Array(vfLaneCount).fill(null);
-        vfLaneFound = new Array(vfLaneCount).fill(false);
-        vfSetStatus('\\uD83D\\uDD34 Detecting…', '#ef4444');
+    if (rc.state === 'live' && rc.startedAtServer) {
+      if (!vfRaceStartMs) {
+        vfRaceStartMs = rc.startedAtServer;
+        vfGoColumn    = vfSlitPos;
+        vfDrawGoMarker();
       }
-      // if still calibrating it will switch automatically when cal finishes
-    } else if (rc.state==='armed') {
-      vfSetStatus('\\u26A1 Ready — waiting for GO', '#eab308');
+      vfOfflineMode = false;
+      if (vfLiveState === 'calibrating' || vfLiveState === 'ready') {
+        vfLiveState = 'detecting';
+        vfSetStatus('🔴 Race live — detecting crossings', '#ef4444');
+      }
+    } else if (rc.state === 'armed') {
+      vfRaceStartMs = 0; vfGoColumn = -1;
+      if (vfLiveState === 'detecting' || vfLiveState === 'done') vfLiveState = 'ready';
+      vfSetStatus('⚡ Armed — waiting for GO', '#eab308');
     }
   });
   activeListeners.push(() => ref.off());
 
-  // Start camera
+  vfStartCamera();
+}
+
+function vfSetStatus(text, dotColor) {
+  const el  = document.getElementById('vf-race-status');
+  const dot = document.getElementById('vf-status-dot');
+  if (el)  el.textContent = text;
+  if (dot) dot.style.background = dotColor || 'var(--muted)';
+}
+
+function vfStartCamera() {
   navigator.mediaDevices.getUserMedia({
-    video: { facingMode:'environment', width:{ideal:1920}, height:{ideal:1080} },
+    video: { facingMode: vfFacingMode2, width:{ideal:1920}, height:{ideal:1080}, frameRate:{ideal:60} },
     audio: false
   }).then(stream => {
     vfStream = stream;
     const vid = document.getElementById('vf-video-preview');
     vid.srcObject = stream; vid.play();
     vid.addEventListener('playing', () => {
-      vfStartCalibration();
+      vfLiveState = 'calibrating';
+      vfSetStatus('Calibrating…', '#6b7280');
       toast('Camera ready — calibrating…');
-    }, {once:true});
+      if (!vfLiveRafId) vfLiveRafId = requestAnimationFrame(vfLiveFrame);
+    }, { once: true });
   }).catch(err => {
-    const msg = err && err.name === 'NotFoundError'
-      ? 'No camera found on this device'
-      : err && err.name === 'NotAllowedError'
-        ? 'Camera access denied — check browser permissions'
-        : 'Camera error: ' + (err?.message || err);
-    toast(msg);
-    vfSetStatus('⚠ ' + msg, '#ef4444');
-    // Show retry button on the canvas area
+    const msg = err?.name === 'NotFoundError'   ? 'No camera found on this device'
+              : err?.name === 'NotAllowedError' ? 'Camera access denied — check browser permissions'
+              : 'Camera error: ' + (err?.message || err);
+    toast(msg); vfSetStatus('⚠ ' + msg, '#ef4444');
     const canvas = document.getElementById('vf-live-canvas');
     if (canvas) {
       canvas.style.display = 'none';
@@ -3661,176 +3685,274 @@ function initVideoFinish() {
   });
 }
 
-function vfSetStatus(text, dotColor) {
-  const el  = document.getElementById('vf-race-status');
-  const dot = document.getElementById('vf-status-dot');
-  if (el)  el.textContent = text;
-  if (dot) dot.style.background = dotColor || 'var(--muted)';
+// ── Slit line drag ────────────────────────────────────────────────────────────
+function vfDragStart(e) {
+  e.preventDefault(); vfDragging = true; vfDragMove(e);
 }
-function vfStartCalibration() {
-  vfLiveState = 'calibrating';
-  vfCalData = {
-    baselines: new Array(vfLaneCount).fill(0),
-    counts:    new Array(vfLaneCount).fill(0),
-    prev:      new Array(vfLaneCount).fill(null),
-    startMs:   Date.now()
-  };
-  vfSetStatus('Calibrating…', '#6b7280');
-  if (!vfLiveRafId) vfLiveRafId = requestAnimationFrame(vfLiveFrame);
+function vfDragMove(e) {
+  if (!vfDragging) return;
+  e.preventDefault();
+  const canvas = document.getElementById('vf-live-canvas');
+  if (!canvas) return;
+  const rect   = canvas.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  vfSlitX = Math.max(0.02, Math.min(0.98, (clientX - rect.left) / rect.width));
 }
-function vfRestartCalibration() {
-  vfDetections = []; vfRenderDetections();
-  vfLiveState = 'idle';
-  vfStartCalibration();
-}
+function vfDragEnd() { vfDragging = false; }
 
-// ── Live detection loop ───────────────────────────────────────────────────────
+// ── Main RAF loop ─────────────────────────────────────────────────────────────
 function vfLiveFrame() {
   vfLiveRafId = null;
-  if (vfLiveState === 'idle' || vfLiveState === 'done') return;
+  if (vfLiveState === 'idle') return;
 
   const vid = document.getElementById('vf-video-preview');
   if (!vid || !vid.videoWidth) { vfLiveRafId = requestAnimationFrame(vfLiveFrame); return; }
 
+  // Grab frame
   if (!vfLiveOffscr) vfLiveOffscr = document.createElement('canvas');
   const oc = vfLiveOffscr;
   oc.width = vid.videoWidth; oc.height = vid.videoHeight;
-  const ctx = oc.getContext('2d');
-  ctx.drawImage(vid, 0, 0);
+  const octx = oc.getContext('2d', { willReadFrequently: true });
+  octx.drawImage(vid, 0, 0);
 
-  // Push frame to visible canvas with overlay
-  vfDrawOverlay(oc, ctx);
+  // Draw live preview with slit line
+  vfDrawLiveOverlay(oc);
 
-  const N = vfLaneCount;
-  const sample = i => vfMode==='swim'
-    ? vfSampleStrip(ctx, oc.width, oc.height, i, N)
-    : vfSampleHStrip(ctx, oc.width, oc.height, i, N);
+  // Extract slit column (1px wide, full height)
+  const slitPixelX = Math.round(vfSlitX * (oc.width - 1));
+  const rawCol = octx.getImageData(slitPixelX, 0, 1, oc.height);
 
+  // Scale to VF_SLIT_H
+  const scaledCol = vfScaleColumn(rawCol, oc.height, VF_SLIT_H);
+
+  // Stamp into slit canvas at current position
+  if (vfSlitPos < VF_SLIT_W) {
+    vfSlitICtx.putImageData(scaledCol, vfSlitPos, 0);
+  }
+
+  // Calibration: build background model for ~90 frames (~1.5s)
   if (vfLiveState === 'calibrating') {
-    const cal = vfCalData;
-    for (let i=0; i<N; i++) {
-      const s = sample(i);
-      if (cal.prev[i]) { cal.baselines[i] += vfPixelDiff(s, cal.prev[i]); cal.counts[i]++; }
-      cal.prev[i] = s;
-    }
-    if (Date.now() - cal.startMs >= 2000) {
-      vfLiveThresholds = cal.baselines.map((b,i) =>
-        Math.max(6, cal.counts[i]>0 ? (b/cal.counts[i])*4 : 10)
-      );
-      vfLivePrev  = new Array(N).fill(null);
-      vfLaneFound = new Array(N).fill(false);
-      if (vfRaceStartMs && nowServer() > vfRaceStartMs) {
-        vfLiveState = 'detecting';
-        vfSetStatus('\\uD83D\\uDD34 Detecting…', '#ef4444');
-      } else {
-        vfLiveState = 'ready';
-        vfSetStatus('\\u2713 Ready — waiting for GO', '#22c55e');
-      }
+    vfBuildBg(scaledCol);
+    if (vfBgN >= 90) {
+      vfLiveState = vfRaceStartMs ? 'detecting' : 'ready';
+      vfSetStatus(vfRaceStartMs ? '🔴 Detecting…' : '✓ Ready — waiting for GO',
+                  vfRaceStartMs ? '#ef4444' : '#22c55e');
+      toast('Ready!');
     }
   } else if (vfLiveState === 'detecting') {
-    const nowMs = nowServer();
-    for (let i=0; i<N; i++) {
-      if (vfLaneFound[i]) continue;
-      const s = sample(i);
-      if (vfLivePrev[i] && vfPixelDiff(s, vfLivePrev[i]) > vfLiveThresholds[i]) {
-        const elapsedMs = nowMs - vfRaceStartMs - vfGetOffset();
-        if (elapsedMs > 100) {
-          const still = oc.toDataURL('image/jpeg', 0.8);
-          vfDetections.push({ lane:i+1, elapsedMs, still });
-          vfDetections.sort((a,b) => a.elapsedMs - b.elapsedMs);
-          vfDetections.forEach((d,j) => d.place = j+1);
-          vfLaneFound[i] = true;
-          vfRenderDetections();
-          const lbl = vfMode==='track' ? \`Lane \${i+1}\` : \`Strip \${i+1}\`;
-          toast(\`\${lbl}: \${fmtMs(elapsedMs)}\`);
-          const dc = document.getElementById('vf-detect-count');
-          if (dc) dc.textContent = \`\${vfDetections.length}/\${N}\`;
-        }
-      }
-      vfLivePrev[i] = s;
-    }
-    if (vfLaneFound.every(Boolean)) {
-      vfLiveState = 'done';
-      vfSetStatus('\\u2713 All done', '#22c55e');
-      return;
-    }
+    vfCheckCrossing(scaledCol);
+    // Slowly adapt background to handle lighting changes (skip while crossing active)
+    if (vfSlitPos - vfLastDetectCol > 120) vfAdaptBg(scaledCol, 0.015);
   }
+
+  // Render slit display
+  vfRenderSlit();
+
+  // Advance position; shift canvas if full
+  vfSlitPos++;
+  if (vfSlitPos >= VF_SLIT_W) {
+    const half = VF_SLIT_W >> 1;
+    const img = vfSlitICtx.getImageData(half, 0, VF_SLIT_W - half, VF_SLIT_H);
+    vfSlitICtx.fillStyle = '#111';
+    vfSlitICtx.fillRect(0, 0, VF_SLIT_W, VF_SLIT_H);
+    vfSlitICtx.putImageData(img, 0, 0);
+    vfSlitPos       -= half;
+    if (vfGoColumn  >= 0) vfGoColumn -= half;
+    vfLastDetectCol -= half;
+    vfDetections.forEach(d => { if (d._col >= 0) d._col -= half; });
+  }
+
   vfLiveRafId = requestAnimationFrame(vfLiveFrame);
 }
 
-// Draw camera frame + lane dividers onto visible canvas
-function vfDrawOverlay(offscr, srcCtx) {
+// ── Live camera overlay with draggable slit line ──────────────────────────────
+function vfDrawLiveOverlay(offscr) {
   const canvas = document.getElementById('vf-live-canvas');
   if (!canvas) return;
   canvas.width = offscr.width; canvas.height = offscr.height;
   const ctx = canvas.getContext('2d');
   ctx.drawImage(offscr, 0, 0);
-  const N = vfLaneCount, w = canvas.width, h = canvas.height;
+
+  const sx = Math.round(vfSlitX * offscr.width);
+  const h  = offscr.height;
+  const lineColor = vfLiveState === 'detecting' ? '#ef4444'
+                  : vfLiveState === 'ready'     ? '#22c55e'
+                  : '#eab308';
   ctx.save();
-  ctx.lineWidth = 2;
-  ctx.font = \`bold \${Math.max(12, Math.floor(h/20))}px sans-serif\`;
-  for (let i=0; i<N; i++) {
-    const found = vfLaneFound[i];
-    ctx.strokeStyle = found ? 'rgba(34,197,94,0.8)' : 'rgba(20,184,166,0.6)';
-    ctx.fillStyle   = found ? 'rgba(34,197,94,0.95)': 'rgba(20,184,166,0.9)';
-    if (vfMode === 'swim') {
-      const x = Math.round(i * w / N);
-      if (i>0) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke(); }
-      ctx.fillText(\`L\${i+1}\`, x+4, 22);
-    } else {
-      const y = Math.round(i * h / N);
-      if (i>0) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
-      ctx.fillText(\`L\${i+1}\`, 6, y+22);
-    }
-  }
+  // Slit line
+  ctx.strokeStyle = lineColor; ctx.lineWidth = 3;
+  ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 6;
+  ctx.setLineDash([10, 5]);
+  ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, h); ctx.stroke();
+  ctx.setLineDash([]);
+  // Drag handle
+  ctx.fillStyle = lineColor;
+  ctx.beginPath(); ctx.arc(sx, h >> 1, 16, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.shadowBlur = 0; ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('⇔', sx, (h >> 1) + 5);
+  // Label
+  ctx.textAlign = 'left'; ctx.font = 'bold 12px sans-serif';
+  ctx.fillStyle = lineColor;
+  ctx.fillText('FINISH LINE', sx + 20, 20);
   ctx.restore();
 }
 
-// ── Pixel helpers ─────────────────────────────────────────────────────────────
-// Sample a vertical strip (swim: camera at end wall)
-function vfSampleStrip(ctx, canvasW, canvasH, stripIdx, numStrips) {
-  const sw = Math.max(1, Math.floor(canvasW / numStrips));
-  const x  = Math.min(stripIdx * sw, canvasW - 1);
-  const data = ctx.getImageData(x, 0, sw, canvasH).data;
-  const out = [];
-  for (let i=0;i<data.length;i+=20) out.push((data[i]*77+data[i+1]*150+data[i+2]*29)>>8);
+// ── Scale pixel column to target height ───────────────────────────────────────
+function vfScaleColumn(rawCol, srcH, dstH) {
+  const out = new ImageData(1, dstH);
+  for (let y = 0; y < dstH; y++) {
+    const srcY = Math.round(y * (srcH - 1) / (dstH - 1));
+    const si = srcY * 4, di = y * 4;
+    out.data[di]   = rawCol.data[si];
+    out.data[di+1] = rawCol.data[si+1];
+    out.data[di+2] = rawCol.data[si+2];
+    out.data[di+3] = 255;
+  }
   return out;
-}
-// Sample a horizontal band (track: camera at side of finish line)
-function vfSampleHStrip(ctx, canvasW, canvasH, stripIdx, numStrips) {
-  const sh = Math.max(1, Math.floor(canvasH / numStrips));
-  const y  = Math.min(stripIdx * sh, canvasH - 1);
-  const data = ctx.getImageData(0, y, canvasW, sh).data;
-  const out = [];
-  for (let i=0;i<data.length;i+=20) out.push((data[i]*77+data[i+1]*150+data[i+2]*29)>>8);
-  return out;
-}
-function vfPixelDiff(a,b) {
-  if (!a||!b||a.length!==b.length) return 0;
-  let s=0; for (let i=0;i<a.length;i++) s+=Math.abs(a[i]-b[i]);
-  return s/a.length;
 }
 
-// ── Results ───────────────────────────────────────────────────────────────────
+// ── Background model ──────────────────────────────────────────────────────────
+function vfBuildBg(col) {
+  const n = vfBgN;
+  for (let y = 0; y < VF_SLIT_H; y++) {
+    const i = y * 4;
+    const g = (col.data[i]*77 + col.data[i+1]*150 + col.data[i+2]*29) >> 8;
+    vfBgAccum[y] = (vfBgAccum[y] * n + g) / (n + 1);
+  }
+  vfBgN++;
+}
+function vfAdaptBg(col, rate) {
+  for (let y = 0; y < VF_SLIT_H; y++) {
+    const i = y * 4;
+    const g = (col.data[i]*77 + col.data[i+1]*150 + col.data[i+2]*29) >> 8;
+    vfBgAccum[y] += (g - vfBgAccum[y]) * rate;
+  }
+}
+
+// ── Crossing detection ────────────────────────────────────────────────────────
+function vfCheckCrossing(col) {
+  if (!vfBgAccum || vfBgN < 10 || !vfRaceStartMs) return;
+  const debounce = Math.max(20, 60 - vfGetSensitivity() * 4); // 20–56 frames
+  if (vfSlitPos - vfLastDetectCol < debounce) return;
+
+  const nowMs    = nowServer();
+  const elapsed  = nowMs - vfRaceStartMs - vfGetOffset();
+  if (elapsed < 300) return; // ignore first 300ms (GO noise)
+
+  const sens      = vfGetSensitivity();              // 1–10
+  const threshold = Math.max(6, 38 - sens * 3);     // 8 (sens=10) – 35 (sens=1)
+  const minRows   = Math.round(VF_SLIT_H * (0.35 - sens * 0.02)); // 15%–33% of height
+
+  let diffCount = 0;
+  for (let y = 0; y < VF_SLIT_H; y++) {
+    const i = y * 4;
+    const g = (col.data[i]*77 + col.data[i+1]*150 + col.data[i+2]*29) >> 8;
+    if (Math.abs(g - vfBgAccum[y]) > threshold) diffCount++;
+  }
+
+  if (diffCount >= minRows) {
+    vfLastDetectCol = vfSlitPos;
+    const still = vfCaptureStill();
+    const entry = { place: vfDetections.length + 1, elapsedMs: elapsed, still, _col: vfSlitPos };
+    vfDetections.push(entry);
+    vfDetections.sort((a,b) => a.elapsedMs - b.elapsedMs);
+    vfDetections.forEach((d,i) => d.place = i + 1);
+    vfRenderDetections();
+    toast(\`Finish #\${vfDetections.length}: \${fmtMs(elapsed)}\`);
+    const dc = document.getElementById('vf-detect-count');
+    if (dc) dc.textContent = \`\${vfDetections.length} detected\`;
+    // Draw crossing marker on slit canvas
+    vfMarkCrossing(vfSlitPos, elapsed, vfDetections.length);
+  }
+}
+
+function vfCaptureStill() {
+  if (!vfLiveOffscr) return null;
+  try {
+    const tmp = document.createElement('canvas');
+    tmp.width = 160; tmp.height = 90;
+    tmp.getContext('2d').drawImage(vfLiveOffscr, 0, 0, 160, 90);
+    return tmp.toDataURL('image/jpeg', 0.7);
+  } catch(e) { return null; }
+}
+
+// ── Slit canvas markers ───────────────────────────────────────────────────────
+function vfDrawGoMarker() {
+  if (!vfSlitICtx || vfGoColumn < 0) return;
+  vfSlitICtx.save();
+  vfSlitICtx.fillStyle = 'rgba(234,179,8,0.9)';
+  vfSlitICtx.fillRect(vfGoColumn, 0, 3, VF_SLIT_H);
+  vfSlitICtx.fillStyle = '#eab308';
+  vfSlitICtx.font = 'bold 11px sans-serif';
+  vfSlitICtx.fillText('GO', Math.min(vfGoColumn + 5, VF_SLIT_W - 30), 14);
+  vfSlitICtx.restore();
+}
+
+function vfMarkCrossing(col, elapsedMs, place) {
+  if (!vfSlitICtx) return;
+  vfSlitICtx.save();
+  vfSlitICtx.fillStyle = 'rgba(59,130,246,0.85)';
+  vfSlitICtx.fillRect(col, 0, 2, VF_SLIT_H);
+  vfSlitICtx.fillStyle = '#60a5fa';
+  vfSlitICtx.font = 'bold 11px sans-serif';
+  const lx = Math.min(col + 4, VF_SLIT_W - 60);
+  vfSlitICtx.fillText(\`#\${place}\`, lx, 14);
+  vfSlitICtx.fillText(fmtMs(elapsedMs), lx, 27);
+  vfSlitICtx.restore();
+}
+
+// ── Render slit display canvas ────────────────────────────────────────────────
+function vfRenderSlit() {
+  const display = document.getElementById('vf-slit-canvas');
+  if (!display || !vfSlitICtx) return;
+  const dw = display.offsetWidth || 360;
+  const dh = 140;
+  if (display.width !== dw)  display.width  = dw;
+  if (display.height !== dh) display.height = dh;
+  const ctx = display.getContext('2d');
+  const available = Math.min(vfSlitPos, VF_SLIT_W);
+  if (available < 1) { ctx.fillStyle='#111'; ctx.fillRect(0,0,dw,dh); return; }
+  // Show the most recent dw columns (scroll left as time advances)
+  const showCols = Math.min(available, dw * 2);
+  const srcX     = Math.max(0, available - showCols);
+  ctx.drawImage(vfSlitInternal, srcX, 0, showCols, VF_SLIT_H, 0, 0, dw, dh);
+}
+
+// ── Export slit image as PNG ──────────────────────────────────────────────────
+function vfExportSlit() {
+  if (!vfSlitInternal || vfSlitPos === 0) { toast('No slit image yet — wait for the race'); return; }
+  const used = Math.min(vfSlitPos, VF_SLIT_W);
+  const tmp = document.createElement('canvas');
+  tmp.width = used; tmp.height = VF_SLIT_H;
+  tmp.getContext('2d').drawImage(vfSlitInternal, 0, 0, used, VF_SLIT_H, 0, 0, used, VF_SLIT_H);
+  const link = document.createElement('a');
+  link.href     = tmp.toDataURL('image/png');
+  link.download = \`finish-\${new Date().toISOString().slice(0,16).replace('T','-')}.png\`;
+  link.click();
+  toast('Finish line photo saved!');
+}
+
+// ── Results list ──────────────────────────────────────────────────────────────
 function vfRenderDetections() {
-  const list  = document.getElementById('vf-mark-list');
+  const list = document.getElementById('vf-mark-list');
+  if (!list) return;
   if (!vfDetections.length) {
-    list.innerHTML='<div class="text-muted text-sm text-center mt-8">No finishes yet</div>'; return;
+    list.innerHTML = '<div class="text-muted text-sm text-center mt-8">No finishes detected yet</div>'; return;
   }
   const progN = vfGetProgress();
   list.innerHTML = vfDetections.map((d,i) => \`
     <div style="display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">
       <span class="place-badge">\${ordinal(d.place||i+1)}</span>
-      \${d.lane ? \`<span style="color:var(--accent);font-weight:700;min-width:52px">Lane \${d.lane}</span>\` : ''}
-      <span style="font-weight:700;font-size:1rem;min-width:76px;font-family:monospace">\${fmtMs(d.elapsedMs)}</span>
+      <span style="font-weight:700;font-size:1rem;min-width:80px;font-family:monospace">\${fmtMs(d.elapsedMs)}</span>
       \${(d.place||i+1) <= progN ? '<span style="background:#16a34a;color:#fff;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:700">PROGRESSES</span>' : ''}
-      \${d.still ? \`<img src="\${d.still}" style="width:60px;height:34px;object-fit:cover;border-radius:4px;border:1px solid var(--border)">\` : ''}
+      \${d.still ? \`<img src="\${d.still}" style="width:64px;height:36px;object-fit:cover;border-radius:4px;border:1px solid var(--border)">\` : ''}
       <button class="vf-mark-btn" style="color:var(--danger);margin-left:auto" onclick="vfRemove(\${i})">&#x2715;</button>
     </div>\`).join('');
 }
 function vfRemove(i) {
   vfDetections.splice(i,1);
-  vfDetections.forEach((d,j) => d.place=j+1);
+  vfDetections.forEach((d,j) => d.place = j+1);
   vfRenderDetections();
 }
 
@@ -3839,589 +3961,83 @@ async function vfPublish() {
   if (!vfDetections.length) { toast('Nothing to publish'); return; }
   const payload = {};
   vfDetections.forEach((d,i) => {
-    const k = d.lane ? String(d.lane) : \`place_\${i+1}\`;
-    payload[k] = { place:d.place||i+1, elapsedMs:d.elapsedMs, ...(d.lane?{lane:d.lane}:{}) };
+    payload[\`place_\${i+1}\`] = { place: d.place||i+1, elapsedMs: d.elapsedMs };
   });
   await cRef('race/current/videoFinish').set({
-    marks:payload, mode:vfMode, lanes:vfLaneCount,
-    offsetMs:vfGetOffset(), offlineMode:vfOfflineMode,
-    recordedBy:myName||'Video Finish',
-    publishedAt:firebase.database.ServerValue.TIMESTAMP
+    marks: payload, mode: 'slit',
+    offsetMs: vfGetOffset(), offlineMode: vfOfflineMode,
+    recordedBy: myName || 'Video Finish',
+    publishedAt: firebase.database.ServerValue.TIMESTAMP
   });
   toast('Video finish times published!');
   document.getElementById('vf-publish-btn').disabled = true;
 }
 
-// ── Cleanup ───────────────────────────────────────────────────────────────────
-function vfExit() {
-  if (vfLiveRafId) { cancelAnimationFrame(vfLiveRafId); vfLiveRafId=null; }
-  if (vfStream)    { vfStream.getTracks().forEach(t=>t.stop()); vfStream=null; }
-  vfLiveState='idle'; vfDetections=[];
-  enterRole('role');
-}
-// ════════════════════════════════════════
-// DEMO / SEED
-// ════════════════════════════════════════
-async function _seedTestCarnival() {
-  const now = Date.now();
-
-  // Pre-seed 3 published results so Results Board shows content immediately
-  async function pub(key, obj) {
-    try { await cRef('results/' + fbEnc(key)).set(obj); } catch(e) {}
-  }
-
-  await pub('12/13 Years-Boys-100m Sprint-seed001', {
-    type:'lane', age:'12/13 Years', gender:'Boys', event:'100m Sprint',
-    raceId:'seed001',
-    results:[
-      {place:1, lane:3, name:'Tom Brady',    timeMs:12340},
-      {place:2, lane:1, name:'Jake Mills',   timeMs:12580},
-      {place:3, lane:5, name:'Alex Carter',  timeMs:12790},
-      {place:4, lane:2, name:'Ryan Smith',   timeMs:13020},
-      {place:5, lane:4, name:'Chris Lee',    timeMs:13450}
-    ],
-    publishedAt: now - 600000
-  });
-
-  await pub('10 Years-Girls-50m Freestyle-seed002', {
-    type:'lane', age:'10 Years', gender:'Girls', event:'50m Freestyle',
-    raceId:'seed002',
-    results:[
-      {place:1, lane:4, name:'Emma Wilson',   timeMs:34210},
-      {place:2, lane:2, name:'Sophie Chen',   timeMs:34890},
-      {place:3, lane:5, name:'Lily Thompson', timeMs:35420},
-      {place:4, lane:1, name:'Ava Roberts',   timeMs:36100}
-    ],
-    publishedAt: now - 300000
-  });
-
-  await pub('xc-Open-Mixed-3km Cross Country-seed003', {
-    type:'xc', age:'Open', gender:'Mixed', event:'3km Cross Country',
-    raceId:'seed003',
-    places:[
-      {place:1, name:'Jordan Blake',  elapsedMs:742000},
-      {place:2, name:'Sam Ahmed',     elapsedMs:754000},
-      {place:3, name:'Casey Morgan',  elapsedMs:761000},
-      {place:4, name:'Riley Johnson', elapsedMs:778000},
-      {place:5, name:'Taylor White',  elapsedMs:795000}
-    ],
-    publishedAt: now - 120000
-  });
-
-  // Armed track race (200m Sprint) with ghost splits from 2 virtual timers
-  // → admin sees multi-timer averaging in Race Control done panel AND Results Board
-  const seed004Splits = {
-    1:{ t_ghost1:{elapsedMs:27450}, t_ghost2:{elapsedMs:27480} },
-    2:{ t_ghost1:{elapsedMs:27820}, t_ghost2:{elapsedMs:27850} },
-    3:{ t_ghost1:{elapsedMs:28100}, t_ghost2:{elapsedMs:28130} },
-    4:{ t_ghost1:{elapsedMs:28450}, t_ghost2:{elapsedMs:28470} },
-    5:{ t_ghost1:{elapsedMs:28900}, t_ghost2:{elapsedMs:28920} },
-    6:{ t_ghost1:{elapsedMs:29200}, t_ghost2:{elapsedMs:29230} }
-  };
-  const seed004Lanes = {
-    1:{name:'Sam Ahmed'},   2:{name:'Jordan Blake'},
-    3:{name:'Casey Morgan'},4:{name:'Riley Johnson'},
-    5:{name:'Taylor White'},6:{name:'Alex Carter'}
-  };
-  await cRef('race/current').set({
-    raceId:'seed004', age:'11 Years', gender:'Mixed', event:'200m Sprint',
-    state:'done', armedAt: now - 90000, startedAtServer: now - 30000,
-    lanes: seed004Lanes, splits: seed004Splits
-  });
-  // Also publish averaged times to results/ so Results Board shows them
-  const seed004Results = Object.entries(seed004Splits).map(([lane, timerSplits]) => {
-    const vals = Object.values(timerSplits).map(s => s.elapsedMs);
-    const mean = vals.reduce((a,b) => a+b, 0) / vals.length;
-    return { lane: parseInt(lane), name: seed004Lanes[lane]?.name || ('Lane '+lane), timeMs: Math.round(mean) };
-  }).sort((a,b) => a.timeMs - b.timeMs).map((r,i) => ({...r, place: i+1}));
-  await pub('11 Years-Mixed-200m Sprint-seed004', {
-    type:'lane', age:'11 Years', gender:'Mixed', event:'200m Sprint',
-    raceId:'seed004', results: seed004Results, publishedAt: now - 25000
-  });
-
-  // Armed XC race ready to use immediately
-  await cRef('xc/current').set({
-    raceId:'seed005', age:'12/13 Years', gender:'Mixed', event:'Cross Country 2km',
-    state:'armed', finishes:{}, armedAt: now
-  });
-}
-
-// ════════════════════════════════════════
-// URL DEEP-LINK INIT
-// ════════════════════════════════════════
-(async function initFromURL() {
-  const p    = new URLSearchParams(location.search);
-  const code = (p.get('code') || '').trim().toUpperCase();
-  const name = (p.get('name') || '').trim();
-  const role = (p.get('role') || '').trim();
-  const seed = p.get('seed') === '1';
-  if (!code || code.length < 4) return;
-
-  carnivalCode = code;
-  try { await _wsReady2(); } catch(e) {}
-
-  const snap = await cRef('meta').once('value');
-  let isNew = false;
-  if (!snap.exists()) {
-    if (seed || code.startsWith('DEMO')) {
-      carnivalMeta = {
-        school:'Westside Athletics', name:'Test Carnival 2026',
-        sport:'mixed', createdAt: Date.now(),
-        expiresAt: Date.now() + 7*24*3600*1000
-      };
-      await cRef('meta').set(carnivalMeta);
-      isNew = true;
-    }
-  } else {
-    carnivalMeta = snap.val();
-  }
-
-  if (isNew && seed) {
-    try { await _seedTestCarnival(); } catch(e) { console.warn('Seed failed:', e); }
-  }
-
-  myName = name;
-  try { localStorage.setItem('fl_name', name); } catch(e){}
-  try { localStorage.setItem('fl_last_code', code); } catch(e){}
-
-  // If role=observer, go straight in — no name needed
-  if (role === 'observer') {
-    enterRole('observer');
-    return;
-  }
-  showRolePicker();
-
-  if (role) {
-    setTimeout(() => {
-      if (role === 'timer') {
-        enterRole('timer');
-        setTimeout(() => { try { enterTimerLane(1); } catch(e){} }, 200);
-      } else {
-        try { enterRole(role); } catch(e) {}
-      }
-    }, 200);
-  }
-})();
-
-// ════════════════════════════════════════
-// SHARE MODAL
-// ════════════════════════════════════════
-function initResultsView() {
-  watchConn('observer-dot');  // reuse observer dot if present
-  const resRef = cRef('results');
-  resRef.on('value', snap => {
-    const data = snap.val();
-    const el   = document.getElementById('results-all');
-    if (!el) return;
-    if (!data || !Object.keys(data).length) {
-      el.innerHTML = '<div class="text-muted text-center mt-32">No results published yet.</div>';
-      return;
-    }
-    const events = Object.values(data).sort((a,b) => (b.publishedAt||0) - (a.publishedAt||0));
-    el.innerHTML = events.map(ev => {
-      const isXC  = ev.type === 'xc';
-      const places = isXC ? (ev.places||[]) : (ev.results||[]);
-      const rows   = places.map((r,i) => {
-        const isDQ = !isXC && r.dq;
-        const pos  = isXC ? r.place : (isDQ ? null : (i+1));
-        const name = r.name || (isXC ? '' : \`Lane \${r.lane}\`);
-        const time = fmtSec(isXC ? r.elapsedMs : r.timeMs);
-        return \`<div class="lane-row" style="padding:6px 4px;\${isDQ?'opacity:.45':''}" >
-          <div class="medal \${isDQ?'pN':medalCls(pos)}" style="\${isDQ?'background:var(--warn);color:#fff':''}">\${isDQ?'DQ':(pos)}</div>
-          <div class="lane-name">\${name}</div>
-          <div class="lane-time font-mono">\${isDQ?'—':time}</div>
-        </div>\`;
-      }).join('');
-      return \`<div class="card" style="margin-bottom:8px">
-        <div class="card-title" style="font-size:.8rem;color:var(--muted)">
-          \${ev.age||''} \${ev.gender||''} · \${ev.event||''}
-        </div>
-        \${rows || '<div class="text-muted text-sm">No times recorded</div>'}
-      </div>\`;
-    }).join('');
-  });
-  activeListeners.push(()=>resRef.off());
-}
-
-function showSharePage() {
-  // Populate share screen (join QR for participants)
-  const joinUrl = \`\${location.origin}/?code=\${carnivalCode}\`;
-  document.getElementById('share-school-name').textContent =
-    carnivalMeta?.school || 'Join Page';
-  document.getElementById('share-carnival-name').textContent =
-    carnivalMeta?.name || '';
-  const codeEl = document.getElementById('share-join-code');
-  if (codeEl) codeEl.textContent = carnivalCode;
-
-  showScreen('share');
-
-  const qrEl = document.getElementById('share-qr');
-  if (qrEl && typeof QRCode !== 'undefined') {
-    qrEl.innerHTML = '';
-    new QRCode(qrEl, { text: joinUrl, width: 164, height: 164,
-      colorDark: '#000000', colorLight: '#ffffff' });
-  }
-}
-
-function showShareModal() {
-  const url = \`\${location.origin}/?code=\${carnivalCode}&role=observer\`;
-  const existing = document.getElementById('share-modal');
-  if (existing) existing.remove();
-
-  const modal = document.createElement('div');
-  modal.id = 'share-modal';
-  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px';
-  modal.innerHTML = \`
-    <div style="background:var(--surface);border-radius:16px;padding:24px;max-width:340px;width:100%;text-align:center">
-      <div style="font-weight:700;font-size:1.1rem;margin-bottom:4px">Share Results</div>
-      <div style="color:var(--muted);font-size:.85rem;margin-bottom:16px">Parents scan to follow live results</div>
-      <div id="share-qr" style="display:flex;justify-content:center;margin-bottom:16px"></div>
-      <div style="font-family:monospace;font-size:.75rem;word-break:break-all;background:var(--bg);padding:8px 10px;border-radius:8px;margin-bottom:12px;cursor:pointer"
-           onclick="navigator.clipboard.writeText('\${url}').then(()=>toast('Link copied!'))">\${url}</div>
-      <button class="btn btn-secondary" style="width:100%;margin-bottom:8px"
-        onclick="navigator.clipboard.writeText('\${url}').then(()=>toast('Copied!'))">Copy Link</button>
-      <button class="btn btn-secondary" style="width:100%" onclick="document.getElementById('share-modal').remove()">Close</button>
-    </div>\`;
-  document.body.appendChild(modal);
-  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
-
-  // Generate QR
-  const qrEl = document.getElementById('share-qr');
-  if (qrEl && typeof QRCode !== 'undefined') {
-    new QRCode(qrEl, { text: url, width: 160, height: 160, colorDark:'#000', colorLight:'#fff' });
-  }
-}
-
-</script>
-
-<div id="ct-footer" style="position:fixed;bottom:0;left:0;right:0;background:rgba(13,27,62,0.92);backdrop-filter:blur(6px);color:rgba(255,255,255,0.5);font-size:11px;text-align:center;padding:6px 16px;z-index:100;display:flex;justify-content:center;gap:16px;align-items:center;flex-wrap:wrap;">
-  <span>© 2026 Luck Dragon Pty Ltd</span>
-  <span>·</span>
-  <a href="/privacy" style="color:rgba(255,255,255,0.5);text-decoration:none;" target="_blank">Privacy</a>
-  <span>·</span>
-  <a href="https://schoolsportportal.com.au" style="color:rgba(255,255,255,0.5);text-decoration:none;" target="_blank">School Sport Portal</a>
-  <span>·</span>
-  <a href="https://sportcarnival.com.au" style="color:rgba(255,255,255,0.5);text-decoration:none;" target="_blank">Carnival Planner</a>
-</div>
-<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"6cf8d2e29c0d40b7884de3d1a632b1c5","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
-
-<!-- ════ XC AUTO-DETECT LINE SETUP OVERLAY ════ -->
-<div id="xc-line-setup-overlay">
-  <video id="xc-setup-vid" autoplay playsinline muted></video>
-  <canvas id="xc-line-canvas-overlay"></canvas>
-  <div id="xc-line-instruction">Tap the LEFT edge of your finish line</div>
-  <div id="xc-line-setup-btns">
-    <button class="btn btn-secondary" style="flex:1" onclick="xcResetLine()">↺ Reset</button>
-    <button id="xc-start-detect-btn" class="btn btn-primary" style="flex:2;display:none" onclick="xcStartDetect()">▶ Start Auto-Detect</button>
-    <button class="btn btn-secondary" style="flex:1" onclick="xcCloseLineSetup()">✕</button>
-  </div>
-</div>
-
-
-<div id="ct-paywall-overlay" class="ct-paywall-overlay hidden">
-  <div class="ct-paywall-box">
-    <div class="ct-paywall-logo">🏁</div>
-    <div class="ct-paywall-title">Carnival Timing</div>
-    <div class="ct-paywall-sub">Race Control requires an access code.<br>Join Carnival &amp; demos are always free.</div>
-    <div class="ct-plan-row">
-      <a href="https://buy.stripe.com/8x26oGgux9IT3wQckm9IQ05" target="_blank" class="ct-plan-btn primary" onclick="ctTrackClick('single')">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <span class="ct-plan-label">Single Carnival</span>
-          <span class="ct-plan-price">$49</span>
-        </div>
-        <div class="ct-plan-desc">One code, one carnival. Perfect for athletics clubs &amp; one-off events.</div>
-      </a>
-      <a href="https://buy.stripe.com/7sY3cu3HL8EP4AUesu9IQ06" target="_blank" class="ct-plan-btn" onclick="ctTrackClick('annual')">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <span class="ct-plan-label">Annual Unlimited</span>
-          <span class="ct-plan-price">$149</span>
-        </div>
-        <div class="ct-plan-desc">Unlimited carnivals for 12 months. Best for schools &amp; regular events.</div>
-      </a>
-    </div>
-    <div class="ct-divider">Already have a code?</div>
-    <div class="ct-code-row">
-      <input id="ct-code-input" class="ct-code-input" type="text" placeholder="e.g. ABC-1234" maxlength="10" autocomplete="off" spellcheck="false">
-      <button id="ct-code-submit" class="ct-code-submit" onclick="ctSubmitCode()">Unlock</button>
-    </div>
-    <div id="ct-code-error" class="ct-code-error"></div>
-    <div style="margin-top:16px;text-align:center;font-size:.78rem;color:#94a3b8">
-      School Sport Portal subscribers: enter your school code above.<br>
-      <a href="https://schoolsportportal.com.au" target="_blank" style="color:#1a56db">Get School Sport Portal →</a>
-    </div>
-  </div>
-</div>
-<script>
-// ── CT Access Gate ───────────────────────────────────────────
-const CT_ACCESS_API = 'https://ct-access.luckdragon.io';
-const CT_ACCESS_KEY = 'ct_access_v1';
-
-function ctGetAccess() {
-  try {
-    const raw = localStorage.getItem(CT_ACCESS_KEY);
-    if (!raw) return null;
-    const data = JSON.parse(raw);
-    if (data.expires && Date.now() > data.expires) {
-      localStorage.removeItem(CT_ACCESS_KEY);
-      return null;
-    }
-    return data;
-  } catch(e) { return null; }
-}
-
-function ctSetAccess(data) {
-  localStorage.setItem(CT_ACCESS_KEY, JSON.stringify(data));
-}
-
-function ctShowAccessBadge(data) {
-  const existing = document.getElementById('ct-access-badge');
-  if (existing) existing.remove();
-  const badge = document.createElement('div');
-  badge.id = 'ct-access-badge';
-  badge.style.cssText = 'text-align:center;margin-top:6px;margin-bottom:-4px';
-  const label = data.type === 'ssp' ? '✓ ' + (data.school || 'School Sport Portal')
-    : data.type === 'annual' ? '✓ Annual unlimited access'
-    : '✓ Single carnival access';
-  badge.innerHTML = '<span class="ct-access-badge">' + label + '</span>';
-  const btn = document.querySelector('#screen-home .stack .btn-primary');
-  if (btn) btn.insertAdjacentElement('afterend', badge);
-}
-
-const _ctOrigShowScreen = typeof showScreen === 'function' ? showScreen : null;
-const _ctOrigRef = window.showScreen;
-
-// Wrap showScreen to intercept 'setup'
-(function() {
-  const orig = window.showScreen;
-  window.showScreen = function(name, ...args) {
-    if (name === 'setup') {
-      const access = ctGetAccess();
-      if (!access) {
-        document.getElementById('ct-paywall-overlay').classList.remove('hidden');
-        return;
-      }
-    }
-    return orig.call(this, name, ...args);
-  };
-})();
-
-async function ctSubmitCode() {
-  const input = document.getElementById('ct-code-input');
-  const btn   = document.getElementById('ct-code-submit');
-  const err   = document.getElementById('ct-code-error');
-  const code  = (input.value || '').trim().toUpperCase();
-  if (!code) { err.textContent = 'Please enter your code.'; return; }
-  btn.disabled = true; btn.textContent = 'Checking...'; err.textContent = '';
-  try {
-    const resp = await fetch(CT_ACCESS_API + '/validate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code })
-    });
-    const data = await resp.json();
-    if (data.valid) {
-      ctSetAccess({ code, type: data.type, school: data.school, expires: data.expires, unlocked: Date.now() });
-      document.getElementById('ct-paywall-overlay').classList.add('hidden');
-      ctShowAccessBadge(data);
-      showScreen('setup');
-    } else {
-      err.textContent = data.error || 'Invalid code. Please try again.';
-    }
-  } catch(e) {
-    err.textContent = 'Connection error. Please try again.';
-  } finally { btn.disabled = false; btn.textContent = 'Unlock'; }
-}
-
-function ctTrackClick(type) { console.log('CT purchase click:', type); }
-
-document.addEventListener('DOMContentLoaded', function() {
-  const access = ctGetAccess();
-  if (access) ctShowAccessBadge(access);
-  const inp = document.getElementById('ct-code-input');
-  if (inp) {
-    inp.addEventListener('keydown', function(e) { if (e.key === 'Enter') ctSubmitCode(); });
-    inp.addEventListener('input', function() {
-      const pos = this.selectionStart;
-      this.value = this.value.toUpperCase().replace(/[^A-Z0-9-]/g, '');
-      this.setSelectionRange(pos, pos);
-    });
-  }
-});
-
-
-</script>
-</body>
-</html><!-- v8.5.4 new helper functions injected below </script> to keep patch clean -->
-<script>
-// ════════════════════════════════════════════════════════════
-// v8.5.1 HELPERS
-// ════════════════════════════════════════════════════════════
-
-// ── TASK 5: Generic confirm modal ────────────────────────────
-function _confirmModal(title, body, confirmLabel) {
-  return new Promise(resolve => {
-    const el = document.createElement('div');
-    el.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
-    el.innerHTML = \`
-      <div style="background:var(--surface);border-radius:16px;padding:24px;max-width:320px;width:100%;text-align:center">
-        <div style="font-weight:700;font-size:1.05rem;margin-bottom:8px">\${title}</div>
-        <div style="color:var(--muted);font-size:0.85rem;margin-bottom:20px">\${body}</div>
-        <div style="display:flex;gap:10px">
-          <button class="btn btn-secondary" style="flex:1" id="_conf-cancel">Cancel</button>
-          <button class="btn btn-primary"   style="flex:1" id="_conf-ok">\${confirmLabel}</button>
-        </div>
-      </div>\`;
-    document.body.appendChild(el);
-    el.querySelector('#_conf-cancel').onclick = () => { document.body.removeChild(el); resolve(false); };
-    el.querySelector('#_conf-ok').onclick     = () => { document.body.removeChild(el); resolve(true);  };
-  });
-}
-
-// ── TASK 6: Gun countdown + recalibrate ──────────────────────
-let _starterCountdownTimer = null;
-
-function starterGunCountdown() {
-  // Cancel any existing
-  if (_starterCountdownTimer) { clearTimeout(_starterCountdownTimer); _starterCountdownTimer = null; }
-
-  const el = document.createElement('div');
-  el.id = 'starter-gun-overlay';
-  el.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9998;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px';
-  el.innerHTML = \`
-    <div style="font-size:5rem;animation:vf-pulse 0.5s infinite">🔫</div>
-    <div style="font-size:1.8rem;font-weight:900;color:#ef4444;letter-spacing:.02em" id="_gcd-lbl">FIRING IN 1s…</div>
-    <button class="btn btn-secondary" style="font-size:1.1rem;padding:14px 36px;background:var(--surface)" id="_gcd-cancel">TAP TO CANCEL</button>\`;
-  document.body.appendChild(el);
-
-  let cancelled = false;
-  el.querySelector('#_gcd-cancel').onclick = () => {
-    cancelled = true;
-    clearTimeout(_starterCountdownTimer);
-    document.body.removeChild(el);
-    toast('GO cancelled');
-    // Restart listening
-    starterListenStart();
-  };
-
-  _starterCountdownTimer = setTimeout(() => {
-    if (cancelled) return;
-    if (document.body.contains(el)) document.body.removeChild(el);
-    // FIRE GO
-    toast('🔫 Gun detected — GO!');
-    vibrate([200,60,200]);
-    flash('go', 600);
-    cRef('race/current').update({
-      state:'live',
-      startedAtServer: firebase.database.ServerValue.TIMESTAMP
-    });
-  }, 1000);
-}
-
-function starterRecalibrate() {
-  starterNoiseFloor = 0;
-  starterNoiseCount = 0;
-  const calLbl = document.getElementById('starter-cal-lbl');
-  if (calLbl) calLbl.textContent = 'Calibrating…';
-  toast('Recalibrating noise floor…');
-}
-
-// ── TASK 7: VF camera flip + retry ───────────────────────────
-let vfFacingMode = 'environment';
-
+// ── Camera flip & retry ───────────────────────────────────────────────────────
 function vfFlipCamera() {
-  vfFacingMode = (vfFacingMode === 'environment') ? 'user' : 'environment';
-  toast(\`Switching to \${vfFacingMode === 'user' ? 'front' : 'back'} camera…\`);
-  // Remove existing error div if present
+  vfFacingMode2 = (vfFacingMode2 === 'environment') ? 'user' : 'environment';
+  toast(\`Switching to \${vfFacingMode2 === 'user' ? 'front' : 'back'} camera…\`);
   const errDiv = document.getElementById('vf-cam-error');
   if (errDiv) errDiv.remove();
   const canvas = document.getElementById('vf-live-canvas');
   if (canvas) canvas.style.display = '';
-  // Stop existing stream
-  if (typeof vfStream !== 'undefined' && vfStream) {
-    vfStream.getTracks().forEach(t => t.stop());
-    vfStream = null;
-  }
-  // Restart camera with new facing mode
-  navigator.mediaDevices.getUserMedia({
-    video: { facingMode: vfFacingMode, width:{ideal:1920}, height:{ideal:1080} },
-    audio: false
-  }).then(stream => {
-    vfStream = stream;
-    const vid = document.getElementById('vf-video-preview');
-    vid.srcObject = stream; vid.play();
-    vid.addEventListener('playing', () => {
-      vfRestartCalibration();
-      toast('Camera switched — calibrating…');
-    }, {once:true});
-  }).catch(err => {
-    toast('Camera switch failed: ' + (err?.message || err));
-    vfSetStatus('⚠ Camera error', '#ef4444');
-  });
+  if (vfStream)    { vfStream.getTracks().forEach(t=>t.stop()); vfStream=null; }
+  if (vfLiveRafId) { cancelAnimationFrame(vfLiveRafId); vfLiveRafId=null; }
+  vfLiveState = 'idle';
+  vfStartCamera();
 }
-
 function vfRetryCamera() {
   const errDiv = document.getElementById('vf-cam-error');
   if (errDiv) errDiv.remove();
   const canvas = document.getElementById('vf-live-canvas');
   if (canvas) canvas.style.display = '';
   vfSetStatus('Starting camera…', 'var(--muted)');
-  navigator.mediaDevices.getUserMedia({
-    video: { facingMode: vfFacingMode, width:{ideal:1920}, height:{ideal:1080} },
-    audio: false
-  }).then(stream => {
-    vfStream = stream;
-    const vid = document.getElementById('vf-video-preview');
-    vid.srcObject = stream; vid.play();
-    vid.addEventListener('playing', () => {
-      vfStartCalibration();
-      toast('Camera ready — calibrating…');
-    }, {once:true});
-  }).catch(err => {
-    const msg = err?.name === 'NotFoundError' ? 'No camera found' : 'Camera error: ' + (err?.message || err);
-    toast(msg);
-    vfSetStatus('⚠ ' + msg, '#ef4444');
-  });
+  vfStartCamera();
 }
 
-// ── TASK 8: VF manual add finish ─────────────────────────────
+// ── Cleanup ───────────────────────────────────────────────────────────────────
+function vfExit() {
+  if (vfLiveRafId) { cancelAnimationFrame(vfLiveRafId); vfLiveRafId = null; }
+  if (vfStream)    { vfStream.getTracks().forEach(t=>t.stop()); vfStream = null; }
+  window.removeEventListener('mouseup',  vfDragEnd);
+  window.removeEventListener('touchend', vfDragEnd);
+  vfLiveState = 'idle'; vfDetections = [];
+  vfSlitInternal = null; vfSlitICtx = null;
+  enterRole('role');
+}
+
+// ── Manual add ────────────────────────────────────────────────────────────────
 function vfManualAdd() {
-  const maxLane = typeof vfLaneCount !== 'undefined' ? vfLaneCount : 8;
   const el = document.createElement('div');
   el.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
   el.innerHTML = \`
     <div style="background:var(--surface);border-radius:16px;padding:24px;max-width:320px;width:100%">
       <div style="font-weight:700;font-size:1rem;margin-bottom:16px">Add Manual Finish</div>
-      <div style="margin-bottom:12px">
-        <label style="font-size:0.8rem;color:var(--muted)">Lane</label>
-        <select id="_mf-lane" style="width:100%;margin-top:4px;padding:8px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:1rem">
-          \${Array.from({length:maxLane},(_,i)=>\`<option value="\${i+1}">Lane \${i+1}</option>\`).join('')}
-        </select>
-      </div>
       <div style="margin-bottom:20px">
-        <label style="font-size:0.8rem;color:var(--muted)">Time (seconds, e.g. 12.45)</label>
-        <input type="number" id="_mf-time" step="0.01" min="0" placeholder="0.00"
-          style="width:100%;margin-top:4px;padding:8px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:1rem;box-sizing:border-box">
+        <label style="font-size:0.8rem;color:var(--muted)">Time (m:ss.ms or ss.ms)</label>
+        <input id="_mf-time" type="text" placeholder="e.g. 1:23.45 or 83.45"
+          style="width:100%;margin-top:4px;padding:8px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:1rem">
       </div>
-      <div style="display:flex;gap:10px">
-        <button class="btn btn-secondary" style="flex:1" id="_mf-cancel">Cancel</button>
-        <button class="btn btn-primary"   style="flex:1" id="_mf-ok">Add Finish</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary" style="flex:1" onclick="this.closest('[style]').remove()">Cancel</button>
+        <button class="btn btn-primary" style="flex:1" onclick="vfManualSubmit(this)">Add</button>
       </div>
     </div>\`;
   document.body.appendChild(el);
-  el.querySelector('#_mf-cancel').onclick = () => document.body.removeChild(el);
-  el.querySelector('#_mf-ok').onclick = () => {
-    const lane  = parseInt(el.querySelector('#_mf-lane').value);
-    const timeSec = parseFloat(el.querySelector('#_mf-time').value);
-    if (!isFinite(timeSec) || timeSec <= 0) { toast('Enter a valid time'); return; }
-    const elapsedMs = Math.round(timeSec * 1000);
-    if (typeof vfDetections !== 'undefined') {
-      vfDetections.push({ lane, elapsedMs, manual: true });
-      if (typeof vfRenderDetections === 'function') vfRenderDetections();
-    }
-    document.body.removeChild(el);
-    toast(\`Lane \${lane} manually added — \${timeSec.toFixed(2)}s\`);
-  };
-  setTimeout(() => el.querySelector('#_mf-time').focus(), 100);
+  setTimeout(() => document.getElementById('_mf-time')?.focus(), 100);
+}
+function vfManualSubmit(btn) {
+  const raw = (document.getElementById('_mf-time')?.value || '').trim();
+  let ms = 0;
+  if (raw.includes(':')) { const [m,s] = raw.split(':'); ms = (parseFloat(m)*60 + parseFloat(s)) * 1000; }
+  else ms = parseFloat(raw) * 1000;
+  if (!ms || isNaN(ms) || ms <= 0) { toast('Enter a valid time'); return; }
+  btn.closest('[style]').remove();
+  vfDetections.push({ place: vfDetections.length+1, elapsedMs: Math.round(ms), still: null, _col: -1 });
+  vfDetections.sort((a,b) => a.elapsedMs - b.elapsedMs);
+  vfDetections.forEach((d,i) => d.place = i+1);
+  vfRenderDetections();
+  toast(\`Manual finish added: \${fmtMs(Math.round(ms))}\`);
 }
 
 // ── TASK 9: Athlete name persistence ─────────────────────────
@@ -4841,7 +4457,7 @@ function xcDetectBeep() {
 const HEADERS = {
   'Content-Type': 'text/html; charset=utf-8',
   'Cache-Control': 'public, max-age=300, stale-while-revalidate=60',
-  'X-CT-Version': 'v8.5.4',
+  'X-CT-Version': 'v8.6.0',
   'X-Frame-Options': 'SAMEORIGIN',
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
@@ -4860,7 +4476,7 @@ export default {
     return new Response(HTML, { headers: {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'public, max-age=300, stale-while-revalidate=60',
-      'X-CT-Version': 'v8.5.4',
+      'X-CT-Version': 'v8.6.0',
       'X-Frame-Options': 'SAMEORIGIN',
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'strict-origin-when-cross-origin',
