@@ -44,7 +44,7 @@ export default {
       // ── Public ──────────────────────────────────────────────────────────────
 
       if (url.pathname === '/health') {
-        return json({ status: 'ok', service: 'falkor-push', version: '1.0.0' });
+        return json({ status: 'ok', service: 'falkor-push', version: '1.1.0' });
       }
 
       if (url.pathname === '/vapid-public-key' && request.method === 'GET') {
@@ -69,6 +69,27 @@ export default {
         if (!endpoint) return json({ error: 'Missing endpoint' }, 400);
         await env.DB.prepare('DELETE FROM subscriptions WHERE endpoint = ?').bind(endpoint).run();
         return json({ success: true });
+      }
+
+
+      // ── User management (public — PIN verified per-user) ────────────────────
+
+      if (url.pathname === '/user/list' && request.method === 'GET') {
+        const { results } = await env.DB.prepare(
+          'SELECT id, name, role FROM users ORDER BY name'
+        ).all();
+        return json({ users: results || [] });
+      }
+
+      if (url.pathname === '/user/verify' && request.method === 'POST') {
+        const { userId, pin } = await request.json();
+        if (!userId || !pin) return json({ error: 'Missing userId or pin' }, 400);
+        const user = await env.DB.prepare(
+          'SELECT id, name, role, preferences FROM users WHERE id = ? AND pin = ?'
+        ).bind(userId, pin).first();
+        if (!user) return json({ error: 'Invalid PIN' }, 401);
+        const prefs = JSON.parse(user.preferences || '{}');
+        return json({ success: true, user: { id: user.id, name: user.name, role: user.role, preferences: prefs }, agentPin: env.AGENT_PIN });
       }
 
       // ── PIN-protected ────────────────────────────────────────────────────────
