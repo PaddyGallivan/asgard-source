@@ -1,4 +1,4 @@
-// falkor-agent v1.7.2 — null guards + message/text field compat: Always Briefed + Auto-Memory + Action Handlers
+// falkor-agent v1.8.1 — null guards + message/text field compat: Always Briefed + Auto-Memory + Action Handlers
 // v1.7.0 adds:
 //   1. Live context pre-loader — fetches weather/calendar/sport/tips before first reply
 //   2. Auto-memory — every 5 turns, Haiku extracts memorable facts → falkor-brain
@@ -138,6 +138,17 @@ function detectAction(text) {
   const remindMatch = t.match(/remind me (about |to )?(.+?)( on | at | tomorrow| next week)?$/);
   if (remindMatch && /\b(remind)\b/.test(t))
     return { type: 'remind', content: remindMatch[2], original: text };
+  // Task / background research intent
+  const taskKeywords = /^(research|find out|look into|investigate|queue[:\s]+|overnight[:\s]+|background[:\s]+|do this later[:\s]+)/i;
+  const taskAmbient = /\b(overnight|do this later|queue this|background task|run this later)\b/i;
+  if (taskKeywords.test(t) || taskAmbient.test(t)) {
+    const query = text.replace(/^(research|find out|look into|investigate|queue[:\s]+|overnight[:\s]+|background[:\s]+|do this later[:\s]+)/i, '').trim();
+    let taskType = 'research';
+    if (/\b(tipping|tips|standings|leaderboard)\b/i.test(text)) taskType = 'tipping_report';
+    else if (/\b(venture|priorities|projects|dashboard)\b/i.test(text)) taskType = 'venture_report';
+    else if (/\b(kbt|trivia|quiz|questions)\b/i.test(text)) taskType = 'kbt_prep';
+    return { type: 'task', taskType, query: query || text, title: (query || text).slice(0, 80) };
+  }
   return null;
 }
 
@@ -200,6 +211,32 @@ async function executeAction(action, userId, userCtx, pin, env) {
         });
       } catch { /* non-fatal */ }
       return `Reminder saved: "${action.content}". I'll surface this when relevant.`;
+    }
+    case 'task': {
+      try {
+        // Use WORKFLOWS_SERVICE binding if available on env (injected from DO env)
+        const wfUrl = 'https://falkor-workflows.luckdragon.io/tasks';
+        const wfReq = new Request(wfUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
+          body: JSON.stringify({
+            title: action.title || action.query,
+            type: action.taskType || 'research',
+            query: action.query,
+            notify: 1,
+          }),
+        });
+        const tRes = (env && env.WORKFLOWS_SERVICE)
+          ? await env.WORKFLOWS_SERVICE.fetch(wfReq)
+          : await fetch(wfReq);
+        const d = await tRes.json().catch(() => ({}));
+        if (d.ok) {
+          return `✅ Queued task #${d.id}: "${action.title}". I'll handle it in the background and notify you when done.`;
+        }
+        return `Couldn't queue task: ${d.error || 'unknown error'}`;
+      } catch(e) {
+        return `Task queue error: ${e.message}`;
+      }
     }
   }
   return null;
@@ -366,7 +403,7 @@ export class FalkorAgent {
       const memory = await this.getMemory();
       const ctxTs = await this.state.storage.get('liveContextTs');
       return corsJson({
-        version: '1.7.2',
+        version: '1.8.1',
         activeSessions: this.sessions.size,
         historyLength: history.length,
         memoryKeys: Object.keys(memory).length,
@@ -452,8 +489,8 @@ export class FalkorAgent {
     if (action) {
       const actionReply = await executeAction(action, userId, userCtx, pin, this.env);
       if (actionReply) {
-        // If it was purely an action (note/remind), respond directly
-        if (action.type === 'note' || action.type === 'remind') {
+        // If it was purely an action (note/remind/task), respond directly without AI
+        if (action.type === 'note' || action.type === 'remind' || action.type === 'task') {
           history.push({ role: 'user', content: text, ts: Date.now() });
           history.push({ role: 'assistant', content: actionReply, ts: Date.now() });
           await this.state.storage.put('history', JSON.stringify(history.slice(-200)));
@@ -631,7 +668,34 @@ export default {
     }
 
     if (url.pathname === '/health') {
-      return Response.json({ status: 'ok', version: '1.7.2', worker: 'falkor-agent' });
+      return Response.json({ status: 'ok', version: '1.8.1', worker: 'falkor-agent' });
+    }
+
+    // ── /tasks proxy → falkor-workflows via service binding (no 522 loopback) ──
+    if (url.pathname === '/tasks') {
+      const method = request.method;
+      const pin = env.AGENT_PIN || '';
+      try {
+        const proxyTarget = `https://falkor-workflows.luckdragon.io/tasks`;
+        const proxyReq = new Request(proxyTarget, {
+          method,
+          headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
+          body: method === 'POST' ? request.body : undefined,
+        });
+        // Use service binding if available (avoids CF loopback 522)
+        const r = env.WORKFLOWS_SERVICE
+          ? await env.WORKFLOWS_SERVICE.fetch(proxyReq)
+          : await fetch(proxyReq);
+        const d = await r.json().catch(() => ({}));
+        return new Response(JSON.stringify(d), {
+          status: r.status,
+          headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+        });
+      } catch(e) {
+        return new Response(JSON.stringify({ ok: false, error: e.message }), {
+          status: 502, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+        });
+      }
     }
 
     const userId = request.headers.get('X-User-Id') || url.searchParams.get('uid') || 'paddy';
