@@ -1,4 +1,4 @@
-// falkor-kbt v2.2.0 — KBT Live Trivia Game Engine
+// falkor-kbt v2.3.0 — KBT Live Trivia Game Engine
 // Durable Objects: KBTGame (one per live session, keyed by game code)
 // D1: kbt-integration-db (events, questions, teams, scores)
 // Routes:
@@ -14,7 +14,7 @@
 //   POST /events               — create event
 //   GET  /health               — version + DB check
 
-const VERSION = '2.2.0';
+const VERSION = '2.3.0';
 const WORKER_NAME = 'falkor-kbt';
 const DB_ID = '7c6ee10f-93d4-475e-889d-cade0dbfd076';
 
@@ -664,6 +664,323 @@ window.addEventListener('load',function(){if(document.getElementById('cIn').valu
 }
 
 
+
+// ─── Host Control Panel (Phase 40) ───────────────────────────────────────────
+function buildHostHTML(initialCode) {
+  const code = (initialCode || '').toUpperCase();
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>KBT Host${code ? ' — ' + code : ''}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f0f1a;color:#f0f0ff;min-height:100vh;padding:16px}
+.hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid #2d2d4e;margin-bottom:20px}
+.hdr h1{font-size:18px;font-weight:900;color:#a78bfa}
+.badge{padding:4px 10px;border-radius:20px;font-size:12px;font-weight:700}
+.badge.live{background:#16a34a22;color:#4ade80;border:1px solid #16a34a}
+.badge.lobby{background:#7c3aed22;color:#a78bfa;border:1px solid #7c3aed}
+.card{background:#1a1a30;border:1px solid #2d2d4e;border-radius:14px;padding:20px;margin-bottom:16px}
+.card h2{font-size:14px;text-transform:uppercase;letter-spacing:1px;color:#7c3aed;font-weight:700;margin-bottom:12px}
+.stat-row{display:flex;gap:16px;margin-bottom:4px}
+.stat{flex:1;text-align:center;padding:12px;background:#0f0f1a;border-radius:10px}
+.stat .n{font-size:28px;font-weight:900;color:#a78bfa}
+.stat .l{font-size:11px;color:#8888aa;margin-top:2px}
+input[type=text],select,textarea{width:100%;padding:10px 14px;border:1px solid #2d2d4e;border-radius:10px;background:#0f0f1a;color:#f0f0ff;font-size:14px;outline:none;margin-bottom:10px}
+textarea{min-height:80px;resize:vertical;font-size:13px}
+.btn{width:100%;padding:14px;border:none;border-radius:12px;font-size:16px;font-weight:800;cursor:pointer;margin-bottom:8px;transition:all .1s}
+.btn:active{transform:scale(.97)}
+.btn-g{background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff}
+.btn-b{background:#1a1a30;border:1px solid #2d2d4e;color:#f0f0ff}
+.btn-r{background:#dc262622;border:1px solid #dc2626;color:#f87171}
+.btn-gr{background:#16a34a22;border:1px solid #16a34a;color:#4ade80}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.q-list{max-height:200px;overflow-y:auto}
+.q-item{padding:10px 12px;border-bottom:1px solid #2d2d4e;font-size:13px;display:flex;align-items:flex-start;gap:8px}
+.q-item .qn{font-size:11px;color:#7c3aed;font-weight:700;white-space:nowrap;padding-top:2px}
+.q-item .qt{flex:1;line-height:1.4}
+.q-item .qa{font-size:12px;color:#8888aa;margin-top:2px}
+.cur-q{background:#7c3aed22;border:1px solid #7c3aed;border-radius:10px;padding:16px;margin-bottom:12px}
+.cur-q .label{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#7c3aed;font-weight:700;margin-bottom:8px}
+.cur-q .text{font-size:16px;font-weight:700;line-height:1.4}
+.cur-q .ans{font-size:13px;color:#4ade80;margin-top:6px}
+.lb-row{display:flex;align-items:center;padding:8px 12px;border-bottom:1px solid #2d2d4e}
+.lb-pos{width:24px;font-size:14px;font-weight:900;color:#8888aa}
+.g1{color:#fbbf24}.g2{color:#94a3b8}.g3{color:#b45309}
+.lb-team{flex:1;font-size:14px;font-weight:700}
+.lb-sc{font-size:14px;font-weight:900;color:#a78bfa}
+.share-box{background:#0f0f1a;border:1px solid #2d2d4e;border-radius:8px;padding:10px 14px;font-size:13px;color:#a78bfa;word-break:break-all;margin-bottom:8px}
+.msg{padding:8px 12px;border-radius:8px;font-size:13px;margin-bottom:8px;display:none}
+.msg.ok{background:#16a34a22;color:#4ade80;display:block}
+.msg.err{background:#dc262622;color:#f87171;display:block}
+</style>
+</head>
+<body>
+<div class="hdr">
+  <h1>🐉 KBT Host${code ? ' — ' + code : ''}</h1>
+  <span class="badge lobby" id="statusBadge">LOBBY</span>
+</div>
+
+<!-- Setup: enter code + token if not in URL -->
+<div id="setupCard" class="card" style="${code ? 'display:none' : ''}">
+  <h2>Connect to Game</h2>
+  <input type="text" id="setupCode" placeholder="Game code (e.g. ABCD12)" value="${code}" autocapitalize="characters">
+  <input type="text" id="setupToken" placeholder="Host token (from /game/create response)">
+  <button class="btn btn-g" onclick="connectHost()">CONNECT AS HOST</button>
+  <div class="msg" id="setupMsg"></div>
+</div>
+
+<!-- Stats row -->
+<div class="card" id="statsCard" style="${code ? '' : 'display:none'}">
+  <div class="stat-row">
+    <div class="stat"><div class="n" id="statPlayers">0</div><div class="l">Players</div></div>
+    <div class="stat"><div class="n" id="statQ">0/0</div><div class="l">Question</div></div>
+    <div class="stat"><div class="n" id="statAnswered">0</div><div class="l">Answered</div></div>
+  </div>
+  <div style="margin-top:12px">
+    <div class="share-box" id="joinUrl"></div>
+    <button class="btn btn-b" onclick="copyJoin()">📋 Copy Player Join Link</button>
+  </div>
+</div>
+
+<!-- Load Questions -->
+<div class="card" id="loadQCard" style="${code ? '' : 'display:none'}">
+  <h2>Load Questions</h2>
+  <input type="text" id="genTopic" placeholder="Topic (e.g. Australian Sport, 90s Music)">
+  <select id="genCount">
+    <option value="5">5 questions</option>
+    <option value="10" selected>10 questions</option>
+    <option value="15">15 questions</option>
+    <option value="20">20 questions</option>
+  </select>
+  <button class="btn btn-g" id="genBtn" onclick="generateQs()">🤖 Generate AI Questions</button>
+  <div class="msg" id="genMsg"></div>
+  <div id="qList" class="q-list" style="display:none"></div>
+  <button class="btn btn-gr" id="sendQBtn" style="display:none;margin-top:8px" onclick="sendQsToGame()">✓ Load into Game</button>
+</div>
+
+<!-- Game Controls -->
+<div class="card" id="ctrlCard" style="${code ? '' : 'display:none'}">
+  <h2>Game Controls</h2>
+  <div class="cur-q" id="curQBox" style="display:none">
+    <div class="label" id="curQLabel">Current Question</div>
+    <div class="text" id="curQText"></div>
+    <div class="ans" id="curQAns" style="display:none"></div>
+  </div>
+  <button class="btn btn-gr" id="startBtn" onclick="startGame()">▶ START GAME</button>
+  <button class="btn btn-g" id="nextBtn" onclick="nextQ()" style="display:none">NEXT QUESTION →</button>
+  <button class="btn btn-b" id="revealBtn" onclick="revealAns()" style="display:none">REVEAL ANSWER 👁</button>
+  <button class="btn btn-r" id="endBtn" onclick="endGame()" style="display:none">END GAME</button>
+</div>
+
+<!-- Leaderboard -->
+<div class="card" id="lbCard" style="${code ? '' : 'display:none'}">
+  <h2>Live Leaderboard</h2>
+  <div id="lbList"><div style="color:#8888aa;font-size:13px">No scores yet</div></div>
+</div>
+
+<script>
+var ws=null, myCode='${code}', myToken='', gameState=null, loadedQs=[], answered=0, totalPlayers=0, qIndex=0, totalQs=0;
+
+window.addEventListener('load', function() {
+  var params = new URLSearchParams(location.search);
+  var t = params.get('token');
+  if(t) { myToken = t; }
+  if(myCode && myToken) connectHost();
+  else if(myCode) { document.getElementById('setupCode').value = myCode; document.getElementById('setupCard').style.display = 'block'; }
+  document.getElementById('joinUrl').textContent = location.origin + '/join/' + (myCode||'GAMECODE');
+});
+
+function connectHost() {
+  var c = document.getElementById('setupCode').value.trim().toUpperCase();
+  var t = document.getElementById('setupToken').value.trim() || myToken;
+  if(!c || !t) { showMsg('setupMsg','Code and token required','err'); return; }
+  myCode = c; myToken = t;
+  document.getElementById('joinUrl').textContent = location.origin + '/join/' + myCode;
+  var p = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(p+'//'+location.host+'/game/host/'+myCode+'?role=host&token='+encodeURIComponent(myToken));
+  ws.onopen = function() {
+    document.getElementById('setupCard').style.display = 'none';
+    showCards(true);
+  };
+  ws.onmessage = function(e) { handle(JSON.parse(e.data)); };
+  ws.onerror = function() { showMsg('setupMsg','Connection failed — check code and token','err'); };
+  ws.onclose = function() { document.getElementById('statusBadge').className = 'badge'; document.getElementById('statusBadge').textContent = 'DISCONNECTED'; };
+}
+
+function showCards(v) {
+  ['statsCard','loadQCard','ctrlCard','lbCard'].forEach(function(id) {
+    document.getElementById(id).style.display = v ? '' : 'none';
+  });
+}
+
+function handle(m) {
+  switch(m.type) {
+    case 'connected':
+      gameState = m.gameState || {};
+      updateStatus(gameState.status || 'lobby');
+      updateLb(gameState.leaderboard || []);
+      totalQs = gameState.totalQuestions || 0;
+      qIndex = gameState.currentQuestion || 0;
+      updateQStat();
+      break;
+    case 'player_joined':
+      totalPlayers = m.playerCount || totalPlayers + 1;
+      document.getElementById('statPlayers').textContent = totalPlayers;
+      break;
+    case 'player_left':
+      totalPlayers = m.playerCount || Math.max(0, totalPlayers - 1);
+      document.getElementById('statPlayers').textContent = totalPlayers;
+      break;
+    case 'player_answered':
+      answered = m.answeredCount || answered + 1;
+      document.getElementById('statAnswered').textContent = answered + '/' + m.totalPlayers;
+      break;
+    case 'questions_set':
+      showMsg('genMsg', m.count + ' questions loaded into game!', 'ok');
+      document.getElementById('startBtn').style.display = '';
+      document.getElementById('nextBtn').style.display = 'none';
+      break;
+    case 'game_started':
+      updateStatus('active');
+      document.getElementById('startBtn').style.display = 'none';
+      document.getElementById('nextBtn').style.display = '';
+      document.getElementById('endBtn').style.display = '';
+      break;
+    case 'question':
+      qIndex = m.number; totalQs = m.total;
+      updateQStat();
+      answered = 0;
+      document.getElementById('statAnswered').textContent = '0';
+      showCurQ(m.text, m.category, '', false);
+      document.getElementById('revealBtn').style.display = '';
+      document.getElementById('nextBtn').style.display = 'none';
+      break;
+    case 'answer_revealed':
+      updateLb(m.leaderboard || []);
+      var curQ2 = loadedQs[qIndex-1];
+      if(curQ2) showCurQ(curQ2.question, curQ2.category, m.answer, true);
+      document.getElementById('revealBtn').style.display = 'none';
+      document.getElementById('nextBtn').style.display = '';
+      break;
+    case 'scores_updated':
+      updateLb(m.leaderboard || []);
+      break;
+    case 'game_over':
+      updateStatus('finished');
+      updateLb(m.leaderboard || []);
+      document.getElementById('nextBtn').style.display = 'none';
+      document.getElementById('revealBtn').style.display = 'none';
+      document.getElementById('endBtn').style.display = 'none';
+      break;
+  }
+}
+
+function updateStatus(s) {
+  var b = document.getElementById('statusBadge');
+  if(s === 'active') { b.className = 'badge live'; b.textContent = 'LIVE'; }
+  else if(s === 'finished') { b.className = 'badge'; b.textContent = 'DONE'; b.style.background='#1a1a30'; }
+  else { b.className = 'badge lobby'; b.textContent = 'LOBBY'; }
+}
+
+function updateQStat() {
+  document.getElementById('statQ').textContent = qIndex + '/' + totalQs;
+}
+
+function updateLb(lb) {
+  var M=['🥇','🥈','🥉'], C=['g1','g2','g3'], h='';
+  lb.forEach(function(r,i) {
+    h += '<div class="lb-row"><div class="lb-pos '+(C[i]||'')+'">'+(M[i]||(i+1))+'</div><div class="lb-team">'+r.team+'</div><div class="lb-sc">'+r.score+' pts</div></div>';
+  });
+  document.getElementById('lbList').innerHTML = h || '<div style="color:#8888aa;font-size:13px">No scores yet</div>';
+}
+
+function showCurQ(text, cat, ans, revealed) {
+  var box = document.getElementById('curQBox');
+  box.style.display = '';
+  document.getElementById('curQLabel').textContent = 'Q' + qIndex + '/' + totalQs + (cat ? ' — ' + cat : '');
+  document.getElementById('curQText').textContent = text;
+  var aEl = document.getElementById('curQAns');
+  if(revealed && ans) { aEl.textContent = 'Answer: ' + ans; aEl.style.display = ''; }
+  else { aEl.style.display = 'none'; }
+}
+
+async function generateQs() {
+  var topic = document.getElementById('genTopic').value.trim() || 'general knowledge';
+  var count = parseInt(document.getElementById('genCount').value);
+  document.getElementById('genBtn').disabled = true;
+  document.getElementById('genBtn').textContent = 'Generating...';
+  showMsg('genMsg','Asking the AI... give it a few seconds','ok');
+  try {
+    var resp = await fetch('/questions/generate', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Pin': prompt('Enter host PIN') || ''},
+      body: JSON.stringify({category: topic, count: count, theme: topic})
+    });
+    var d = await resp.json();
+    if(!d.ok) { showMsg('genMsg', d.error || 'Generation failed', 'err'); return; }
+    loadedQs = d.questions;
+    renderQList(loadedQs);
+    showMsg('genMsg', d.count + ' questions ready — click Load into Game', 'ok');
+    document.getElementById('sendQBtn').style.display = '';
+  } catch(e) { showMsg('genMsg', 'Error: '+e.message, 'err'); }
+  finally { document.getElementById('genBtn').disabled=false; document.getElementById('genBtn').textContent='🤖 Generate AI Questions'; }
+}
+
+function renderQList(qs) {
+  var list = document.getElementById('qList');
+  list.style.display = '';
+  list.innerHTML = qs.map(function(q,i) {
+    return '<div class="q-item"><div class="qn">Q'+(i+1)+'</div><div class="qt">'+q.question+'<div class="qa">→ '+q.answer+'</div></div></div>';
+  }).join('');
+}
+
+function sendQsToGame() {
+  if(!ws || !loadedQs.length) return;
+  ws.send(JSON.stringify({type:'set_questions', questions: loadedQs}));
+  totalQs = loadedQs.length;
+  updateQStat();
+}
+
+function startGame() { ws && ws.send(JSON.stringify({type:'start_game'})); }
+function nextQ(tl) { ws && ws.send(JSON.stringify({type:'next_question', timeLimit: tl||30})); }
+function revealAns() { ws && ws.send(JSON.stringify({type:'reveal_answer'})); }
+function endGame() { if(confirm('End game?')) ws && ws.send(JSON.stringify({type:'end_game'})); }
+
+function copyJoin() {
+  var txt = document.getElementById('joinUrl').textContent;
+  navigator.clipboard.writeText(txt).then(function() { alert('Copied: ' + txt); });
+}
+
+function showMsg(id, msg, type) {
+  var el = document.getElementById(id);
+  el.textContent = msg; el.className = 'msg ' + type;
+}
+
+// PIN prompt replacement — use query param if provided
+(function() {
+  var params = new URLSearchParams(location.search);
+  var pin = params.get('pin');
+  if(pin) {
+    var orig = window.fetch;
+    window.fetch = function(url, opts) {
+      opts = opts || {};
+      opts.headers = opts.headers || {};
+      if(!opts.headers['X-Pin']) opts.headers['X-Pin'] = pin;
+      return orig(url, opts);
+    };
+    // Override prompt
+    window.prompt = function(msg, def) { return pin; };
+  }
+})();
+</script>
+</body>
+</html>`;
+}
+
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -897,6 +1214,16 @@ Format: numbered list. Keep each prompt under 30 words.`
       return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
     }
 
+
+
+    // Phase 40 — Host Control Panel
+    if (path === '/host' || path.startsWith('/host/')) {
+      const parts = path.split('/').filter(Boolean);
+      const code = parts.length >= 2 ? parts[1].toUpperCase() : '';
+      return new Response(buildHostHTML(code), {
+        headers: { 'Content-Type': 'text/html;charset=UTF-8', ...CORS_HEADERS }
+      });
+    }
 
     // Phase 39 — Public Player Join Interface
     if (path === '/join' || path.startsWith('/join/')) {
