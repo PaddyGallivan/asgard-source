@@ -1,4 +1,4 @@
-// falkor-workflows v3.8.0 — Scheduled workflows + Jarvis-level autonomy + narrative brief
+// falkor-workflows v3.9.0 — Scheduled workflows + Jarvis-level autonomy + narrative brief
 // Cron: 0 21 * * * (7am AEST), 30 21 * * * (7:30am AEST), * * * * * (every 1min — reactive alerts)
 //
 // Scheduled jobs:
@@ -15,7 +15,7 @@
 //
 // Bindings: DB (asgard-prod), PROJECTS_DB (project-hub-db), RESEND_API_KEY, AGENT_PIN, WEB_SERVICE (falkor-web)
 
-const VERSION = '3.4.0';
+const VERSION = '3.9.0';
 
 // AI_WORKER_PIN getter — asgard-ai uses a separate PIN from AGENT_PIN
 function getAiPin(env) {
@@ -1335,6 +1335,14 @@ async function runScheduled(cron, env) {
     if (cDow === 2 && hour === 0 && minute < 15) {
       await runNRLTipSuggestions(env).then(function(r){ logRun(env, 'nrl_tip_suggestions', r); }).catch(function(){});
     }
+    // Phase 52: AFL tips deadline — Wed 10pm UTC = Thu 8am AEST
+    if (cDow === 3 && hour === 22 && minute < 15) {
+      await runTipsDeadlineCheck(env).then(function(r){ logRun(env, 'tips_deadline_check', r); }).catch(function(){});
+    }
+    // Phase 53: Essendon result reaction — runs every hour to catch game completion
+    if (minute < 5) {
+      await runEssendonResultReaction(env).then(function(r){ logRun(env, 'essendon_result', r); }).catch(function(){});
+    }
     if (hour === 5 && minute >= 30 && minute < 45 && cDow >= 1 && cDow <= 5) {
     var checkinRes = await runAfterSchoolCheckin(env).catch(function(e) { return { ok: false, error: e.message }; });
     await logRun(env, 'after_school_checkin', checkinRes);
@@ -1344,6 +1352,152 @@ async function runScheduled(cron, env) {
 }
 
 // ─── Main Worker ──────────────────────────────────────────────────────────────
+
+
+// ─── Phase 52: AFL Tips Deadline Reminder ────────────────────────────────────
+async function runTipsDeadlineCheck(env) {
+  var year = new Date().getFullYear();
+  try {
+    // 1. Find current AFL round (first round with any incomplete/upcoming games)
+    var targetRound = null;
+    for (var r = 1; r <= 24; r++) {
+      var resp = await fetch(SPORT_URL + '/afl/round?year=' + year + '&round=' + r, {
+        headers: { 'X-Pin': env.AGENT_PIN }
+      }).catch(function() { return null; });
+      if (!resp || !resp.ok) break;
+      var data = await resp.json().catch(function() { return {}; });
+      var games = Array.isArray(data) ? data : (data.games || []);
+      if (!games.length) break;
+      var hasUpcoming = games.filter(function(g) { return g.status === 'upcoming'; });
+      if (hasUpcoming.length > 0) { targetRound = r; break; }
+      var allFinal = games.every(function(g) { return g.status === 'final'; });
+      if (!allFinal) { targetRound = r; break; }
+    }
+    if (!targetRound) return { sent: false, reason: 'Could not detect current round' };
+
+    // 2. Rate limit: once per round
+    var alertKey = 'tips_deadline_r' + targetRound + '_' + year;
+    if (await checkAlertFired(env, alertKey, 6 * 24 * 60 * 60 * 1000)) {
+      return { sent: false, reason: 'Already sent deadline reminder for round ' + targetRound };
+    }
+
+    // 3. Check if Paddy has already submitted tips this round
+    var compResp = await fetch(SPORT_URL + '/afl/comp?year=' + year + '&round=' + targetRound, {
+      headers: { 'X-Pin': env.AGENT_PIN }
+    }).catch(function() { return null; });
+    if (compResp && compResp.ok) {
+      var compData = await compResp.json().catch(function() { return {}; });
+      var players = compData.players || {};
+      var paddyTips = players['Paddy'] || players['paddy'];
+      if (paddyTips && paddyTips.tips && paddyTips.tips.length > 0) {
+        return { sent: false, reason: 'Paddy has already submitted Round ' + targetRound + ' tips' };
+      }
+    }
+
+    // 4. Get the round fixtures so we can name the Essendon game if present
+    var roundGames = [];
+    try {
+      var rgResp = await fetch(SPORT_URL + '/afl/round?year=' + year + '&round=' + targetRound, {
+        headers: { 'X-Pin': env.AGENT_PIN }
+      });
+      var rgData = await rgResp.json();
+      roundGames = Array.isArray(rgData) ? rgData : (rgData.games || []);
+    } catch(e) {}
+
+    var essendonGame = roundGames.find(function(g) {
+      return (g.home||'').toLowerCase().includes('essendon') || (g.away||'').toLowerCase().includes('essendon') ||
+             (g.hteam||'').toLowerCase().includes('essendon') || (g.ateam||'').toLowerCase().includes('essendon');
+    });
+    var essendonNote = essendonGame
+      ? ' Essendon are playing ' + (((essendonGame.home||essendonGame.hteam||'').toLowerCase().includes('essendon')) ? (essendonGame.away||essendonGame.ateam||'') : (essendonGame.home||essendonGame.hteam||'')) + ' this round.'
+      : '';
+
+    var msg = 'Reminder: you have not submitted your Round ' + targetRound + ' AFL tips yet. First game locks soon — get them in at falkor.luckdragon.io.' + essendonNote;
+
+    await markAlertFired(env, alertKey);
+    var tgSent = await sendTelegram(env, msg);
+    return { sent: tgSent, round: targetRound, essendon: !!essendonGame };
+  } catch(e) {
+    return { sent: false, error: e.message };
+  }
+}
+
+// ─── Phase 53: Essendon Result Reaction ──────────────────────────────────────
+async function runEssendonResultReaction(env) {
+  var year = new Date().getFullYear();
+  try {
+    // 1. Find the most recent completed round
+    var targetRound = null;
+    var essendonGame = null;
+    for (var r = 24; r >= 1; r--) {
+      var resp = await fetch(SPORT_URL + '/afl/round?year=' + year + '&round=' + r, {
+        headers: { 'X-Pin': env.AGENT_PIN }
+      }).catch(function() { return null; });
+      if (!resp || !resp.ok) continue;
+      var data = await resp.json().catch(function() { return {}; });
+      var games = Array.isArray(data) ? data : (data.games || []);
+      if (!games.length) continue;
+      // Look for a just-finished Essendon game
+      for (var i = 0; i < games.length; i++) {
+        var g = games[i];
+        if (g.status !== 'final') continue;
+        var ht = (g.home || g.hteam || '').toLowerCase();
+        var at = (g.away || g.ateam || '').toLowerCase();
+        if (!ht.includes('essendon') && !at.includes('essendon') && !ht.includes('bombers') && !at.includes('bombers')) continue;
+        var reactionKey = 'essendon_result_r' + r + '_g' + (g.id || i) + '_' + year;
+        if (await checkAlertFired(env, reactionKey, 30 * 24 * 60 * 60 * 1000)) continue; // already reacted
+        targetRound = r;
+        essendonGame = g;
+        // Mark immediately to avoid double-fire
+        await markAlertFired(env, reactionKey);
+        break;
+      }
+      if (essendonGame) break;
+      // If any game in this round is still upcoming/live, stop searching earlier rounds
+      var hasActive = games.some(function(g) { return g.status === 'upcoming' || g.status === 'live'; });
+      if (hasActive) break;
+    }
+
+    if (!essendonGame) return { sent: false, reason: 'No new Essendon result to react to' };
+
+    var g = essendonGame;
+    var homeTeam = g.home || g.hteam || '';
+    var awayTeam = g.away || g.ateam || '';
+    var homeScore = g.homeScore || g.hscore || 0;
+    var awayScore = g.awayScore || g.ascore || 0;
+    var isHome = homeTeam.toLowerCase().includes('essendon') || homeTeam.toLowerCase().includes('bombers');
+    var essendonScore = isHome ? homeScore : awayScore;
+    var oppScore = isHome ? awayScore : homeScore;
+    var opponent = isHome ? awayTeam : homeTeam;
+    var won = essendonScore > oppScore;
+    var margin = Math.abs(essendonScore - oppScore);
+
+    var aiPrompt = 'You are Falkor — Jarvis-style AI. Paddy supports Essendon (the Bombers) in the AFL. They just ' + (won ? 'won' : 'lost') + ' against ' + opponent + ' by ' + margin + ' points (final score ' + essendonScore + ' to ' + oppScore + '). Write a single punchy Jarvis-style reaction (1-2 sentences max, no emojis, no bullet points). ' + (won ? 'Celebratory but dry wit.' : 'Commiserating but darkly funny — acknowledge the loss without being too brutal.');
+
+    var reaction = '';
+    var aiResp = await fetch(AI_URL + '/chat/smart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Pin': getAiPin(env) },
+      body: JSON.stringify({ message: aiPrompt, model: 'groq-fast', max_tokens: 100 })
+    }).catch(function() { return null; });
+    if (aiResp && aiResp.ok) {
+      var aiData = await aiResp.json().catch(function() { return {}; });
+      reaction = (aiData.reply || '').trim();
+    }
+
+    if (!reaction) {
+      reaction = won
+        ? 'Essendon ' + essendonScore + ' def ' + opponent + ' ' + oppScore + '. The Bombers get up by ' + margin + '.'
+        : 'Essendon go down to ' + opponent + ', ' + essendonScore + '-' + oppScore + '. Margin: ' + margin + '.';
+    }
+
+    var msg = 'Essendon R' + targetRound + ' result: ' + (won ? 'WIN' : 'LOSS') + ' vs ' + opponent + ' (' + essendonScore + '-' + oppScore + ')\n\n' + reaction;
+    var tgSent = await sendTelegram(env, msg);
+    return { sent: tgSent, round: targetRound, won: won, margin: margin, opponent: opponent };
+  } catch(e) {
+    return { sent: false, error: e.message };
+  }
+}
 
 // ─── Phase 51: NRL Smart Tip Suggestions ─────────────────────────────────────
 async function runNRLTipSuggestions(env) {
@@ -1551,6 +1705,8 @@ async scheduled(event, env, ctx) {
           case 'daily_summary':    result = await runDailySummary(env); break;
           case 'tip_suggestions':  result = await runTipSuggestions(env); break;
           case 'nrl_tip_suggestions': result = await runNRLTipSuggestions(env); break;
+          case 'tips_deadline_check': result = await runTipsDeadlineCheck(env); break;
+          case 'essendon_result': result = await runEssendonResultReaction(env); break;
           case 'smart_alerts':     result = await runSmartAlerts(env); break;
           case 'racing_results':   result = await runRacingResults(env); break;
           case 'racing_weekly':    result = await runRacingWeeklySummary(env); break;
