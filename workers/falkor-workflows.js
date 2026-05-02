@@ -1,4 +1,4 @@
-// falkor-workflows v3.7.0 — Scheduled workflows + Jarvis-level autonomy + narrative brief
+// falkor-workflows v3.11.0 — Scheduled workflows + Jarvis-level autonomy + narrative brief
 // Cron: 0 21 * * * (7am AEST), 30 21 * * * (7:30am AEST), * * * * * (every 1min — reactive alerts)
 //
 // Scheduled jobs:
@@ -15,7 +15,7 @@
 //
 // Bindings: DB (asgard-prod), PROJECTS_DB (project-hub-db), RESEND_API_KEY, AGENT_PIN, WEB_SERVICE (falkor-web)
 
-const VERSION = '3.4.0';
+const VERSION = '3.11.0';
 
 // AI_WORKER_PIN getter — asgard-ai uses a separate PIN from AGENT_PIN
 function getAiPin(env) {
@@ -1309,6 +1309,11 @@ async function runScheduled(cron, env) {
     var wSum = await runWeeklySummary(env).catch(function(e) { return { ok: false, error: e.message }; });
     await logRun(env, 'weekly_summary', wSum);
   }
+  // Phase 57: NRL weekly email — Thursday 10pm UTC = Friday 8am AEST
+  if (dayOfWeek === 4 && hour === 22 && minute < 15) {
+    var nrlSum = await runNRLWeeklySummary(env).catch(function(e) { return { ok: false, error: e.message }; });
+    await logRun(env, 'nrl_weekly_summary', nrlSum);
+  }
 
   // Task executor runs every tick — picks up 1 pending task
   await runTaskExecutor(env).catch(function(e) { console.warn('task executor:', e.message); });
@@ -1332,6 +1337,25 @@ async function runScheduled(cron, env) {
   if (cDow === 4 && hour === 0 && minute < 15) {
       await runTipSuggestions(env).then(function(r){ logRun(env, 'tip_suggestions', r); }).catch(function(){});
     }
+    if (cDow === 2 && hour === 0 && minute < 15) {
+      await runNRLTipSuggestions(env).then(function(r){ logRun(env, 'nrl_tip_suggestions', r); }).catch(function(){});
+    }
+    // Phase 52: AFL tips deadline — Wed 10pm UTC = Thu 8am AEST
+    if (cDow === 3 && hour === 22 && minute < 15) {
+      await runTipsDeadlineCheck(env).then(function(r){ logRun(env, 'tips_deadline_check', r); }).catch(function(){});
+    }
+    // Phase 53: Essendon result reaction — runs every hour to catch game completion
+    if (minute < 5) {
+      await runEssendonResultReaction(env).then(function(r){ logRun(env, 'essendon_result', r); }).catch(function(){});
+    }
+    // Phase 54A: Racing comp Saturday recap — Fri 10pm UTC = Sat 8am AEST
+    if (cDow === 5 && hour === 22 && minute < 15) {
+      await runRacingCompRecap(env).then(function(r){ logRun(env, 'racing_comp_recap', r); }).catch(function(){});
+    }
+    // Phase 54B: NRL tips deadline — Mon 10pm UTC = Tue 8am AEST
+    if (cDow === 1 && hour === 22 && minute < 15) {
+      await runNRLTipsDeadlineCheck(env).then(function(r){ logRun(env, 'nrl_tips_deadline_check', r); }).catch(function(){});
+    }
     if (hour === 5 && minute >= 30 && minute < 45 && cDow >= 1 && cDow <= 5) {
     var checkinRes = await runAfterSchoolCheckin(env).catch(function(e) { return { ok: false, error: e.message }; });
     await logRun(env, 'after_school_checkin', checkinRes);
@@ -1341,6 +1365,447 @@ async function runScheduled(cron, env) {
 }
 
 // ─── Main Worker ──────────────────────────────────────────────────────────────
+
+
+
+// ─── Phase 54A: Racing Comp Saturday Recap ────────────────────────────────────
+async function runRacingCompRecap(env) {
+  try {
+    var alertKey = 'racing_comp_recap_' + new Date().toISOString().slice(0, 10);
+    if (await checkAlertFired(env, alertKey, 20 * 60 * 60 * 1000)) {
+      return { sent: false, reason: 'Already sent racing recap today' };
+    }
+
+    // Get leaderboard
+    var lbResp = await fetch(SPORT_URL + '/racing/leaderboard', {
+      headers: { 'X-Pin': env.AGENT_PIN }
+    }).catch(function() { return null; });
+    if (!lbResp || !lbResp.ok) return { sent: false, reason: 'Could not fetch leaderboard' };
+    var lbData = await lbResp.json().catch(function() { return {}; });
+    var board = lbData.leaderboard || [];
+    if (!board.length) return { sent: false, reason: 'No racing tips submitted yet' };
+
+    // Get today's comp tips
+    var today = new Date().toISOString().slice(0, 10);
+    var compResp = await fetch(SPORT_URL + '/racing/comp?date=' + today, {
+      headers: { 'X-Pin': env.AGENT_PIN }
+    }).catch(function() { return null; });
+    var todayTips = [];
+    if (compResp && compResp.ok) {
+      var compData = await compResp.json().catch(function() { return {}; });
+      todayTips = compData.tips || [];
+    }
+
+    var boardStr = board.slice(0, 5).map(function(p, i) {
+      return (i + 1) + '. ' + p.player + ' — ' + p.wins + ' wins from ' + p.total + ' tips';
+    }).join('\n');
+
+    var todayStr = todayTips.length > 0
+      ? '\nToday\'s picks: ' + todayTips.map(function(t) { return t.player + ' → ' + t.selection + ' (' + t.race_name + ')'; }).join(', ')
+      : '\nNo tips submitted for today yet.';
+
+    var msg = 'Racing comp standings:\n\n' + boardStr + '\n' + todayStr + '\n\nSubmit picks: falkor.luckdragon.io';
+
+    await markAlertFired(env, alertKey);
+    var tgSent = await sendTelegram(env, msg);
+    return { sent: tgSent, leaders: board.length, today_tips: todayTips.length };
+  } catch(e) {
+    return { sent: false, error: e.message };
+  }
+}
+
+// ─── Phase 54B: NRL Tips Deadline Reminder ───────────────────────────────────
+async function runNRLTipsDeadlineCheck(env) {
+  var season = new Date().getFullYear();
+  try {
+    // 1. Find the current NRL round (first fully upcoming round)
+    var targetRound = null;
+    for (var r = 1; r <= 27; r++) {
+      var resp = await fetch(SPORT_URL + '/nrl/draw?season=' + season + '&round=' + r, {
+        headers: { 'X-Pin': env.AGENT_PIN }
+      }).catch(function() { return null; });
+      if (!resp || !resp.ok) break;
+      var data = await resp.json().catch(function() { return {}; });
+      var fixtures = data.fixtures || [];
+      if (!fixtures.length) break;
+      var hasUpcoming = fixtures.some(function(f) { return f.matchState === 'Upcoming'; });
+      var hasStarted = fixtures.some(function(f) { return f.matchState !== 'Upcoming'; });
+      if (hasUpcoming) { targetRound = r; break; }
+    }
+    if (!targetRound) return { sent: false, reason: 'Could not detect current NRL round' };
+
+    // 2. Rate limit: once per round
+    var alertKey = 'nrl_tips_deadline_r' + targetRound + '_' + season;
+    if (await checkAlertFired(env, alertKey, 6 * 24 * 60 * 60 * 1000)) {
+      return { sent: false, reason: 'Already sent NRL deadline reminder for round ' + targetRound };
+    }
+
+    // 3. Check if Paddy has submitted NRL tips this round
+    var tipsResp = await fetch(SPORT_URL + '/nrl/tips?season=' + season + '&round=' + targetRound, {
+      headers: { 'X-Pin': env.AGENT_PIN }
+    }).catch(function() { return null; });
+    if (tipsResp && tipsResp.ok) {
+      var tipsData = await tipsResp.json().catch(function() { return {}; });
+      var paddyTips = (tipsData.tips || []).filter(function(t) {
+        return (t.player || '').toLowerCase() === 'paddy';
+      });
+      if (paddyTips.length > 0) {
+        return { sent: false, reason: 'Paddy has already submitted NRL Round ' + targetRound + ' tips' };
+      }
+    }
+
+    var msg = 'Reminder: NRL Round ' + targetRound + ' tips not submitted yet. Get them in before the first game locks. Submit: falkor.luckdragon.io';
+    await markAlertFired(env, alertKey);
+    var tgSent = await sendTelegram(env, msg);
+    return { sent: tgSent, round: targetRound };
+  } catch(e) {
+    return { sent: false, error: e.message };
+  }
+}
+
+
+// ─── Phase 57: NRL Weekly Summary Email ──────────────────────────────────────
+async function runNRLWeeklySummary(env) {
+  var season = new Date().getFullYear();
+
+  // 1. Find current/most recent NRL round
+  var targetRound = null;
+  var roundFixtures = [];
+  for (var r = 27; r >= 1; r--) {
+    try {
+      var resp = await fetch(SPORT_URL + '/nrl/draw?season=' + season + '&round=' + r, {
+        headers: { 'X-Pin': env.AGENT_PIN }
+      });
+      if (!resp.ok) continue;
+      var data = await resp.json();
+      var fixtures = data.fixtures || [];
+      if (!fixtures.length) continue;
+      var hasPlayed = fixtures.some(function(f) { return f.matchState === 'Final' || f.matchState === 'FullTime'; });
+      if (hasPlayed) { targetRound = r; roundFixtures = fixtures; break; }
+    } catch(e) { continue; }
+  }
+  if (!targetRound) return { ok: false, reason: 'No completed NRL round found' };
+
+  // 2. Get tipping summary
+  var tippingData = null;
+  try {
+    var tResp = await fetch(SPORT_URL + '/nrl/tipping?season=' + season, {
+      headers: { 'X-Pin': env.AGENT_PIN }
+    });
+    if (tResp.ok) tippingData = await tResp.json();
+  } catch(e) {}
+
+  // 3. Get NRL ladder
+  var ladderData = null;
+  try {
+    var lResp = await fetch(SPORT_URL + '/nrl/ladder', { headers: { 'X-Pin': env.AGENT_PIN } });
+    if (lResp.ok) ladderData = await lResp.json();
+  } catch(e) {}
+
+  var ladder = (ladderData && ladderData.ladder) ? ladderData.ladder : [];
+  var season_standings = (tippingData && tippingData.leaderboard && tippingData.leaderboard.leaderboard) ? tippingData.leaderboard.leaderboard : [];
+
+  // 4. Build HTML email
+  var finishedGames = roundFixtures.filter(function(f) { return f.matchState === 'Final' || f.matchState === 'FullTime'; });
+  var upcomingGames = roundFixtures.filter(function(f) { return f.matchState === 'Upcoming'; });
+
+  var resultsRows = finishedGames.map(function(g) {
+    var homeScore = g.homeScore || g.homeTeamScore || 0;
+    var awayScore = g.awayScore || g.awayTeamScore || 0;
+    var homeWon = homeScore > awayScore;
+    return '<tr><td style="padding:6px 12px;font-weight:' + (homeWon?'700':'400') + '">' + g.homeTeam + '</td>' +
+           '<td style="padding:6px 12px;text-align:center;color:#72728a">' + homeScore + ' – ' + awayScore + '</td>' +
+           '<td style="padding:6px 12px;font-weight:' + (!homeWon?'700':'400') + '">' + g.awayTeam + '</td></tr>';
+  }).join('');
+
+  var upcomingRows = upcomingGames.slice(0, 6).map(function(g) {
+    return '<tr><td style="padding:6px 12px">' + g.homeTeam + '</td>' +
+           '<td style="padding:6px 12px;text-align:center;color:#72728a">vs</td>' +
+           '<td style="padding:6px 12px">' + g.awayTeam + '</td>' +
+           '<td style="padding:6px 4px;font-size:12px;color:#72728a">' + (g.venue || '') + '</td></tr>';
+  }).join('');
+
+  var tippingRows = season_standings.map(function(p, i) {
+    var medal = i === 0 ? ' (1st)' : i === 1 ? ' (2nd)' : i === 2 ? ' (3rd)' : '';
+    return '<tr style="background:' + (i%2===0?'#f9f9fc':'#fff') + '"><td style="padding:8px 12px">' + (i+1) + medal + '</td>' +
+           '<td style="padding:8px 12px;font-weight:' + (i===0?'700':'400') + '">' + p.player + '</td>' +
+           '<td style="padding:8px 12px;text-align:center;color:#22c55e;font-weight:600">' + (p.correct||p.correct_tips||0) + '</td>' +
+           '<td style="padding:8px 12px;text-align:center">' + (p.total||p.total_tips||0) + '</td>' +
+           '<td style="padding:8px 12px;text-align:center;color:#72728a">' + (p.pct||0) + '%</td></tr>';
+  }).join('');
+
+  var ladderRows = ladder.slice(0, 8).map(function(t, i) {
+    return '<tr style="background:' + (i%2===0?'#f9f9fc':'#fff') + '"><td style="padding:6px 12px">' + (i+1) + '</td>' +
+           '<td style="padding:6px 12px;font-weight:' + (i<4?'600':'400') + '">' + (t.team||t.name||'?') + '</td>' +
+           '<td style="padding:6px 12px;text-align:center">' + (t.wins||0) + '</td>' +
+           '<td style="padding:6px 12px;text-align:center">' + (t.losses||0) + '</td>' +
+           '<td style="padding:6px 12px;text-align:center;color:#72728a">' + (t.points||t.pts||0) + ' pts</td></tr>';
+  }).join('');
+
+  var nextRound = targetRound + 1;
+  var html = '<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;background:#f4f4f8;margin:0;padding:24px">' +
+    '<div style="max-width:600px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08)">' +
+    '<div style="background:linear-gradient(135deg,#1a1a2e,#e8302a);padding:28px 32px;color:#fff">' +
+    '<div style="font-size:28px;margin-bottom:4px">Falkor</div>' +
+    '<h1 style="margin:0;font-size:22px;font-weight:800">NRL Weekly — Round ' + targetRound + '</h1>' +
+    '<p style="margin:4px 0 0;opacity:.8">Season ' + season + '</p></div>' +
+    '<div style="padding:28px 32px">' +
+    (tippingRows ? '<h2 style="font-size:16px;font-weight:700;margin:0 0 12px">Tips Leaderboard</h2>' +
+    '<table style="width:100%;border-collapse:collapse;margin-bottom:28px"><thead><tr style="background:#f4f4f8">' +
+    '<th style="padding:8px 12px;text-align:left;font-size:12px;color:#72728a">#</th>' +
+    '<th style="padding:8px 12px;text-align:left;font-size:12px;color:#72728a">Player</th>' +
+    '<th style="padding:8px 12px;text-align:center;font-size:12px;color:#72728a">Correct</th>' +
+    '<th style="padding:8px 12px;text-align:center;font-size:12px;color:#72728a">Total</th>' +
+    '<th style="padding:8px 12px;text-align:center;font-size:12px;color:#72728a">%</th></tr></thead>' +
+    '<tbody>' + tippingRows + '</tbody></table>' : '') +
+    (resultsRows ? '<h2 style="font-size:16px;font-weight:700;margin:0 0 12px">Round ' + targetRound + ' Results</h2>' +
+    '<table style="width:100%;border-collapse:collapse;margin-bottom:28px"><tbody>' + resultsRows + '</tbody></table>' : '') +
+    (ladderRows ? '<h2 style="font-size:16px;font-weight:700;margin:0 0 12px">NRL Ladder (Top 8)</h2>' +
+    '<table style="width:100%;border-collapse:collapse;margin-bottom:28px"><thead><tr style="background:#f4f4f8">' +
+    '<th style="padding:6px 12px;text-align:left;font-size:12px;color:#72728a">#</th>' +
+    '<th style="padding:6px 12px;text-align:left;font-size:12px;color:#72728a">Team</th>' +
+    '<th style="padding:6px 12px;text-align:center;font-size:12px;color:#72728a">W</th>' +
+    '<th style="padding:6px 12px;text-align:center;font-size:12px;color:#72728a">L</th>' +
+    '<th style="padding:6px 12px;text-align:center;font-size:12px;color:#72728a">Pts</th></tr></thead>' +
+    '<tbody>' + ladderRows + '</tbody></table>' : '') +
+    (upcomingRows ? '<h2 style="font-size:16px;font-weight:700;margin:0 0 12px">Round ' + nextRound + ' Fixtures</h2>' +
+    '<table style="width:100%;border-collapse:collapse;margin-bottom:28px"><tbody>' + upcomingRows + '</tbody></table>' : '') +
+    '<div style="background:#f4f4f8;border-radius:10px;padding:16px 20px">' +
+    '<p style="margin:0;font-size:13px;color:#72728a">Submit Round ' + nextRound + ' tips: <a href="https://falkor.luckdragon.io/?intent=nrl" style="color:#e8302a;font-weight:600">falkor.luckdragon.io</a></p></div>' +
+    '</div><div style="padding:16px 32px;background:#f4f4f8;text-align:center"><p style="margin:0;font-size:12px;color:#72728a">Sent by Falkor</p></div></div></body></html>';
+
+  await sendEmail(env, {
+    to: PADDY_EMAIL,
+    subject: 'Falkor NRL Weekly — Round ' + targetRound + ' wrap-up',
+    html: html
+  });
+
+  return { ok: true, round: targetRound, results: finishedGames.length, standings: season_standings.length };
+}
+
+// ─── Phase 52: AFL Tips Deadline Reminder ────────────────────────────────────
+async function runTipsDeadlineCheck(env) {
+  var year = new Date().getFullYear();
+  try {
+    // 1. Find current AFL round (first round with any incomplete/upcoming games)
+    var targetRound = null;
+    for (var r = 1; r <= 24; r++) {
+      var resp = await fetch(SPORT_URL + '/afl/round?year=' + year + '&round=' + r, {
+        headers: { 'X-Pin': env.AGENT_PIN }
+      }).catch(function() { return null; });
+      if (!resp || !resp.ok) break;
+      var data = await resp.json().catch(function() { return {}; });
+      var games = Array.isArray(data) ? data : (data.games || []);
+      if (!games.length) break;
+      var hasUpcoming = games.filter(function(g) { return g.status === 'upcoming'; });
+      if (hasUpcoming.length > 0) { targetRound = r; break; }
+      var allFinal = games.every(function(g) { return g.status === 'final'; });
+      if (!allFinal) { targetRound = r; break; }
+    }
+    if (!targetRound) return { sent: false, reason: 'Could not detect current round' };
+
+    // 2. Rate limit: once per round
+    var alertKey = 'tips_deadline_r' + targetRound + '_' + year;
+    if (await checkAlertFired(env, alertKey, 6 * 24 * 60 * 60 * 1000)) {
+      return { sent: false, reason: 'Already sent deadline reminder for round ' + targetRound };
+    }
+
+    // 3. Check if Paddy has already submitted tips this round
+    var compResp = await fetch(SPORT_URL + '/afl/comp?year=' + year + '&round=' + targetRound, {
+      headers: { 'X-Pin': env.AGENT_PIN }
+    }).catch(function() { return null; });
+    if (compResp && compResp.ok) {
+      var compData = await compResp.json().catch(function() { return {}; });
+      var players = compData.players || {};
+      var paddyTips = players['Paddy'] || players['paddy'];
+      if (paddyTips && paddyTips.tips && paddyTips.tips.length > 0) {
+        return { sent: false, reason: 'Paddy has already submitted Round ' + targetRound + ' tips' };
+      }
+    }
+
+    // 4. Get the round fixtures so we can name the Essendon game if present
+    var roundGames = [];
+    try {
+      var rgResp = await fetch(SPORT_URL + '/afl/round?year=' + year + '&round=' + targetRound, {
+        headers: { 'X-Pin': env.AGENT_PIN }
+      });
+      var rgData = await rgResp.json();
+      roundGames = Array.isArray(rgData) ? rgData : (rgData.games || []);
+    } catch(e) {}
+
+    var essendonGame = roundGames.find(function(g) {
+      return (g.home||'').toLowerCase().includes('essendon') || (g.away||'').toLowerCase().includes('essendon') ||
+             (g.hteam||'').toLowerCase().includes('essendon') || (g.ateam||'').toLowerCase().includes('essendon');
+    });
+    var essendonNote = essendonGame
+      ? ' Essendon are playing ' + (((essendonGame.home||essendonGame.hteam||'').toLowerCase().includes('essendon')) ? (essendonGame.away||essendonGame.ateam||'') : (essendonGame.home||essendonGame.hteam||'')) + ' this round.'
+      : '';
+
+    var msg = 'Reminder: you have not submitted your Round ' + targetRound + ' AFL tips yet. First game locks soon — get them in at falkor.luckdragon.io.' + essendonNote;
+
+    await markAlertFired(env, alertKey);
+    var tgSent = await sendTelegram(env, msg);
+    return { sent: tgSent, round: targetRound, essendon: !!essendonGame };
+  } catch(e) {
+    return { sent: false, error: e.message };
+  }
+}
+
+// ─── Phase 53: Essendon Result Reaction ──────────────────────────────────────
+async function runEssendonResultReaction(env) {
+  var year = new Date().getFullYear();
+  try {
+    // 1. Find the most recent completed round
+    var targetRound = null;
+    var essendonGame = null;
+    for (var r = 24; r >= 1; r--) {
+      var resp = await fetch(SPORT_URL + '/afl/round?year=' + year + '&round=' + r, {
+        headers: { 'X-Pin': env.AGENT_PIN }
+      }).catch(function() { return null; });
+      if (!resp || !resp.ok) continue;
+      var data = await resp.json().catch(function() { return {}; });
+      var games = Array.isArray(data) ? data : (data.games || []);
+      if (!games.length) continue;
+      // Look for a just-finished Essendon game
+      for (var i = 0; i < games.length; i++) {
+        var g = games[i];
+        if (g.status !== 'final') continue;
+        var ht = (g.home || g.hteam || '').toLowerCase();
+        var at = (g.away || g.ateam || '').toLowerCase();
+        if (!ht.includes('essendon') && !at.includes('essendon') && !ht.includes('bombers') && !at.includes('bombers')) continue;
+        var reactionKey = 'essendon_result_r' + r + '_g' + (g.id || i) + '_' + year;
+        if (await checkAlertFired(env, reactionKey, 30 * 24 * 60 * 60 * 1000)) continue; // already reacted
+        targetRound = r;
+        essendonGame = g;
+        // Mark immediately to avoid double-fire
+        await markAlertFired(env, reactionKey);
+        break;
+      }
+      if (essendonGame) break;
+      // If any game in this round is still upcoming/live, stop searching earlier rounds
+      var hasActive = games.some(function(g) { return g.status === 'upcoming' || g.status === 'live'; });
+      if (hasActive) break;
+    }
+
+    if (!essendonGame) return { sent: false, reason: 'No new Essendon result to react to' };
+
+    var g = essendonGame;
+    var homeTeam = g.home || g.hteam || '';
+    var awayTeam = g.away || g.ateam || '';
+    var homeScore = g.homeScore || g.hscore || 0;
+    var awayScore = g.awayScore || g.ascore || 0;
+    var isHome = homeTeam.toLowerCase().includes('essendon') || homeTeam.toLowerCase().includes('bombers');
+    var essendonScore = isHome ? homeScore : awayScore;
+    var oppScore = isHome ? awayScore : homeScore;
+    var opponent = isHome ? awayTeam : homeTeam;
+    var won = essendonScore > oppScore;
+    var margin = Math.abs(essendonScore - oppScore);
+
+    var aiPrompt = 'You are Falkor — Jarvis-style AI. Paddy supports Essendon (the Bombers) in the AFL. They just ' + (won ? 'won' : 'lost') + ' against ' + opponent + ' by ' + margin + ' points (final score ' + essendonScore + ' to ' + oppScore + '). Write a single punchy Jarvis-style reaction (1-2 sentences max, no emojis, no bullet points). ' + (won ? 'Celebratory but dry wit.' : 'Commiserating but darkly funny — acknowledge the loss without being too brutal.');
+
+    var reaction = '';
+    var aiResp = await fetch(AI_URL + '/chat/smart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Pin': getAiPin(env) },
+      body: JSON.stringify({ message: aiPrompt, model: 'groq-fast', max_tokens: 100 })
+    }).catch(function() { return null; });
+    if (aiResp && aiResp.ok) {
+      var aiData = await aiResp.json().catch(function() { return {}; });
+      reaction = (aiData.reply || '').trim();
+    }
+
+    if (!reaction) {
+      reaction = won
+        ? 'Essendon ' + essendonScore + ' def ' + opponent + ' ' + oppScore + '. The Bombers get up by ' + margin + '.'
+        : 'Essendon go down to ' + opponent + ', ' + essendonScore + '-' + oppScore + '. Margin: ' + margin + '.';
+    }
+
+    var msg = 'Essendon R' + targetRound + ' result: ' + (won ? 'WIN' : 'LOSS') + ' vs ' + opponent + ' (' + essendonScore + '-' + oppScore + ')\n\n' + reaction;
+    var tgSent = await sendTelegram(env, msg);
+    return { sent: tgSent, round: targetRound, won: won, margin: margin, opponent: opponent };
+  } catch(e) {
+    return { sent: false, error: e.message };
+  }
+}
+
+// ─── Phase 51: NRL Smart Tip Suggestions ─────────────────────────────────────
+async function runNRLTipSuggestions(env) {
+  var season = new Date().getFullYear();
+  try {
+    // 1. Find the next fully upcoming NRL round (try rounds 1-27)
+    var targetRound = null;
+    var targetFixtures = [];
+    for (var r = 1; r <= 27; r++) {
+      var resp = await fetch(SPORT_URL + '/nrl/draw?season=' + season + '&round=' + r, {
+        headers: { 'X-Pin': env.AGENT_PIN }
+      }).catch(function() { return null; });
+      if (!resp || !resp.ok) break;
+      var data = await resp.json().catch(function() { return {}; });
+      var fixtures = data.fixtures || [];
+      if (!fixtures.length) break;
+      // Check if all games are upcoming
+      var anyStarted = fixtures.filter(function(f) { return f.matchState !== 'Upcoming'; });
+      var allUpcoming = fixtures.filter(function(f) { return f.matchState === 'Upcoming'; });
+      if (anyStarted.length === 0 && allUpcoming.length > 0) {
+        targetRound = r;
+        targetFixtures = allUpcoming;
+        break;
+      }
+    }
+    if (!targetRound) return { sent: false, reason: 'No fully upcoming NRL round found' };
+
+    // 2. Rate-limit: once per round
+    var alertKey = 'nrl_tips_r' + targetRound + '_' + season;
+    if (await checkAlertFired(env, alertKey, 6 * 24 * 60 * 60 * 1000)) {
+      return { sent: false, reason: 'Already sent for NRL round ' + targetRound };
+    }
+
+    // 3. Get NRL ladder for context
+    var ladderResp = await fetch(SPORT_URL + '/nrl/ladder', {
+      headers: { 'X-Pin': env.AGENT_PIN }
+    }).catch(function() { return null; });
+    var ladderData = (ladderResp && ladderResp.ok) ? await ladderResp.json().catch(function() { return {}; }) : {};
+    var ladder = ladderData.ladder || [];
+    var ladderStr = ladder.slice(0, 8).map(function(t, i) {
+      return (i+1) + '. ' + (t.team || t.name || '?') + ' (' + (t.wins||0) + 'W-' + (t.losses||0) + 'L)';
+    }).join(', ');
+
+    // 4. Build game list with venue
+    var gameList = targetFixtures.map(function(f) {
+      return f.homeTeam + ' v ' + f.awayTeam + (f.venue ? ' at ' + f.venue : '');
+    }).join('; ');
+
+    // 5. AI tip generation
+    var aiPrompt = 'You are Falkor, the NRL tipping assistant. NRL Round ' + targetRound + ' ' + season + ' fixtures. Generate tip recommendations — for each game, state the tip and one punchy reason (form, venue, ladder position, recent results). Max 10 words per game. Note if Panthers or Warriors are playing (they are top of ladder). Current ladder top 8: ' + ladderStr + '. Fixtures: ' + gameList + '. No emojis, write as plain list with one game per line.';
+
+    var narrative = '';
+    var aiResp = await fetch(AI_URL + '/chat/smart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Pin': getAiPin(env) },
+      body: JSON.stringify({ message: aiPrompt, model: 'groq-fast', max_tokens: 400 })
+    }).catch(function() { return null; });
+    if (aiResp && aiResp.ok) {
+      var aiData = await aiResp.json().catch(function() { return {}; });
+      narrative = (aiData.reply || '').trim();
+    }
+
+    if (!narrative) {
+      narrative = targetFixtures.map(function(f) {
+        return f.homeTeam + ' v ' + f.awayTeam;
+      }).join('\n');
+    }
+
+    var msg = '<b>NRL Round ' + targetRound + ' Tip Suggestions</b>\n\n' + narrative + '\n\nSubmit: falkor.luckdragon.io';
+    if (msg.length > 4096) msg = msg.slice(0, 4093) + '...';
+
+    await markAlertFired(env, alertKey);
+    var tgSent = await sendTelegram(env, msg);
+    return { sent: tgSent, round: targetRound, games: targetFixtures.length, ai_generated: !!narrative };
+  } catch(e) {
+    return { sent: false, error: e.message };
+  }
+}
+
 
 // ─── Phase 50: AFL Smart Tip Suggestions ─────────────────────────────────────
 async function runTipSuggestions(env) {
@@ -1468,6 +1933,12 @@ async scheduled(event, env, ctx) {
           case 'pe_weather_alert': result = await runPEWeatherAlert(env); break;
           case 'daily_summary':    result = await runDailySummary(env); break;
           case 'tip_suggestions':  result = await runTipSuggestions(env); break;
+          case 'nrl_tip_suggestions': result = await runNRLTipSuggestions(env); break;
+          case 'tips_deadline_check': result = await runTipsDeadlineCheck(env); break;
+          case 'essendon_result': result = await runEssendonResultReaction(env); break;
+          case 'racing_comp_recap': result = await runRacingCompRecap(env); break;
+          case 'nrl_tips_deadline_check': result = await runNRLTipsDeadlineCheck(env); break;
+          case 'nrl_weekly_summary': result = await runNRLWeeklySummary(env); break;
           case 'smart_alerts':     result = await runSmartAlerts(env); break;
           case 'racing_results':   result = await runRacingResults(env); break;
           case 'racing_weekly':    result = await runRacingWeeklySummary(env); break;
