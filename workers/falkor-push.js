@@ -1,4 +1,4 @@
-// falkor-push v1.0.0
+// falkor-push v1.1.2
 // Web Push notification server — VAPID auth + aes128gcm encryption
 // Endpoints:
 //   GET  /health              — public
@@ -10,6 +10,7 @@
 
 const ALLOWED_ORIGINS = new Set([
   'https://falkor.luckdragon.io',
+  'https://falkor-ui.luckdragon.io',
   'https://carnivaltiming.com',
   'https://www.carnivaltiming.com',
   'https://schoolsportportal.com.au',
@@ -44,7 +45,7 @@ export default {
       // ── Public ──────────────────────────────────────────────────────────────
 
       if (url.pathname === '/health') {
-        return json({ status: 'ok', service: 'falkor-push', version: '1.1.0' });
+        return json({ status: 'ok', service: 'falkor-push', version: '1.1.2' });
       }
 
       if (url.pathname === '/vapid-public-key' && request.method === 'GET') {
