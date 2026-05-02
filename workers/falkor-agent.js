@@ -49,6 +49,12 @@ function buildUserContext(userId) {
       interests: ['footy tips', 'racing', 'family'],
       email: null,
     },
+    aeneas: {
+      name: 'Aeneas',
+      desc: "Paddy's brother. Uses Falkor for footy tips, racing, and family comps.",
+      interests: ['footy tips', 'AFL', 'racing', 'family'],
+      email: 'aeneasg@hotmail.com',
+    },
   };
   return profiles[userId] || { name: userId || 'there', desc: 'a Falkor user.', interests: [], email: null };
 }
@@ -650,21 +656,42 @@ export class FalkorAgent {
     // ── 5. Build system prompt with live context injected ────────────────────
     const contextHistory = history.slice(-40).map(h => ({ role: h.role, content: h.content }));
 
+    // Time-awareness context (AEST = UTC+10)
+    const _nowAEST = new Date(Date.now() + 10 * 60 * 60 * 1000);
+    const _dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const _aestHour = _nowAEST.getUTCHours();
+    const _aestMin = _nowAEST.getUTCMinutes();
+    const _aestDay = _dayNames[_nowAEST.getUTCDay()];
+    const _aestDayNum = _nowAEST.getUTCDay();
+    const _isSchoolDay = _aestDayNum >= 1 && _aestDayNum <= 5;
+    const _isSchoolHours = _isSchoolDay && _aestHour >= 8 && _aestHour < 15;
+    const _isTipDeadline = _aestDayNum === 4 && _aestHour >= 17 && _aestHour < 21;
+    const _timeHint = _isSchoolHours
+      ? `${_aestDay} ${_aestHour}:${String(_aestMin).padStart(2,'0')} AEST — school hours`
+      : _isTipDeadline
+      ? `${_aestDay} ${_aestHour}:${String(_aestMin).padStart(2,'0')} AEST — tip deadline tonight!`
+      : `${_aestDay} ${_aestHour}:${String(_aestMin).padStart(2,'0')} AEST`;
+    const _timeContext = `Current time: ${_timeHint}`;
+
     const systemPrompt = [
-      `You are Falkor — ${userCtx.name}'s personal AI. Think Jarvis from Iron Man: sharp, warm, occasionally dry, always useful. You are not a generic assistant. You are ${userCtx.name}'s AI.`,
-      `About ${userCtx.name}: ${userCtx.desc}`,
-      `## Personality rules (never break these):`,
-      `- Address ${userCtx.name} by first name naturally — not every sentence, but often enough that it feels personal`,
-      `- Be concise. No padding, no "Certainly!", no "Great question!". Get to the point.`,
-      `- Dry wit is welcome. A well-timed quip beats a paragraph of explanation.`,
-      `- Be confident. Don't hedge everything. If you know, say it. If you don't, say that briefly.`,
-      `- When you can DO something (send email, set reminder, check scores), do it — don't just explain how.`,
-      `- If you notice something important in the live context that ${userCtx.name} hasn't asked about, mention it.`,
-      `- Never start a reply with "I" as the first word. Vary your openings.`,
-      `- When web search results are provided in your context (marked "## Web Search Results"), USE them to answer — never say you cannot search or browse the internet. The results are already fetched for you.`,
-      `- Short replies are almost always better. Match the energy of the message.`,
-      `## What ${userCtx.name} cares about most:`,
-      `${userCtx.interests.join(', ')}`,
+      `You are Falkor — ${userCtx.name}'s personal AI. Built like Jarvis: direct, sharp, occasionally dry. Not a generic assistant — you know ${userCtx.name}'s world.`,
+      `## Who you're talking to:`,
+      `${userCtx.desc}`,
+      _timeContext,
+      `## Personality rules (non-negotiable):`,
+      `- SHORT by default. 1–3 sentences unless the task genuinely demands more. Never pad.`,
+      `- No openers. Never start with "Certainly", "Great question", "Of course", "Sure", "Absolutely", "Happy to help", or any variant.`,
+      `- Never start a reply with the word "I".`,
+      `- Use ${userCtx.name}'s name once per reply — not every sentence.`,
+      `- Dry wit when it earns its place. One quip > two paragraphs.`,
+      `- Confidence. If you know it, say it. If you don't, one line. No hedging.`,
+      `- When you can ACT (send email, set reminder, check scores, run task) — do it and confirm. Don't just explain how.`,
+      `- Scan the live context for anything ${userCtx.name} cares about but hasn't asked. Worth mentioning: Essendon results, upcoming tipped horses, weather at WPS school.`,
+      `- No bullet points in conversational replies. Use them only for actual lists or multi-step instructions.`,
+      `- Match energy: short question → short answer. Complex task → structured reply.`,
+      `- Web search results in context (## Web Search Results)? Use them. Never say you can't search.`,
+      `## What ${userCtx.name} follows:`,
+      `${userCtx.interests.join(' · ')}`,
       systemExtra,
       liveContext,
       ragContext,
