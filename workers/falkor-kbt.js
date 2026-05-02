@@ -1,4 +1,4 @@
-// falkor-kbt v2.0.0 — KBT Live Trivia Game Engine
+// falkor-kbt v2.1.0 — KBT Live Trivia Game Engine
 // Durable Objects: KBTGame (one per live session, keyed by game code)
 // D1: kbt-integration-db (events, questions, teams, scores)
 // Routes:
@@ -298,6 +298,49 @@ export class KBTGame {
 
 
 // ─── KBT Slide Builder (Phase 28B) ───────────────────────────────────────────
+
+// Google Service Account JWT auth
+function b64url(str) {
+  return btoa(unescape(encodeURIComponent(str)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+function b64urlBytes(bytes) {
+  let binary = '';
+  for (const b of new Uint8Array(bytes)) binary += String.fromCharCode(b);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+async function getGoogleToken(env) {
+  if (env.GOOGLE_ACCESS_TOKEN) return env.GOOGLE_ACCESS_TOKEN;
+  const email = env.GOOGLE_CLIENT_EMAIL;
+  let pem = env.GOOGLE_PRIVATE_KEY;
+  if (!email || !pem) return null;
+  pem = pem.replace(/\\\\n/g, '\n');
+  const pemBody = pem.replace('-----BEGIN PRIVATE KEY-----','')
+    .replace('-----END PRIVATE KEY-----','').replace(/\s/g,'');
+  const derBytes = Uint8Array.from(atob(pemBody), c => c.charCodeAt(0));
+  const key = await crypto.subtle.importKey('pkcs8', derBytes.buffer,
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+  const now = Math.floor(Date.now() / 1000);
+  const header = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+  const payload = b64url(JSON.stringify({
+    iss: email,
+    scope: 'https://www.googleapis.com/auth/presentations https://www.googleapis.com/auth/drive',
+    aud: 'https://oauth2.googleapis.com/token',
+    exp: now + 3600, iat: now,
+  }));
+  const sigInput = new TextEncoder().encode(header + '.' + payload);
+  const sigBytes = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, sigInput);
+  const sig = b64urlBytes(sigBytes);
+  const jwt = header + '.' + payload + '.' + sig;
+  const resp = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=' + jwt,
+  });
+  const data = await resp.json();
+  return data.access_token || null;
+}
+
 async function buildSlides(env, { topic = 'general knowledge', count = 10, gameTitle = 'Kow Brainer Trivia', token = null }) {
   const pin = env.AGENT_PIN || '';
   const BRAIN_URL = 'https://falkor-brain.luckdragon.io';
@@ -349,7 +392,7 @@ async function buildSlides(env, { topic = 'general knowledge', count = 10, gameT
   const result = { ok: true, topic, count: questions.length, questions, html };
 
   // 3. Google Slides API — activate if token available
-  const gToken = token || (env.GOOGLE_ACCESS_TOKEN || '');
+  const gToken = token || await getGoogleToken(env).catch(() => null) || '';
   const DRIVE_TEMPLATE_FOLDER = '1-z8QMj_9YAGrqJhzHNoBMRFg3t6JanZa';
 
   if (gToken) {
@@ -417,7 +460,7 @@ async function buildSlides(env, { topic = 'general knowledge', count = 10, gameT
       }
     } catch(e2) { result.slides_error = e2.message; }
   } else {
-    result.slides_note = 'Set GOOGLE_ACCESS_TOKEN secret to enable Google Slides export';
+    result.slides_note = 'To enable: add GOOGLE_CLIENT_EMAIL + GOOGLE_PRIVATE_KEY secrets from Google Service Account JSON';
   }
 
   return result;
@@ -433,6 +476,18 @@ export default {
     if (method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS_HEADERS });
 
     // Health
+    if (path === '/google-auth-test') {
+      requirePin(req, env);
+      const tok = await getGoogleToken(env).catch(e => null);
+      if (!tok) return json({ ok: false, msg: 'No token — add GOOGLE_CLIENT_EMAIL + GOOGLE_PRIVATE_KEY secrets' });
+      const FOLDER_ID = '1-z8QMj_9YAGrqJhzHNoBMRFg3t6JanZa';
+      const listResp = await fetch(
+        'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent("'" + FOLDER_ID + "' in parents") + '&fields=files(id,name)',
+        { headers: { Authorization: 'Bearer ' + tok } }
+      );
+      const listData = await listResp.json();
+      return json({ ok: true, token_prefix: tok.substring(0, 20) + '...', folder_files: listData.files || listData.error });
+    }
     if (path === '/health') {
       let dbOk = false;
       try { await env.KBT_DB.prepare('SELECT 1').run(); dbOk = true; } catch {}
