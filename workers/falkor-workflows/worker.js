@@ -1,4 +1,4 @@
-// falkor-workflows v3.9.0 — Scheduled workflows + Jarvis-level autonomy + narrative brief
+// falkor-workflows v3.10.0 — Scheduled workflows + Jarvis-level autonomy + narrative brief
 // Cron: 0 21 * * * (7am AEST), 30 21 * * * (7:30am AEST), * * * * * (every 1min — reactive alerts)
 //
 // Scheduled jobs:
@@ -15,7 +15,7 @@
 //
 // Bindings: DB (asgard-prod), PROJECTS_DB (project-hub-db), RESEND_API_KEY, AGENT_PIN, WEB_SERVICE (falkor-web)
 
-const VERSION = '3.9.0';
+const VERSION = '3.10.0';
 
 // AI_WORKER_PIN getter — asgard-ai uses a separate PIN from AGENT_PIN
 function getAiPin(env) {
@@ -1343,6 +1343,14 @@ async function runScheduled(cron, env) {
     if (minute < 5) {
       await runEssendonResultReaction(env).then(function(r){ logRun(env, 'essendon_result', r); }).catch(function(){});
     }
+    // Phase 54A: Racing comp Saturday recap — Fri 10pm UTC = Sat 8am AEST
+    if (cDow === 5 && hour === 22 && minute < 15) {
+      await runRacingCompRecap(env).then(function(r){ logRun(env, 'racing_comp_recap', r); }).catch(function(){});
+    }
+    // Phase 54B: NRL tips deadline — Mon 10pm UTC = Tue 8am AEST
+    if (cDow === 1 && hour === 22 && minute < 15) {
+      await runNRLTipsDeadlineCheck(env).then(function(r){ logRun(env, 'nrl_tips_deadline_check', r); }).catch(function(){});
+    }
     if (hour === 5 && minute >= 30 && minute < 45 && cDow >= 1 && cDow <= 5) {
     var checkinRes = await runAfterSchoolCheckin(env).catch(function(e) { return { ok: false, error: e.message }; });
     await logRun(env, 'after_school_checkin', checkinRes);
@@ -1353,6 +1361,102 @@ async function runScheduled(cron, env) {
 
 // ─── Main Worker ──────────────────────────────────────────────────────────────
 
+
+
+// ─── Phase 54A: Racing Comp Saturday Recap ────────────────────────────────────
+async function runRacingCompRecap(env) {
+  try {
+    var alertKey = 'racing_comp_recap_' + new Date().toISOString().slice(0, 10);
+    if (await checkAlertFired(env, alertKey, 20 * 60 * 60 * 1000)) {
+      return { sent: false, reason: 'Already sent racing recap today' };
+    }
+
+    // Get leaderboard
+    var lbResp = await fetch(SPORT_URL + '/racing/leaderboard', {
+      headers: { 'X-Pin': env.AGENT_PIN }
+    }).catch(function() { return null; });
+    if (!lbResp || !lbResp.ok) return { sent: false, reason: 'Could not fetch leaderboard' };
+    var lbData = await lbResp.json().catch(function() { return {}; });
+    var board = lbData.leaderboard || [];
+    if (!board.length) return { sent: false, reason: 'No racing tips submitted yet' };
+
+    // Get today's comp tips
+    var today = new Date().toISOString().slice(0, 10);
+    var compResp = await fetch(SPORT_URL + '/racing/comp?date=' + today, {
+      headers: { 'X-Pin': env.AGENT_PIN }
+    }).catch(function() { return null; });
+    var todayTips = [];
+    if (compResp && compResp.ok) {
+      var compData = await compResp.json().catch(function() { return {}; });
+      todayTips = compData.tips || [];
+    }
+
+    var boardStr = board.slice(0, 5).map(function(p, i) {
+      return (i + 1) + '. ' + p.player + ' — ' + p.wins + ' wins from ' + p.total + ' tips';
+    }).join('\n');
+
+    var todayStr = todayTips.length > 0
+      ? '\nToday\'s picks: ' + todayTips.map(function(t) { return t.player + ' → ' + t.selection + ' (' + t.race_name + ')'; }).join(', ')
+      : '\nNo tips submitted for today yet.';
+
+    var msg = 'Racing comp standings:\n\n' + boardStr + '\n' + todayStr + '\n\nSubmit picks: falkor.luckdragon.io';
+
+    await markAlertFired(env, alertKey);
+    var tgSent = await sendTelegram(env, msg);
+    return { sent: tgSent, leaders: board.length, today_tips: todayTips.length };
+  } catch(e) {
+    return { sent: false, error: e.message };
+  }
+}
+
+// ─── Phase 54B: NRL Tips Deadline Reminder ───────────────────────────────────
+async function runNRLTipsDeadlineCheck(env) {
+  var season = new Date().getFullYear();
+  try {
+    // 1. Find the current NRL round (first fully upcoming round)
+    var targetRound = null;
+    for (var r = 1; r <= 27; r++) {
+      var resp = await fetch(SPORT_URL + '/nrl/draw?season=' + season + '&round=' + r, {
+        headers: { 'X-Pin': env.AGENT_PIN }
+      }).catch(function() { return null; });
+      if (!resp || !resp.ok) break;
+      var data = await resp.json().catch(function() { return {}; });
+      var fixtures = data.fixtures || [];
+      if (!fixtures.length) break;
+      var hasUpcoming = fixtures.some(function(f) { return f.matchState === 'Upcoming'; });
+      var hasStarted = fixtures.some(function(f) { return f.matchState !== 'Upcoming'; });
+      if (hasUpcoming) { targetRound = r; break; }
+    }
+    if (!targetRound) return { sent: false, reason: 'Could not detect current NRL round' };
+
+    // 2. Rate limit: once per round
+    var alertKey = 'nrl_tips_deadline_r' + targetRound + '_' + season;
+    if (await checkAlertFired(env, alertKey, 6 * 24 * 60 * 60 * 1000)) {
+      return { sent: false, reason: 'Already sent NRL deadline reminder for round ' + targetRound };
+    }
+
+    // 3. Check if Paddy has submitted NRL tips this round
+    var tipsResp = await fetch(SPORT_URL + '/nrl/tips?season=' + season + '&round=' + targetRound, {
+      headers: { 'X-Pin': env.AGENT_PIN }
+    }).catch(function() { return null; });
+    if (tipsResp && tipsResp.ok) {
+      var tipsData = await tipsResp.json().catch(function() { return {}; });
+      var paddyTips = (tipsData.tips || []).filter(function(t) {
+        return (t.player || '').toLowerCase() === 'paddy';
+      });
+      if (paddyTips.length > 0) {
+        return { sent: false, reason: 'Paddy has already submitted NRL Round ' + targetRound + ' tips' };
+      }
+    }
+
+    var msg = 'Reminder: NRL Round ' + targetRound + ' tips not submitted yet. Get them in before the first game locks. Submit: falkor.luckdragon.io';
+    await markAlertFired(env, alertKey);
+    var tgSent = await sendTelegram(env, msg);
+    return { sent: tgSent, round: targetRound };
+  } catch(e) {
+    return { sent: false, error: e.message };
+  }
+}
 
 // ─── Phase 52: AFL Tips Deadline Reminder ────────────────────────────────────
 async function runTipsDeadlineCheck(env) {
@@ -1707,6 +1811,8 @@ async scheduled(event, env, ctx) {
           case 'nrl_tip_suggestions': result = await runNRLTipSuggestions(env); break;
           case 'tips_deadline_check': result = await runTipsDeadlineCheck(env); break;
           case 'essendon_result': result = await runEssendonResultReaction(env); break;
+          case 'racing_comp_recap': result = await runRacingCompRecap(env); break;
+          case 'nrl_tips_deadline_check': result = await runNRLTipsDeadlineCheck(env); break;
           case 'smart_alerts':     result = await runSmartAlerts(env); break;
           case 'racing_results':   result = await runRacingResults(env); break;
           case 'racing_weekly':    result = await runRacingWeeklySummary(env); break;
