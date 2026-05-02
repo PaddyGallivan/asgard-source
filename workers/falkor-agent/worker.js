@@ -1,4 +1,4 @@
-// falkor-agent v2.2.0 — fix wsConn→ws bug (DO 1101 crash), add WORKFLOWS_SERVICE binding
+// falkor-agent v2.3.0 — fix wsConn→ws bug (DO 1101 crash), add WORKFLOWS_SERVICE binding
 // v1.7.0 adds:
 //   1. Live context pre-loader — fetches weather/calendar/sport/tips before first reply
 //   2. Auto-memory — every 5 turns, Haiku extracts memorable facts → falkor-brain
@@ -208,7 +208,7 @@ async function executeAction(action, userId, userCtx, pin, env) {
             }),
           });
           const rd = await r.json().catch(() => ({}));
-          if (rd.id) return `Sent to ${toAddr} ✓`;
+          if (rd.id) return `Sent to ${toAddr}`;
           return `Couldn't send — Resend said: ${JSON.stringify(rd).slice(0,100)}`;
         } catch(e) {
           return `Email failed: ${e.message}`;
@@ -276,7 +276,7 @@ async function executeAction(action, userId, userCtx, pin, env) {
           body: JSON.stringify({ from: 'Falkor <falkor@luckdragon.io>', to: [toAddr], subject: subject, text: body }),
         });
         const rd = await r.json().catch(function() { return {}; });
-        if (rd.id) return 'Email sent to ' + toAddr + ' — "' + subject + '" ✓';
+        if (rd.id) return 'Email sent to ' + toAddr + ' — "' + subject + '"';
         return 'Email failed: ' + JSON.stringify(rd).slice(0, 100);
       } catch(se) { return 'Email error: ' + se.message; }
     }
@@ -336,7 +336,7 @@ async function executeAction(action, userId, userCtx, pin, env) {
           : await fetch(wfReq);
         const d = await tRes.json().catch(() => ({}));
         if (d.ok) {
-          return `✅ Queued task #${d.id}: "${action.title}". I'll handle it in the background and notify you when done.`;
+          return `Queued task #${d.id}: "${action.title}". I'll handle it in the background and notify you when done.`;
         }
         return `Couldn't queue task: ${d.error || 'unknown error'}`;
       } catch(e) {
@@ -371,7 +371,7 @@ async function loadLiveContext(pin, aiPin) {
     const temp = w.temp ?? w.temperature ?? '?';
     const rain = w.rain_chance ?? w.pop ?? '?';
     const desc = w.condition ?? w.description ?? w.weather?.[0]?.description ?? '';
-    const peSuitable = weather.pe_suitable !== undefined ? (weather.pe_suitable ? '✅ suitable for outdoor PE' : '❌ not suitable for outdoor PE') : '';
+    const peSuitable = weather.pe_suitable !== undefined ? (weather.pe_suitable ? 'suitable for outdoor PE' : 'not suitable for outdoor PE') : '';
     lines.push(`WEATHER (WPS): ${temp}°C, UV ${uv}, rain ${typeof rain === 'number' ? Math.round(rain * 100) : rain}%, ${desc}. ${peSuitable}`.trim());
   }
 
@@ -714,6 +714,7 @@ export class FalkorAgent {
       `- Scan the live context for anything ${userCtx.name} cares about but hasn't asked. Worth mentioning: Essendon results, upcoming tipped horses, weather at WPS school.`,
       `- No bullet points in conversational replies. Use them only for actual lists or multi-step instructions.`,
       `- Match energy: short question → short answer. Complex task → structured reply.`,
+      `- No emojis. Plain text only — no symbols, icons, or emoji in any reply.`,
       `- Web search results in context (## Web Search Results)? Use them. Never say you can't search.`,
       `## What ${userCtx.name} follows:`,
       `${userCtx.interests.join(' · ')}`,
