@@ -15,7 +15,7 @@ const JSON_MANIFEST = JSON.stringify({
 });
 
 const SW_CODE = `
-const CACHE = 'falkor-v2';
+const CACHE = 'falkor-v8.9.0';
 const CACHE_URLS = ['/'];
 
 self.addEventListener('install', e => {
@@ -68,7 +68,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === '/health') {
-      return new Response(JSON.stringify({status:'ok',version:'2.0.0',worker:'falkor-ui'}), {
+      return new Response(JSON.stringify({status:'ok',version:'8.9.0',worker:'falkor-ui'}), {
         headers: {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}
       });
     }
@@ -1186,7 +1186,7 @@ function App() {
         {wsState === 'connecting' && <div className="conn-banner">⚡ Connecting to Falkor…</div>}
         {wsState === 'disconnected' && <div className="conn-banner" style={{background:'rgba(239,68,68,.1)',color:'var(--danger)',borderColor:'rgba(239,68,68,.2)'}}>⚠️ Disconnected — reconnecting…</div>}
 
-        <div className="topbar">
+        <div className="topbar"><button id="install-btn" onclick="installApp()" title="Install Falkor" style="display:none;align-items:center;gap:6px;background:#d97757;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer;"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 110 20A10 10 0 0112 2zm0 5v6m0 0l-3-3m3 3l3-3M7 17h10"/></svg>Install</button>
           <button className="icon-btn" onClick={() => setSidebarOpen(true)}>☰</button>
           <span className="topbar-title">{activeConvo?.title || 'Falkor'}</span>
 
@@ -1350,6 +1350,12 @@ window.addEventListener('load', async () => {
     await checkPushState();
   } catch(e) { console.warn('SW failed:', e); }
 });
+
+// PWA install prompt
+let _deferredInstall=null;
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();_deferredInstall=e;const btn=document.getElementById('install-btn');if(btn){btn.style.display='flex';}});
+window.addEventListener('appinstalled',()=>{const btn=document.getElementById('install-btn');if(btn)btn.style.display='none';_deferredInstall=null;});
+function installApp(){if(_deferredInstall){_deferredInstall.prompt();_deferredInstall.userChoice.then(()=>{_deferredInstall=null;const btn=document.getElementById('install-btn');if(btn)btn.style.display='none';});}}
 </script>
 </body>
 </html>
