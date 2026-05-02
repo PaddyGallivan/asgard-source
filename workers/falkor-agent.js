@@ -69,6 +69,7 @@ const AGENTS = {
   school:    'https://falkor-school.luckdragon.io',
   web:       'https://falkor-web.luckdragon.io',
   code:      'https://falkor-code.luckdragon.io',
+  desktop:   'https://falkor-desktop.luckdragon.io',
 };
 
 const AGENT_MODEL_OVERRIDES = { sport: 'haiku', kbt: 'haiku', web: 'haiku' };
@@ -90,6 +91,8 @@ function routeIntent(text) {
     return { agent: 'brain', action: 'recall' };
   if (/\b(search|look up|find|google|what is|who is|latest|news|current|today's|recent)\b/.test(t) && t.length < 200)
     return { agent: 'web', action: 'search' };
+  if (/\b(open app|open program|take screenshot|screenshot|click|type on screen|computer control|run command|show on screen|my computer|desktop task)\b/.test(t))
+    return { agent: 'desktop', action: 'command' };
   return null;
 }
 
@@ -119,6 +122,11 @@ async function callSubAgent(agentKey, action, text, pin, aiPin) {
         return fetch(`${baseUrl}/search`, {
           method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
           body: JSON.stringify({ query: text }),
+        }).then(r => r.ok ? r.json() : null);
+      case 'desktop':
+        return fetch(baseUrl + '/command', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
+          body: JSON.stringify({ command: text, intent: 'desktop', requested_by: 'falkor-agent' }),
         }).then(r => r.ok ? r.json() : null);
       default: return null;
     }
@@ -595,6 +603,10 @@ export class FalkorAgent {
           const snippets = (agentData.results || []).slice(0, 3)
             .map(r => `- ${r.title}: ${r.snippet || ''}`.slice(0, 120)).join('\n');
           pendingAgentCtx = `\n\n## Web Search Results for "${text}"\nAnswer: ${agentData.answer}\n${snippets}\n\n(Use these results to answer the user — do not say you cannot search.)`;
+        } else if (intent.agent === 'desktop') {
+          const cmdId = agentData.id || '?';
+          const cmdText = agentData.command || text;
+          pendingAgentCtx = '\n\n[DESKTOP COMMAND QUEUED] ID:' + cmdId + ' — ' + cmdText + '. Tell the user the command has been queued and the local agent will execute it shortly.';
         } else {
           pendingAgentCtx = '\n\nLive data from falkor-' + intent.agent + ':\n' +
             JSON.stringify(agentData, null, 2).slice(0, 1500);
