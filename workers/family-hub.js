@@ -1919,6 +1919,12 @@ function loadMoreTab(tab) {
   if (tab==='expenses') loadExpenses();
   if (tab==='transfers') loadTransfers();
   if (tab==='vault') loadVault();
+  if (tab==='shopping') loadShopping();
+  if (tab==='chores') loadChores();
+  if (tab==='meals') loadMeals();
+  if (tab==='milestones') loadMilestones();
+  if (tab==='recipes') loadRecipes();
+  if (tab==='kindness') loadKindness();
 }
 
 async function loadBirthdays() {
@@ -2271,6 +2277,466 @@ function logout() {
   session=null; localStorage.removeItem('fh_session');
   location.reload();
 }
+
+// ═══════════════════════════════════════════
+//  v3 FEATURE FUNCTIONS
+// ═══════════════════════════════════════════
+
+// ── FAMILY / SETTINGS ─────────────────────
+let currentFamily = null;
+async function ensureFamily() {
+  if (currentFamily) return currentFamily;
+  const r = await api('/api/families');
+  if (r && r.length > 0) { currentFamily = r[0]; return currentFamily; }
+  const f = await api('/api/families', {method:'POST', body:JSON.stringify({name:(currentUser?.name||'My')+' Family'})});
+  currentFamily = f;
+  return currentFamily;
+}
+async function openFamilySettings() {
+  document.getElementById('familySettingsScreen').classList.add('open');
+  const fam = await ensureFamily();
+  if (!fam) return;
+  document.getElementById('familyNameInput').value = fam.name||'';
+  document.getElementById('familyDescInput').value = fam.description||'';
+  document.getElementById('familyInviteCode').textContent = fam.invite_code||'------';
+  const settings = await api('/api/families/'+fam.id+'/settings')||{};
+  const FEATURES = ['Feed','Stories','Chats','Events','Birthdays','Gifts','KK Draw','Expenses','Transfers','Vault','Shopping','Chores','Meals','Milestones','Recipes','Kindness'];
+  document.getElementById('featureToggles').innerHTML = FEATURES.map(f=>\`
+    <div class="toggle-row">
+      <span class="toggle-label">\${f}</span>
+      <label class="toggle">
+        <input type="checkbox" \${settings[f]!==0?'checked':''} onchange="toggleFeature('\${f}',this.checked)">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>\`).join('');
+  loadFamilyRules(fam.id);
+  const members = await api('/api/families/'+fam.id+'/members')||[];
+  document.getElementById('familyMembersList').innerHTML = members.map(m=>\`
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+      \${avatarEl(m)}
+      <span style="flex:1">\${esc(m.name)}</span>
+      <span style="font-size:11px;background:\${m.role==='admin'?'var(--primary)':'var(--surface2)'};color:#fff;padding:2px 8px;border-radius:99px">\${m.role||'member'}</span>
+    </div>\`).join('');
+}
+function closeFamilySettings() { document.getElementById('familySettingsScreen').classList.remove('open'); }
+async function saveFamilyInfo() {
+  const fam = await ensureFamily();
+  if (!fam) return;
+  await api('/api/families/'+fam.id, {method:'PATCH', body:JSON.stringify({name:document.getElementById('familyNameInput').value.trim(), description:document.getElementById('familyDescInput').value.trim()})});
+  currentFamily = null;
+  toast('Saved! ✅');
+}
+async function toggleFeature(feature, enabled) {
+  const fam = await ensureFamily();
+  if (!fam) return;
+  await api('/api/families/'+fam.id+'/settings', {method:'PATCH', body:JSON.stringify({feature, enabled:enabled?1:0})});
+  applyFeatureToggle(feature, enabled);
+}
+function applyFeatureToggle(feature, enabled) {
+  const navMap = {'Feed':'navFeed','Chats':'navChats','Events':'navEvents'};
+  const moreTabMap = {'Birthdays':'birthdays','Gifts':'gifts','KK Draw':'kk','Expenses':'expenses','Transfers':'transfers','Vault':'vault','Shopping':'shopping','Chores':'chores','Meals':'meals','Milestones':'milestones','Recipes':'recipes','Kindness':'kindness'};
+  if (navMap[feature]) { const el=document.getElementById(navMap[feature]); if(el)el.style.display=enabled?'':'none'; }
+  if (moreTabMap[feature]) {
+    const tabBtn = document.querySelector(\`#moreTabs .tab[onclick*="\${moreTabMap[feature]}"]\`);
+    if (tabBtn) tabBtn.style.display = enabled?'':'none';
+  }
+}
+async function applyAllFeatureToggles() {
+  const fam = await ensureFamily();
+  if (!fam) return;
+  const settings = await api('/api/families/'+fam.id+'/settings')||{};
+  Object.entries(settings).forEach(([f,v])=>{ if(v===0) applyFeatureToggle(f,false); });
+}
+function copyInviteCode() {
+  const code = document.getElementById('familyInviteCode').textContent;
+  if (navigator.clipboard) { navigator.clipboard.writeText(code).then(()=>toast('Copied! 📋')); }
+  else { const t=document.createElement('textarea');t.value=code;document.body.appendChild(t);t.select();document.execCommand('copy');document.body.removeChild(t);toast('Copied! 📋'); }
+}
+async function loadFamilyRules(familyId) {
+  const rules = await api('/api/families/'+familyId+'/rules')||[];
+  document.getElementById('familyRulesList').innerHTML = rules.length
+    ? rules.map(r=>\`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px"><span style="flex:1">\${esc(r.rule)}</span><button onclick="deleteFamilyRule('\${familyId}','\${r.id}')" style="background:none;border:none;color:var(--muted);cursor:pointer">🗑</button></div>\`).join('')
+    : '<div style="color:var(--muted);font-size:13px">No rules yet</div>';
+}
+async function addFamilyRule() {
+  const fam = await ensureFamily();
+  if (!fam) return;
+  const r = document.getElementById('ruleInput').value.trim();
+  if (!r) return;
+  await api('/api/families/'+fam.id+'/rules', {method:'POST', body:JSON.stringify({rule:r})});
+  document.getElementById('ruleInput').value='';
+  loadFamilyRules(fam.id);
+}
+async function deleteFamilyRule(fid, rid) {
+  await api('/api/families/'+fid+'/rules/'+rid, {method:'DELETE'});
+  loadFamilyRules(fid);
+}
+
+// ── SHOPPING ──────────────────────────────
+async function loadShopping() {
+  const c = qs('#moreContent');
+  c.innerHTML = \`<div style="padding:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3 style="font-size:16px;font-weight:700">🛒 Shopping List</h3>
+      <button class="btn-sm" onclick="toggleShoppingForm()">+ Add</button>
+    </div>
+    <div id="shoppingAddForm" style="display:none;background:var(--surface);border-radius:10px;padding:12px;margin-bottom:12px">
+      <input id="shoppingInput" placeholder="Item..." style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);margin-bottom:8px">
+      <select id="shoppingCat" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);margin-bottom:8px">
+        <option value="Groceries">🥦 Groceries</option><option value="Household">🏠 Household</option>
+        <option value="Kids">👶 Kids</option><option value="Other">📦 Other</option>
+      </select>
+      <button class="btn" onclick="addShoppingItem()">Add Item</button>
+    </div>
+    <div id="shoppingList"></div>
+  </div>\`;
+  renderShoppingItems();
+}
+function toggleShoppingForm(){const f=document.getElementById('shoppingAddForm');if(f)f.style.display=f.style.display==='none'?'block':'none';}
+async function renderShoppingItems() {
+  const items = await api('/api/shopping');
+  const el = document.getElementById('shoppingList');
+  if (!el) return;
+  if (!items||!items.length){el.innerHTML='<div style="text-align:center;color:var(--muted);padding:32px">Nothing on the list 🛒</div>';return;}
+  const sorted=[...items.filter(i=>!i.done),...items.filter(i=>i.done)];
+  el.innerHTML=sorted.map(i=>\`<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+    <input type="checkbox" style="width:20px;height:20px;cursor:pointer;accent-color:var(--primary)" \${i.done?'checked':''} onchange="toggleShoppingItem('\${i.id}',this.checked)">
+    <span style="flex:1;font-size:14px;\${i.done?'text-decoration:line-through;color:var(--muted)':''}">\${esc(i.title)}</span>
+    <span style="font-size:10px;padding:2px 6px;border-radius:99px;background:var(--surface2);color:var(--muted)">\${esc(i.category||'')}</span>
+    <button onclick="deleteShoppingItem('\${i.id}')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px">🗑</button>
+  </div>\`).join('');
+}
+async function addShoppingItem(){
+  const t=document.getElementById('shoppingInput')?.value.trim();
+  const cat=document.getElementById('shoppingCat')?.value;
+  if(!t)return;
+  await api('/api/shopping',{method:'POST',body:JSON.stringify({title:t,category:cat})});
+  document.getElementById('shoppingInput').value='';
+  renderShoppingItems();
+}
+async function toggleShoppingItem(id,done){await api('/api/shopping/'+id,{method:'PATCH',body:JSON.stringify({done:done?1:0})});renderShoppingItems();}
+async function deleteShoppingItem(id){await api('/api/shopping/'+id,{method:'DELETE'});renderShoppingItems();}
+
+// ── CHORES ────────────────────────────────
+async function loadChores() {
+  const c = qs('#moreContent');
+  c.innerHTML = \`<div style="padding:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3 style="font-size:16px;font-weight:700">✅ Chores</h3>
+      <button class="btn-sm" onclick="toggleChoreForm()">+ Add</button>
+    </div>
+    <div id="choreAddForm" style="display:none;background:var(--surface);border-radius:10px;padding:12px;margin-bottom:12px">
+      <input id="choreTitleInput" placeholder="Chore name..." style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);margin-bottom:8px">
+      <select id="choreAssign" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);margin-bottom:8px">
+        <option value="">Anyone</option>\${(allUsers||[]).map(u=>\`<option value="\${u.id}">\${esc(u.name)}</option>\`).join('')}
+      </select>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <select id="chorePoints" style="flex:1;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text)">
+          <option value="1">⭐ 1pt</option><option value="2">⭐⭐ 2pt</option><option value="3">⭐⭐⭐ 3pt</option><option value="5">⭐ 5pt</option>
+        </select>
+        <select id="choreFreq" style="flex:1;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text)">
+          <option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option>
+        </select>
+      </div>
+      <button class="btn" onclick="addChore()">Add Chore</button>
+    </div>
+    <div id="choreList"></div>
+  </div>\`;
+  renderChores();
+}
+function toggleChoreForm(){const f=document.getElementById('choreAddForm');if(f)f.style.display=f.style.display==='none'?'block':'none';}
+async function renderChores() {
+  const chores = await api('/api/chores');
+  const el = document.getElementById('choreList');
+  if (!el) return;
+  if (!chores||!chores.length){el.innerHTML='<div style="text-align:center;color:var(--muted);padding:32px">No chores yet ✅</div>';return;}
+  el.innerHTML=chores.map(ch=>{
+    const assignee=(allUsers||[]).find(u=>u.id===ch.assigned_to);
+    return \`<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:10px;display:flex;align-items:center;gap:12px">
+      <div style="flex:1">
+        <div style="font-weight:600">\${esc(ch.title)}</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px">\${assignee?'→ '+esc(assignee.name):'Anyone'} · \${ch.frequency} · Done today: \${ch.done_today||0}</div>
+      </div>
+      <span style="background:#fbbf24;color:#000;font-size:11px;padding:2px 7px;border-radius:99px;font-weight:700">⭐\${ch.points||1}</span>
+      <button onclick="completeChore('\${ch.id}')" style="background:var(--success);color:#fff;border:none;border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer">✓ Done</button>
+    </div>\`;
+  }).join('');
+}
+async function addChore(){
+  const t=document.getElementById('choreTitleInput')?.value.trim();
+  if(!t)return;
+  await api('/api/chores',{method:'POST',body:JSON.stringify({title:t,assigned_to:document.getElementById('choreAssign')?.value||null,points:parseInt(document.getElementById('chorePoints')?.value||'1'),frequency:document.getElementById('choreFreq')?.value||'daily'})});
+  if(document.getElementById('choreTitleInput'))document.getElementById('choreTitleInput').value='';
+  if(document.getElementById('choreAddForm'))document.getElementById('choreAddForm').style.display='none';
+  renderChores();
+}
+async function completeChore(id){await api('/api/chores/'+id+'/complete',{method:'POST'});renderChores();}
+
+// ── MEALS ─────────────────────────────────
+const DAYS=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+async function loadMeals() {
+  const c = qs('#moreContent');
+  c.innerHTML = '<div style="padding:16px"><h3 style="font-size:16px;font-weight:700;margin-bottom:12px">🍽️ Meal Rota</h3><div id="mealGrid"></div></div>';
+  const resp = await api('/api/meals');
+  const meals = (resp && resp.meals) || [];
+  const grid = document.getElementById('mealGrid');
+  if (!grid) return;
+  grid.innerHTML = DAYS.map((day,i)=>{
+    const m = meals.find(x=>x.day_of_week===i);
+    const cook = m&&m.cook_id?(allUsers||[]).find(u=>u.id===m.cook_id):null;
+    return \`<div style="background:var(--surface);border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer" onclick="editMealDay(\${i})">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="width:36px;font-size:12px;font-weight:700;color:var(--primary)">\${day.slice(0,3)}</span>
+        <div style="flex:1">
+          <div style="font-size:14px;font-weight:500">\${m?esc(m.meal):'<span style="color:var(--muted)">Not planned</span>'}</div>
+          \${cook?\`<div style="font-size:12px;color:var(--muted)">🧑‍🍳 \${esc(cook.name)}</div>\`:''}
+        </div>
+        <span style="color:var(--muted)">✏️</span>
+      </div>
+      <div id="mealEdit_\${i}" style="display:none;margin-top:10px;background:var(--surface2);border-radius:8px;padding:10px">
+        <input id="mealInput_\${i}" placeholder="What's for dinner?" value="\${m?esc(m.meal):''}" style="width:100%;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);margin-bottom:8px">
+        <select id="mealCook_\${i}" style="width:100%;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);margin-bottom:8px">
+          <option value="">No cook</option>\${(allUsers||[]).map(u=>\`<option value="\${u.id}"\${m&&m.cook_id===u.id?' selected':''}>\${esc(u.name)}</option>\`).join('')}
+        </select>
+        <div style="display:flex;gap:8px">
+          <button class="btn" onclick="event.stopPropagation();saveMeal(\${i})">Save</button>
+          <button class="btn-sm" onclick="event.stopPropagation();document.getElementById('mealEdit_\${i}').style.display='none'">Cancel</button>
+        </div>
+      </div>
+    </div>\`;
+  }).join('');
+}
+function editMealDay(i){
+  DAYS.forEach((_,j)=>{const e=document.getElementById('mealEdit_'+j);if(e&&j!==i)e.style.display='none';});
+  const el=document.getElementById('mealEdit_'+i);
+  if(el)el.style.display=el.style.display==='none'?'block':'none';
+}
+async function saveMeal(i){
+  const meal=document.getElementById('mealInput_'+i)?.value.trim();
+  const cook_id=document.getElementById('mealCook_'+i)?.value||null;
+  if(!meal)return;
+  await api('/api/meals',{method:'POST',body:JSON.stringify({day_of_week:i,meal,cook_id})});
+  loadMeals();
+}
+
+// ── MILESTONES ────────────────────────────
+async function loadMilestones() {
+  const c = qs('#moreContent');
+  c.innerHTML = \`<div style="padding:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3 style="font-size:16px;font-weight:700">🏆 Milestones</h3>
+      <button class="btn-sm" onclick="toggleMilestoneForm()">+ Add</button>
+    </div>
+    <div id="milestoneAddForm" style="display:none;background:var(--surface);border-radius:10px;padding:12px;margin-bottom:12px">
+      <input id="milestoneTitleInput" placeholder="What happened?" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);margin-bottom:8px">
+      <textarea id="milestoneDescInput" placeholder="Tell the story..." rows="2" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);margin-bottom:8px"></textarea>
+      <input id="milestoneDateInput" type="date" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);margin-bottom:8px">
+      <button class="btn" onclick="addMilestone()">Add Milestone</button>
+    </div>
+    <div id="milestoneList" style="position:relative;padding-left:24px"></div>
+  </div>\`;
+  const ms = await api('/api/milestones');
+  const el = document.getElementById('milestoneList');
+  if (!el) return;
+  if (!ms||!ms.length){el.innerHTML='<div style="color:var(--muted);text-align:center;padding:32px">No milestones yet 🏆</div>';return;}
+  el.innerHTML = '<div style="position:absolute;left:8px;top:0;bottom:0;width:2px;background:var(--border)"></div>' +
+    ms.map(m=>\`<div style="position:relative;margin-bottom:20px">
+      <div style="position:absolute;left:-20px;top:4px;width:12px;height:12px;border-radius:50%;background:var(--primary);border:2px solid var(--surface)"></div>
+      <div style="background:var(--surface);border-radius:12px;padding:12px">
+        \${m.date?\`<div style="font-size:11px;color:var(--primary);margin-bottom:4px">\${m.date}</div>\`:''}
+        <div style="font-weight:600;margin-bottom:4px">\${esc(m.title)}</div>
+        \${m.description?\`<div style="font-size:13px;color:var(--muted)">\${esc(m.description)}</div>\`:''}
+      </div>
+    </div>\`).join('');
+}
+function toggleMilestoneForm(){const f=document.getElementById('milestoneAddForm');if(f)f.style.display=f.style.display==='none'?'block':'none';}
+async function addMilestone(){
+  const t=document.getElementById('milestoneTitleInput')?.value.trim();
+  if(!t)return;
+  await api('/api/milestones',{method:'POST',body:JSON.stringify({title:t,description:document.getElementById('milestoneDescInput')?.value.trim()||null,date:document.getElementById('milestoneDateInput')?.value||null})});
+  loadMilestones();
+}
+
+// ── RECIPES ───────────────────────────────
+async function loadRecipes() {
+  const c = qs('#moreContent');
+  c.innerHTML = \`<div style="padding:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3 style="font-size:16px;font-weight:700">📖 Recipes</h3>
+      <button class="btn-sm" onclick="toggleRecipeForm()">+ Add</button>
+    </div>
+    <div id="recipeAddForm" style="display:none;background:var(--surface);border-radius:10px;padding:12px;margin-bottom:12px">
+      <input id="recipeTitleInput" placeholder="Recipe name..." style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);margin-bottom:8px">
+      <textarea id="recipeDescInput" placeholder="Description..." rows="2" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);margin-bottom:8px"></textarea>
+      <textarea id="recipeIngInput" placeholder="Ingredients (one per line)..." rows="4" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);margin-bottom:8px"></textarea>
+      <textarea id="recipeStepsInput" placeholder="Steps..." rows="4" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);margin-bottom:8px"></textarea>
+      <button class="btn" onclick="addRecipe()">Save Recipe</button>
+    </div>
+    <div id="recipeGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:10px"></div>
+  </div>\`;
+  const recipes = await api('/api/recipes');
+  const el = document.getElementById('recipeGrid');
+  if (!el) return;
+  if (!recipes||!recipes.length){el.style.gridColumn='span 2';el.innerHTML='<div style="color:var(--muted);text-align:center;padding:32px;grid-column:span 2">No recipes yet 📖</div>';return;}
+  el.innerHTML=recipes.map(r=>\`<div onclick="expandRecipe('\${r.id}')" style="background:var(--surface);border-radius:12px;padding:14px;cursor:pointer;border:1px solid var(--border)">
+    <div style="font-size:14px;font-weight:600;margin-bottom:4px">\${esc(r.title)}</div>
+    <div style="font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">\${esc(r.description||'Tap to view')}</div>
+  </div>\`).join('');
+}
+function toggleRecipeForm(){const f=document.getElementById('recipeAddForm');if(f)f.style.display=f.style.display==='none'?'block':'none';}
+async function addRecipe(){
+  const t=document.getElementById('recipeTitleInput')?.value.trim();
+  if(!t)return;
+  await api('/api/recipes',{method:'POST',body:JSON.stringify({title:t,description:document.getElementById('recipeDescInput')?.value.trim()||null,ingredients:document.getElementById('recipeIngInput')?.value.trim()||null,steps:document.getElementById('recipeStepsInput')?.value.trim()||null})});
+  loadRecipes();
+}
+async function expandRecipe(id){
+  const r=await api('/api/recipes/'+id);
+  if(!r)return;
+  const c=qs('#moreContent');
+  c.innerHTML=\`<div style="padding:16px">
+    <button onclick="loadRecipes()" style="background:none;border:none;color:var(--primary);cursor:pointer;font-size:14px;margin-bottom:12px">← Back</button>
+    <h2 style="font-size:20px;font-weight:700;margin-bottom:8px">\${esc(r.title)}</h2>
+    \${r.description?\`<p style="color:var(--muted);margin-bottom:12px">\${esc(r.description)}</p>\`:''}
+    <div style="font-weight:700;margin-bottom:8px">🧂 Ingredients</div>
+    <div style="background:var(--surface);border-radius:10px;padding:12px;margin-bottom:12px;white-space:pre-wrap;font-size:13px">\${esc(r.ingredients||'')}</div>
+    <div style="font-weight:700;margin-bottom:8px">📝 Steps</div>
+    <div style="background:var(--surface);border-radius:10px;padding:12px;white-space:pre-wrap;font-size:13px">\${esc(r.steps||'')}</div>
+  </div>\`;
+}
+
+// ── KINDNESS ──────────────────────────────
+async function loadKindness() {
+  const c = qs('#moreContent');
+  c.innerHTML = \`<div style="padding:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3 style="font-size:16px;font-weight:700">💛 Kindness Board</h3>
+      <button class="btn-sm" onclick="toggleKindnessForm()">+ Add</button>
+    </div>
+    <div id="kindnessAddForm" style="display:none;background:var(--surface);border-radius:10px;padding:12px;margin-bottom:12px">
+      <input id="kindnessTitleInput" placeholder="Act of kindness..." style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);margin-bottom:8px">
+      <textarea id="kindnessDescInput" placeholder="Describe it..." rows="2" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);margin-bottom:8px"></textarea>
+      <button class="btn" onclick="addKindness()">Add</button>
+    </div>
+    <div id="kindnessList"></div>
+  </div>\`;
+  renderKindness();
+}
+function toggleKindnessForm(){const f=document.getElementById('kindnessAddForm');if(f)f.style.display=f.style.display==='none'?'block':'none';}
+async function renderKindness(){
+  const acts=await api('/api/kindness');
+  const el=document.getElementById('kindnessList');
+  if(!el)return;
+  if(!acts||!acts.length){el.innerHTML='<div style="text-align:center;color:var(--muted);padding:32px">Be the first to spread kindness 💛</div>';return;}
+  el.innerHTML=acts.map(a=>\`<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:10px;border-left:3px solid \${a.done?'var(--surface2)':'#fbbf24'};\${a.done?'opacity:.6':''}">
+    <div style="font-weight:600;margin-bottom:4px">\${esc(a.title)}</div>
+    \${a.description?\`<div style="font-size:13px;color:var(--muted);margin-bottom:8px">\${esc(a.description)}</div>\`:''}
+    \${a.done?\`<div style="font-size:12px;color:var(--success)">✓ Done\${a.done_by_name?' by '+esc(a.done_by_name):''}</div>\`
+      :\`<button onclick="markKindnessDone('\${a.id}')" style="background:var(--success);color:#fff;border:none;border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer">✓ I did this!</button>\`}
+  </div>\`).join('');
+}
+async function addKindness(){
+  const t=document.getElementById('kindnessTitleInput')?.value.trim();
+  if(!t)return;
+  await api('/api/kindness',{method:'POST',body:JSON.stringify({title:t,description:document.getElementById('kindnessDescInput')?.value.trim()||null})});
+  document.getElementById('kindnessTitleInput').value='';
+  if(document.getElementById('kindnessAddForm'))document.getElementById('kindnessAddForm').style.display='none';
+  renderKindness();
+}
+async function markKindnessDone(id){await api('/api/kindness/'+id+'/done',{method:'PATCH'});renderKindness();}
+
+// ── CHAT RENAME ───────────────────────────
+async function renameChat(){
+  const newName=prompt('Rename chat:',document.getElementById('chatName')?.textContent||'');
+  if(!newName||!currentChatId)return;
+  await api('/api/chats/'+currentChatId,{method:'PATCH',body:JSON.stringify({name:newName.trim()})});
+  if(document.getElementById('chatName'))document.getElementById('chatName').textContent=newName.trim();
+  currentChatName=newName.trim();
+  loadChats();
+}
+
+// ── AVATAR UPLOAD ─────────────────────────
+async function uploadAvatar(input){
+  if(!input.files[0])return;
+  const fd=new FormData();fd.append('file',input.files[0]);
+  const headers={'x-session-token':session?.token||''};
+  const r=await fetch('/api/avatar',{method:'POST',headers,body:fd}).then(r=>r.json());
+  if(r.avatar_url){currentUser.avatar_url=r.avatar_url;session.user=currentUser;localStorage.setItem('fh_session',JSON.stringify(session));loadProfile();}
+}
+
+// ── PARTY PLANNER ─────────────────────────
+async function toggleBringList(eventId){
+  const el=document.getElementById('bringList_'+eventId);
+  if(!el)return;
+  if(el.style.display==='none'||!el.style.display){
+    el.style.display='block';
+    const items=await api('/api/events/'+eventId+'/items')||[];
+    el.innerHTML=\`<div style="background:var(--surface2);border-radius:10px;padding:12px;margin-top:4px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:8px">Who's bringing what?</div>
+      \${items.map(i=>\`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
+        <span>\${esc(i.title)}</span>
+        \${i.claimed_by?(i.claimed_by===currentUser?.id
+          ?\`<span style="color:var(--success);font-size:11px;font-weight:600">✓ You <button onclick="claimItem('\${eventId}','\${i.id}')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px">unclaim</button></span>\`
+          :\`<span style="color:var(--success);font-size:11px;font-weight:600">✓ \${esc(i.claimer_name||'Someone')}</span>\`)
+          :\`<button onclick="claimItem('\${eventId}','\${i.id}')" style="background:var(--primary);color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">I'll bring it</button>\`}
+      </div>\`).join('')}
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <input id="bringInput_\${eventId}" placeholder="Add item..." style="flex:1;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+        <button onclick="addBringItem('\${eventId}')" style="background:var(--primary);color:#fff;border:none;border-radius:6px;padding:8px 12px;cursor:pointer">Add</button>
+      </div>
+    </div>\`;
+  } else { el.style.display='none'; }
+}
+async function addBringItem(eventId){
+  const t=document.getElementById('bringInput_'+eventId)?.value.trim();
+  if(!t)return;
+  await api('/api/events/'+eventId+'/items',{method:'POST',body:JSON.stringify({title:t})});
+  document.getElementById('bringList_'+eventId).style.display='none';
+  toggleBringList(eventId);
+}
+async function claimItem(eventId,itemId){
+  await api('/api/events/'+eventId+'/items/'+itemId+'/claim',{method:'POST'});
+  document.getElementById('bringList_'+eventId).style.display='none';
+  toggleBringList(eventId);
+}
+
+// ── EMERGENCY INFO ─────────────────────────
+async function loadEmergencyInfo(){
+  const el=document.getElementById('emergencyCard');
+  if(!el)return;
+  const info=await api('/api/emergency');
+  if(!info||!info.name){el.innerHTML=\`<div style="color:var(--muted);font-size:13px;margin-bottom:10px">No emergency info saved yet.</div><button class="btn-sm" onclick="showEmergencyForm()">+ Add Info</button>\`;return;}
+  el.innerHTML=[['Blood Type',info.blood_type],['Allergies',info.allergies],['Medications',info.medications],['Contact',info.name+(info.relationship?' ('+info.relationship+')':'')],['Phone',info.phone],['Notes',info.notes]]
+    .filter(([,v])=>v).map(([l,v])=>\`<div style="display:flex;gap:8px;margin-bottom:6px;font-size:13px"><span style="color:var(--muted);width:90px;flex-shrink:0">\${l}</span><span>\${esc(String(v))}</span></div>\`).join('')
+    +\`<button class="btn-sm" onclick="showEmergencyForm()" style="margin-top:8px">✏️ Edit</button>\`;
+}
+async function showEmergencyForm(){
+  const info=await api('/api/emergency')||{};
+  const el=document.getElementById('emergencyCard');
+  if(!el)return;
+  el.innerHTML=\`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+    <input id="emName" placeholder="Contact name" value="\${esc(String(info.name||''))}" style="padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+    <input id="emRel" placeholder="Relationship" value="\${esc(String(info.relationship||''))}" style="padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+    <input id="emPhone" placeholder="Phone" value="\${esc(String(info.phone||''))}" style="padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+    <input id="emBlood" placeholder="Blood type (e.g. A+)" value="\${esc(String(info.blood_type||''))}" style="padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+  </div>
+  <textarea id="emAllergies" placeholder="Allergies..." rows="2" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);margin-bottom:8px">\${esc(String(info.allergies||''))}</textarea>
+  <textarea id="emMeds" placeholder="Medications..." rows="2" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);margin-bottom:8px">\${esc(String(info.medications||''))}</textarea>
+  <button class="btn" onclick="saveEmergencyInfo()">Save</button>\`;
+}
+async function saveEmergencyInfo(){
+  await api('/api/emergency',{method:'POST',body:JSON.stringify({name:document.getElementById('emName')?.value.trim(),relationship:document.getElementById('emRel')?.value.trim(),phone:document.getElementById('emPhone')?.value.trim(),blood_type:document.getElementById('emBlood')?.value.trim(),allergies:document.getElementById('emAllergies')?.value.trim(),medications:document.getElementById('emMeds')?.value.trim()})});
+  loadEmergencyInfo();
+  toast('Saved! ✅');
+}
+
+// ── START APP HOOK ────────────────────────
+const _origStartApp = window.startApp || startApp;
+window.startApp = function() {
+  _origStartApp();
+  setTimeout(applyAllFeatureToggles, 2000);
+};
+
 </script>
 </body>
 </html>`;
