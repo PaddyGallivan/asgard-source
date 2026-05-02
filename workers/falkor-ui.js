@@ -22,7 +22,7 @@ const JSON_MANIFEST = JSON.stringify({
 });
 
 const SW_CODE = `
-const CACHE = 'falkor-v9.7.0';
+const CACHE = 'falkor-v9.8.0';
 const CACHE_URLS = ['/'];
 
 self.addEventListener('install', e => {
@@ -593,6 +593,150 @@ function SettingsPanel({ onClose, theme, onThemeToggle, voiceEnabled, onVoiceTog
         <button className="btn btn-ghost" onClick={() => { if (confirm('Clear chat history?')) fetch(AGENT_URL + '/history', { method:'DELETE', headers:{'X-Pin':LS.pin()} }); onClose(); }}>Clear history</button>
         <button className="btn" style={{ background:'var(--danger)', marginTop:6 }}
           onClick={() => { localStorage.removeItem('falkor.pin'); localStorage.removeItem('falkor.user'); window.location.reload(); }}>Sign out</button>
+      </div>
+    </div>
+  );
+}
+
+
+/* ── Home Panel ── */
+.home-panel{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+.home-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+.home-greeting{font-size:20px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.home-ts{font-size:11px;color:var(--muted)}
+.home-refresh{background:none;border:none;cursor:pointer;color:var(--muted);font-size:15px;padding:4px;border-radius:6px;line-height:1;transition:color .15s}
+.home-refresh:hover{color:var(--accent2)}
+.hcard{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px 16px;cursor:pointer;transition:border-color .15s,transform .1s}
+.hcard:hover{border-color:var(--accent);transform:translateY(-1px)}
+.hcard-label{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.hcard-main{font-size:22px;font-weight:800;line-height:1.2;margin-bottom:4px}
+.hcard-sub{font-size:13px;color:var(--muted);line-height:1.4}
+.hcard-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.hcard-pill{font-size:12px;padding:3px 9px;border-radius:20px;background:rgba(108,99,255,.1);border:1px solid rgba(108,99,255,.2);color:var(--accent2);font-weight:600;white-space:nowrap;cursor:pointer}
+.hcard-pill.pe-ok{background:rgba(34,197,94,.1);border-color:rgba(34,197,94,.25);color:#4ade80}
+.hcard-pill.pe-no{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.25);color:#f87171}
+.home-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:480px){.home-grid{grid-template-columns:1fr}}
+.hcard-team-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px}
+.hcard-team-row:last-child{border-bottom:none}
+.hcard-team-row .pos{color:var(--muted);font-size:12px;width:20px;flex-shrink:0}
+.hcard-team-row .team{flex:1;font-weight:500}
+.hcard-team-row .pts{color:var(--muted);font-size:12px}
+.hcard-team-row.highlight{color:var(--accent2)}
+.hcard-team-row.highlight .pts{color:var(--accent2)}
+.home-skeleton{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px 16px;animation:shimmer 1.5s infinite}
+@keyframes shimmer{0%,100%{opacity:.4}50%{opacity:.9}}
+
+
+// ─── HomePanel ────────────────────────────────────────────────────────────────
+function HomePanel({ pin, userName, onNavigate }) {
+  const [data, setData] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [ts, setTs] = React.useState(null);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const r = await fetch(AGENT_URL + '/home', { headers: { 'X-Pin': pin } });
+      const d = await r.json();
+      if (d.ok) { setData(d); setTs(Date.now()); }
+    } catch {}
+    setLoading(false);
+  }
+
+  React.useEffect(() => { load(); const iv = setInterval(load, 5*60*1000); return () => clearInterval(iv); }, []);
+
+  const nowAEST = new Date(Date.now() + 10*60*60*1000);
+  const h = nowAEST.getUTCHours();
+  const greeting = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+
+  function fmtTs(t) {
+    if (!t) return '';
+    const diff = Math.round((Date.now()-t)/1000);
+    if (diff < 60) return 'just now';
+    return Math.round(diff/60) + ' min ago';
+  }
+
+  if (loading && !data) return (
+    <div className="home-panel">
+      <div className="home-header">
+        <div className="home-greeting">{greeting}, {userName}!</div>
+      </div>
+      {[1,2,3].map(i => <div key={i} className="home-skeleton" style={{height:80}}/>)}
+    </div>
+  );
+
+  const w = data && data.weather;
+  const afl = data && data.afl;
+  const nrl = data && data.nrl;
+  const essendon = afl && afl.essendon;
+  const peOk = w && w.pe_suitable;
+
+  return (
+    <div className="home-panel">
+      <div className="home-header">
+        <div className="home-greeting">{greeting}, {userName}!</div>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          {ts && <span className="home-ts">Updated {fmtTs(ts)}</span>}
+          <button className="home-refresh" onClick={load} title="Refresh">↻</button>
+        </div>
+      </div>
+
+      {w && (
+        <div className="hcard" onClick={() => onNavigate('chat')}>
+          <div className="hcard-label">🌤 Weather — Williamstown</div>
+          <div className="hcard-main">{w.current && w.current.temp && w.current.temp.toFixed(1)}°C</div>
+          <div className="hcard-sub">{w.current && w.current.condition} · Feels {w.current && w.current.feels_like && w.current.feels_like.toFixed(0)}°C · Wind {w.current && w.current.wind_kmh && w.current.wind_kmh.toFixed(0)} km/h</div>
+          <div className="hcard-row">
+            <span className="hcard-pill">Max {w.today && w.today.max}°</span>
+            <span className="hcard-pill">Rain {w.today && w.today.rain_mm}mm</span>
+            {w.current && w.current.uv > 0 && <span className="hcard-pill">UV {w.current.uv}</span>}
+            <span className={'hcard-pill ' + (peOk ? 'pe-ok' : 'pe-no')}>{peOk ? 'PE outdoor OK' : 'PE check needed'}</span>
+          </div>
+        </div>
+      )}
+
+      <div className="home-grid">
+        {afl && (
+          <div className="hcard" onClick={() => onNavigate('sport')}>
+            <div className="hcard-label">🏈 AFL {afl.round ? 'Rd ' + afl.round : 'Ladder'}</div>
+            {essendon && (
+              <div style={{marginBottom:8,paddingBottom:8,borderBottom:'1px solid var(--border)'}}>
+                <div style={{fontSize:11,color:'var(--muted)',marginBottom:2}}>Essendon</div>
+                <div style={{fontSize:16,fontWeight:800,color:'#f87171'}}>#{essendon.rank} — {essendon.wins}W {essendon.losses}L</div>
+              </div>
+            )}
+            {(afl.top5||[]).slice(0,3).map(t => (
+              <div key={t.team} className={'hcard-team-row' + (/essendon|bombers/i.test(t.team) ? ' highlight' : '')}>
+                <span className="pos">{t.rank}.</span>
+                <span className="team">{t.team}</span>
+                <span className="pts">{t.points}pts</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {nrl && nrl.top4 && nrl.top4.length > 0 && (
+          <div className="hcard" onClick={() => onNavigate('nrl')}>
+            <div className="hcard-label">🏉 NRL Top 4</div>
+            {nrl.top4.map(t => (
+              <div key={t.team} className="hcard-team-row">
+                <span className="pos">{t.position}.</span>
+                <span className="team">{t.team}</span>
+                <span className="pts">{t.points}pts</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="hcard">
+        <div className="hcard-label">🏆 Jump to</div>
+        <div className="hcard-row" style={{marginTop:0}}>
+          {[['AFL Tips','tips'],['NRL Tips','nrl'],['Racing','racing'],['Calendar','calendar'],['Chat','chat']].map(([label,v]) => (
+            <span key={v} className="hcard-pill" onClick={e=>{e.stopPropagation();onNavigate(v)}}>{label}</span>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -1333,7 +1477,8 @@ function App() {
     const intent = params.get('intent');
     if (!intent) return;
     window.history.replaceState({}, '', '/');
-    if (intent === 'afl' || intent === 'sport') setView('sport');
+    if (intent === 'home') setView('home');
+    else if (intent === 'afl' || intent === 'sport') setView('sport');
     else if (intent === 'tips') setView('tips');
     else if (intent === 'history') setView('history');
     else if (intent === 'briefing') { setView('chat'); setTimeout(() => sendMessage("Give me today's briefing", null), 600); }
@@ -1636,6 +1781,7 @@ function App() {
 
           {/* Nav */}
           <div className="nav-sep"/>
+          <button className={'nav-btn'+(view==='home'?' active':'')} onClick={() => setView('home')}>🏠</button>
           <button className={'nav-btn'+(view==='chat'?' active':'')} onClick={() => setView('chat')}>💬 Chat</button>
           <button className={'nav-btn'+(view==='sport'?' active':'')} onClick={() => setView('sport')}>🏈</button>
           <button className={'nav-btn'+(view==='calendar'?' active':'')} onClick={() => setView('calendar')}>📅</button>
@@ -1657,6 +1803,7 @@ function App() {
           <button className="icon-btn" onClick={() => setShowSettings(true)}>⚙️</button>
         </div>
 
+        {view === 'home'     && <HomePanel pin={LS.agentPin() || LS.pin()} userName={user && user.name || 'Paddy'} onNavigate={(v,q) => { setView(v); if (q) setTimeout(() => sendMessage(q, null), 400); }}/>}
         {view === 'sport'    && <SportPanel pin={LS.agentPin() || LS.pin()}/>}
         {view === 'tips'     && <SportPanel pin={LS.agentPin() || LS.pin()} initialTab="comp"/>}
         {view === 'racing'   && <RacingPanel pin={LS.agentPin() || LS.pin()}/>}
