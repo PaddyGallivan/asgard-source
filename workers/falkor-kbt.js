@@ -638,6 +638,13 @@ Format: numbered list. Keep each prompt under 30 words.`
       });
     }
 
+    if (path === '/build-slides' && method === 'POST') {
+      const b = await request.json().catch(() => ({}));
+      const slideToken = request.headers.get('X-Google-Token') || '';
+      const result = await buildSlides(env, { topic: b.topic || 'general knowledge', count: b.count || 10, gameTitle: b.gameTitle || 'Kow Brainer Trivia', token: slideToken });
+      return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
+    }
+
     return json({ error: 'Not found', path }, 404);
   },
 };
