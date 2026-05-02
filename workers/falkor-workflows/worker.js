@@ -1,4 +1,4 @@
-// falkor-workflows v2.7.0 — Fix dayOfWeek hoisting bug + NRL auto-scoring
+// falkor-workflows v2.8.0 — AFL auto-scoring + NRL section in daily briefing
 // Cron: 0 21 * * * (7am AEST), 30 21 * * * (7:30am AEST), 0 */2 * * * (every 2h)
 //
 // Scheduled jobs:
@@ -15,7 +15,7 @@
 //
 // Bindings: DB (asgard-prod), PROJECTS_DB (project-hub-db), RESEND_API_KEY, AGENT_PIN, WEB_SERVICE (falkor-web)
 
-const VERSION = '2.7.0';
+const VERSION = '2.8.0';
 const WORKER_NAME = 'falkor-workflows';
 const PUSH_URL = 'https://falkor-push.luckdragon.io';
 const SPORT_URL = 'https://falkor-sport.luckdragon.io';
@@ -264,6 +264,33 @@ async function runDailySummary(env) {
     if (kbt.next_event) kbtHtml += '<p>Next: ' + kbt.next_event + '</p>';
     sections.push(kbtHtml);
   }
+
+  // ── NRL ──
+  try {
+    var nrlSeason = new Date().getFullYear();
+    var [nrlDraw, nrlLb] = await Promise.all([
+      fetch(SPORT_URL + '/nrl/draw?season=' + nrlSeason, { headers: { 'X-Pin': pin } }).then(function(r) { return r.json(); }).catch(function() { return null; }),
+      fetch(SPORT_URL + '/nrl/leaderboard?season=' + nrlSeason, { headers: { 'X-Pin': pin } }).then(function(r) { return r.json(); }).catch(function() { return null; }),
+    ]);
+    if (nrlDraw && nrlDraw.round) {
+      var nrlHtml = '<h3>🏹 NRL — Round ' + nrlDraw.round + '</h3>';
+      var todayNRL = (nrlDraw.fixtures || []).filter(function(g) {
+        return g.kickOffTimeLong && g.kickOffTimeLong.includes(new Date().toISOString().slice(0,10));
+      });
+      var todayOrAll = todayNRL.length ? todayNRL : (nrlDraw.fixtures || []).slice(0, 4);
+      todayOrAll.forEach(function(g) {
+        var scoreStr = (g.homeScore != null && g.awayScore != null && g.matchMode === 'Post')
+          ? ' <strong>' + g.homeScore + '–' + g.awayScore + '</strong>'
+          : (g.kickOffTimeLong ? ' · ' + (g.kickOffTimeLong.slice(11,16)||'') : '');
+        nrlHtml += '<p>🏉 ' + g.homeTeam + ' vs ' + g.awayTeam + scoreStr + '</p>';
+      });
+      if (nrlLb && nrlLb.leaderboard && nrlLb.leaderboard.length > 0) {
+        var nrlTop = nrlLb.leaderboard[0];
+        nrlHtml += '<p>Tipping leader: <strong>' + nrlTop.player + '</strong> — ' + nrlTop.correct + '/' + nrlTop.total + ' (' + nrlTop.pct + '%)</p>';
+      }
+      sections.push(nrlHtml);
+    }
+  } catch(e) { /* NRL section optional */ }
 
   // ── AI Opener (Groq) — punchy Jarvis-style greeting ──
   var opener = '';
@@ -1061,6 +1088,23 @@ async function runScheduled(cron, env) {
 
   // Weekly summary — Monday 10pm UTC = Tuesday 8am AEST
   if (dayOfWeek === 1 && hour === 22 && minute < 15) {
+    // Score the current AFL round before sending the email
+    var aflYear = new Date().getUTCFullYear();
+    try {
+      var aflRoundResp = await fetch(SPORT_URL + '/afl/round?year=' + aflYear, { headers: { 'X-Pin': env.AGENT_PIN || '' } });
+      if (aflRoundResp.ok) {
+        var aflRoundData = await aflRoundResp.json();
+        var aflRound = aflRoundData.round || (Array.isArray(aflRoundData) ? null : null);
+        if (!aflRound && Array.isArray(aflRoundData) && aflRoundData[0]) aflRound = aflRoundData[0].round;
+        if (aflRound) {
+          await fetch(SPORT_URL + '/afl/comp/score?year=' + aflYear + '&round=' + aflRound, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Pin': env.AGENT_PIN || '' },
+            body: JSON.stringify({ year: aflYear, round: aflRound })
+          }).catch(function() {});
+        }
+      }
+    } catch(e) { console.warn('AFL score before weekly:', e.message); }
     var wSum = await runWeeklySummary(env).catch(function(e) { return { ok: false, error: e.message }; });
     await logRun(env, 'weekly_summary', wSum);
   }
