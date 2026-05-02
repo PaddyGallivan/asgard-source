@@ -31,17 +31,23 @@ async function getNRLLadder(season,env){
   const res=await fetch("https://www.nrl.com/ladder/data?competition=111&season="+yr,{headers:{Accept:"application/json","User-Agent":UA}});
   if(!res.ok)throw new Error("NRL Ladder API "+res.status);
   const d=await res.json();
-  const positions=(d.ladderPositions||d.positions||d.teams||[]).map((t,i)=>({
-    position:t.position||i+1,
-    team:t.team&&t.team.nickName||t.teamNickname||t.name||"?",
-    played:t.played||0,
-    wins:t.wins||0,
-    losses:t.losses||0,
-    draws:t.draws||0,
-    points:t.points||0,
-    pointsDiff:t.pointsDifferential||t.pointDiff||0,
-    form:(t.form||[]).slice(-5).map(r=>r===true||r==="W"?"W":r===false||r==="L"?"L":"D").join("")
-  }));
+  const positions=(d.positions||[]).map((t,i)=>{
+    const s=t.stats||{};
+    return{
+      position:i+1,
+      team:t.teamNickname||"?",
+      played:s.played||0,
+      wins:s.wins||0,
+      losses:s.lost||0,
+      draws:s.drawn||0,
+      points:s.points||0,
+      pointsFor:s["points for"]||0,
+      pointsAgainst:s["points against"]||0,
+      pointsDiff:s["points difference"]||0,
+      streak:s.streak||"",
+      form:s.form||""
+    };
+  });
   return{season:yr,ladder:positions};
 }
 async function getNRLDraw(season,round,env){
