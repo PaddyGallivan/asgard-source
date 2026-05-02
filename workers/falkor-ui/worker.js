@@ -22,7 +22,7 @@ const JSON_MANIFEST = JSON.stringify({
 });
 
 const SW_CODE = `
-const CACHE = 'falkor-v9.3.0';
+const CACHE = 'falkor-v9.6.0';
 const CACHE_URLS = ['/'];
 
 self.addEventListener('install', e => {
@@ -111,7 +111,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === '/health') {
-      return new Response(JSON.stringify({status:'ok',version:'9.5.0',worker:'falkor-ui'}), {
+      return new Response(JSON.stringify({status:'ok',version:'9.6.0',worker:'falkor-ui'}), {
         headers: {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}
       });
     }
@@ -1245,7 +1245,12 @@ function MessageBubble({ msg }) {
         <div className="msg-role">{msg.role === 'user' ? 'You' : '🐉 Falkor'}</div>
         {time && <div className="msg-timestamp">{time}</div>}
       </div>
-      <div className="msg-bubble" dangerouslySetInnerHTML={{ __html: renderMD(msg.content || '') }}/>
+      {msg.imageData && (
+        <div className="msg-bubble" style={{ padding:'6px' }}>
+          <img src={msg.imageData} alt="attached" style={{ maxWidth:'260px', maxHeight:'200px', borderRadius:'8px', display:'block' }}/>
+        </div>
+      )}
+      {msg.content && <div className="msg-bubble" dangerouslySetInnerHTML={{ __html: renderMD(msg.content || '') }}/>}
     </div>
   );
 }
@@ -1483,6 +1488,55 @@ function App() {
 
   async function doSend() {
     if (!input.trim() && !attachment) return;
+
+    // ── Image attachment → vision endpoint ──────────────────────────────────
+    if (attachment && attachment.type && attachment.type.startsWith('image/')) {
+      const userText = input.trim() || 'What is this?';
+      const imageDataUrl = await new Promise((res, rej) => {
+        const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(attachment);
+      }).catch(() => null);
+      if (!imageDataUrl) { toast('Could not read image'); return; }
+
+      // Strip data: prefix to get raw base64
+      const b64 = imageDataUrl.split(',')[1];
+      const mime = attachment.type;
+
+      // Add user message with image to chat
+      let cid = activeIdRef.current;
+      const exists = convos.find(c => c.id === cid);
+      if (!cid || !exists) {
+        cid = uid();
+        const nc = { id:cid, title:userText.slice(0,40), messages:[], ts:Date.now() };
+        setConvos(prev => [nc, ...prev]);
+        setActiveId(cid); activeIdRef.current = cid;
+      }
+      const userMsg = { id:uid(), role:'user', content:userText, imageData:imageDataUrl, ts:Date.now() };
+      setConvos(prev => prev.map(c => c.id === cid
+        ? { ...c, messages:[...(c.messages||[]), userMsg], title:c.title||userText.slice(0,40) } : c));
+      setInput(''); setAttachment(null); setTyping(true);
+
+      // Call vision endpoint
+      try {
+        const res = await fetch(AGENT_URL + '/vision', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Pin': LS.agentPin() || LS.pin() },
+          body: JSON.stringify({ image_b64: b64, mime_type: mime, prompt: userText, userId: LS.userId() })
+        });
+        const d = await res.json().catch(() => ({}));
+        const reply = d.reply || d.content || (d.ok === false ? 'Vision unavailable — ' + (d.error || 'unknown error') : 'No response');
+        const botMsg = { id:uid(), role:'assistant', content:reply, ts:Date.now() };
+        setConvos(prev => prev.map(c => c.id === cid
+          ? { ...c, messages:[...(c.messages||[]), botMsg] } : c));
+      } catch (e) {
+        const errMsg = { id:uid(), role:'assistant', content:'Vision error: ' + e.message, ts:Date.now() };
+        setConvos(prev => prev.map(c => c.id === cid
+          ? { ...c, messages:[...(c.messages||[]), errMsg] } : c));
+      }
+      setTyping(false);
+      return;
+    }
+
+    // ── Regular text or non-image file → WebSocket ──────────────────────────
     let fc = null;
     if (attachment) fc = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(attachment); }).catch(() => null);
     sendMessage(input, fc);
@@ -1635,7 +1689,13 @@ function App() {
             <div className="composer">
               {attachment && (
                 <div className="attach-row">
-                  📎 {attachment.name}
+                  {attachment.type && attachment.type.startsWith('image/') ? (
+                    <img src={URL.createObjectURL(attachment)} alt="preview"
+                      style={{ height:'40px', borderRadius:'5px', objectFit:'cover' }}/>
+                  ) : '📎'}
+                  <span style={{ fontSize:'11px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'160px' }}>
+                    {attachment.name || 'image'}
+                  </span>
                   <span className="attach-remove" onClick={() => setAttachment(null)}>✕</span>
                 </div>
               )}
@@ -1647,8 +1707,20 @@ function App() {
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); } }}
                   placeholder="Message Falkor…" rows={1}
                   onInput={e => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }}
+                  onPaste={e => {
+                    const items = e.clipboardData && e.clipboardData.items;
+                    if (!items) return;
+                    for (const item of items) {
+                      if (item.type.startsWith('image/')) {
+                        e.preventDefault();
+                        const file = item.getAsFile();
+                        if (file) setAttachment(file);
+                        return;
+                      }
+                    }
+                  }}
                 />
-                <input id="file-input" type="file" style={{ display:'none' }} onChange={handleFileInput}/>
+                <input id="file-input" type="file" accept="image/*,*/*" style={{ display:'none' }} onChange={handleFileInput}/>
                 <button className="icon-btn" onClick={() => document.getElementById('file-input').click()} title="Attach">📎</button>
                 <button className={'icon-btn'+(voiceEnabled?' active':'')} style={{ fontSize:'15px' }} onClick={() => setShowVoice(true)} title="Voice">🎤</button>
                 <button className="send-btn" onClick={doSend}
