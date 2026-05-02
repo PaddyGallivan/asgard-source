@@ -111,7 +111,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === '/health') {
-      return new Response(JSON.stringify({status:'ok',version:'9.4.0',worker:'falkor-ui'}), {
+      return new Response(JSON.stringify({status:'ok',version:'9.5.0',worker:'falkor-ui'}), {
         headers: {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}
       });
     }
@@ -604,6 +604,7 @@ function NRLPanel({pin}){
   var YEAR=new Date().getFullYear();
   var [draw,setDraw]=React.useState(null);
   var [lb,setLb]=React.useState([]);
+  var [standings,setStandings]=React.useState([]);
   var [tab,setTab]=React.useState('tips');
   var [tipped,setTipped]=React.useState({});
   var [loading,setLoading]=React.useState(true);
@@ -616,12 +617,14 @@ function NRLPanel({pin}){
   async function load(){
     setLoading(true);
     try{
-      var [dr,lb2]=await Promise.all([
+      var [dr,lb2,ldr]=await Promise.all([
         fetch(SPORT_URL+'/nrl/draw?season='+YEAR+'&pin='+pin).then(r=>r.json()),
         fetch(SPORT_URL+'/nrl/leaderboard?pin='+pin).then(r=>r.json()),
+        fetch(SPORT_URL+'/nrl/ladder?season='+YEAR+'&pin='+pin).then(r=>r.json()),
       ]);
       setDraw(dr);
       setLb(lb2.leaderboard||[]);
+      setStandings(ldr.ladder||[]);
       // load existing tips
       if(player&&dr.round){
         var tr=await fetch(SPORT_URL+'/nrl/tips?season='+YEAR+'&round='+dr.round+'&pin='+pin).then(r=>r.json());
@@ -660,7 +663,8 @@ function NRLPanel({pin}){
     ),
     React.createElement('div',{style:{marginBottom:'14px'}},
       React.createElement('button',{style:TB2('tips'),onClick:function(){setTab('tips');}},'🎯 My Tips'),
-      React.createElement('button',{style:TB2('ladder'),onClick:function(){setTab('ladder');}},'🏆 Leaderboard')
+      React.createElement('button',{style:TB2('ladder'),onClick:function(){setTab('ladder');}},'🏆 Leaderboard'),
+      React.createElement('button',{style:TB2('standings'),onClick:function(){setTab('standings');}},'🏟 NRL Ladder')
     ),
     tab==='tips'&&React.createElement('div',null,
       !loggedInName&&React.createElement('input',{value:player,onChange:function(e){setPlayer(e.target.value);localStorage.setItem('falkor.sport.player',e.target.value);},placeholder:'Your name',style:{background:'var(--input-bg)',border:'1px solid var(--border)',borderRadius:'8px',padding:'8px 12px',color:'var(--text)',fontSize:'13px',width:'180px',marginBottom:'12px'}}),
@@ -698,6 +702,38 @@ function NRLPanel({pin}){
           React.createElement('span',{style:{fontSize:'12px',color:'var(--muted)'}},row.pct+'%')
         );
       })
+    ),
+    tab==='standings'&&React.createElement('div',null,
+      standings.length===0&&React.createElement('div',{style:{color:'var(--muted)',fontSize:'13px',padding:'20px 0'}},'⏳ Loading ladder...'),
+      React.createElement('div',{style:{overflowX:'auto'}},
+        React.createElement('table',{style:{width:'100%',borderCollapse:'collapse',fontSize:'13px'}},
+          React.createElement('thead',null,
+            React.createElement('tr',null,
+              ['#','Team','P','W','L','D','PF','PA','Diff','Pts','Form'].map(function(h){
+                return React.createElement('th',{key:h,style:{padding:'6px 8px',textAlign:h==='Team'?'left':'center',color:'var(--muted)',fontWeight:600,borderBottom:'1px solid var(--border)',whiteSpace:'nowrap'}},h);
+              })
+            )
+          ),
+          React.createElement('tbody',null,
+            standings.map(function(t){
+              var diff=t.pointsDiff>0?'+'+t.pointsDiff:t.pointsDiff;
+              return React.createElement('tr',{key:t.position,style:{borderBottom:'1px solid var(--border)',background:t.position<=8?'rgba(108,99,255,.03)':'transparent'}},
+                React.createElement('td',{style:{padding:'7px 8px',textAlign:'center',fontWeight:700,color:t.position<=8?'var(--accent2)':'var(--muted)'}},t.position),
+                React.createElement('td',{style:{padding:'7px 8px',fontWeight:600}},t.team),
+                React.createElement('td',{style:{padding:'7px 8px',textAlign:'center'}},t.played),
+                React.createElement('td',{style:{padding:'7px 8px',textAlign:'center',color:'var(--green)',fontWeight:600}},t.wins),
+                React.createElement('td',{style:{padding:'7px 8px',textAlign:'center',color:'var(--red)'}},t.losses),
+                React.createElement('td',{style:{padding:'7px 8px',textAlign:'center'}},t.draws),
+                React.createElement('td',{style:{padding:'7px 8px',textAlign:'center'}},t.pointsFor),
+                React.createElement('td',{style:{padding:'7px 8px',textAlign:'center'}},t.pointsAgainst),
+                React.createElement('td',{style:{padding:'7px 8px',textAlign:'center',color:t.pointsDiff>0?'var(--green)':t.pointsDiff<0?'var(--red)':'var(--muted)'}},diff),
+                React.createElement('td',{style:{padding:'7px 8px',textAlign:'center',fontWeight:700}},t.points),
+                React.createElement('td',{style:{padding:'7px 8px',textAlign:'center',color:'var(--muted)',fontSize:'12px'}},t.form)
+              );
+            })
+          )
+        )
+      )
     )
   );
 }
@@ -1727,4 +1763,5 @@ function installApp(){if(_deferredInstall){_deferredInstall.prompt();_deferredIn
       }
     });
   }
-};
+};
+
