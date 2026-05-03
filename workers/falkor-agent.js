@@ -1,4 +1,4 @@
-// falkor-agent v1.8.0 — Phase 80: Image Generation + Model Badges
+// falkor-agent v1.9.0 — Phase 81: Local Bridge (file/shell access from Falkor chat)
 // v1.7.0 adds:
 //   1. Live context pre-loader — fetches weather/calendar/sport/tips before first reply
 //   2. Auto-memory — every 5 turns, Haiku extracts memorable facts → falkor-brain
@@ -10,6 +10,9 @@ const SPORT_URL    = 'https://falkor-sport.luckdragon.io';
 const WEATHER_URL  = 'https://asgard-ai.luckdragon.io';
 const PUSH_URL     = 'https://falkor-push.luckdragon.io';
 const WORKFLOWS_URL = 'https://falkor-workflows.luckdragon.io';
+
+// Phase 81: Local bridge timeout
+const BRIDGE_TIMEOUT_MS = 12_000;
 
 // WPS coordinates (Williamstown Primary School)
 const WPS_LAT = -37.8594;
@@ -93,6 +96,16 @@ function routeIntent(text) {
     return { agent: 'image', action: 'generate' };
   if (/\b(search|look up|find|google|what is|who is|latest|news|current|today's|recent)\b/.test(t) && t.length < 200)
     return { agent: 'web', action: 'search' };
+  // Phase 81: Local bridge — file/folder/shell commands
+  if (/\b(list|show me|what('s| is) in|contents? of|files? in|folder|directory|desktop|downloads?|documents?)\b/.test(t) &&
+      /\b(my|the|local|pc|computer|machine|drive)\b/.test(t))
+    return { agent: 'bridge', action: 'local' };
+  if (/\b(take a screenshot|screen ?shot|screen capture|disk space|disk usage|disk info|system info|open (chrome|excel|word|notepad|explorer|terminal|finder))\b/.test(t))
+    return { agent: 'bridge', action: 'local' };
+  if (/\b(read|open) (?:my |the )?(file|document|spreadsheet|script|txt|pdf|csv|js|py)/.test(t))
+    return { agent: 'bridge', action: 'local' };
+  if (/\bsearch (?:my |for )?files?\b/.test(t))
+    return { agent: 'bridge', action: 'local' };
   return null;
 }
 
@@ -131,6 +144,8 @@ async function callSubAgent(agentKey, action, text, pin, aiPin) {
         });
         return imgResp.ok ? imgResp.json() : null;
       }
+      case 'bridge':
+        return null; // Bridge handled directly in processChat
       default: return null;
     }
   } catch { return null; }
@@ -310,7 +325,8 @@ export class FalkorAgent {
   constructor(state, env) {
     this.state = state;
     this.env = env;
-    this.sessions = new Map();
+    this.sessions = new Map();             // All WS sessions: { ws, isBridge }
+    this.pendingBridgeCommands = new Map(); // commandId → { resolve, reject }
     this.wsCount = 0;
   }
 
@@ -359,9 +375,11 @@ export class FalkorAgent {
       const history = await this.getHistory();
       const memory = await this.getMemory();
       const ctxTs = await this.state.storage.get('liveContextTs');
+      const bridgeConnected = [...this.sessions.values()].some(s => s.isBridge);
       return corsJson({
-        version: '1.8.0',
+        version: '1.9.0',
         activeSessions: this.sessions.size,
+        bridgeConnected,
         historyLength: history.length,
         memoryKeys: Object.keys(memory).length,
         liveContextAge: ctxTs ? Math.round((Date.now() - ctxTs) / 1000) + 's' : 'not loaded',
@@ -377,11 +395,36 @@ export class FalkorAgent {
     server.accept();
 
     const wsId = String(++this.wsCount);
-    this.sessions.set(wsId, server);
+    this.sessions.set(wsId, { ws: server, isBridge: false });
 
     server.addEventListener('message', async (evt) => {
       try {
         const msg = JSON.parse(evt.data);
+
+        // ── Phase 81: Bridge registration ─────────────────────────────────────
+        if (msg.type === 'bridge_register') {
+          const session = this.sessions.get(wsId);
+          if (session) session.isBridge = true;
+          server.send(JSON.stringify({
+            type: 'bridge_ack',
+            status: 'connected',
+            capabilities: msg.capabilities || [],
+          }));
+          this.broadcastToUI({ type: 'bridge_status', connected: true, hostname: msg.hostname || 'your PC' });
+          return;
+        }
+
+        // ── Phase 81: Bridge result (local script responding) ─────────────────
+        if (msg.type === 'bridge_result') {
+          const pending = this.pendingBridgeCommands.get(msg.commandId);
+          if (pending) {
+            this.pendingBridgeCommands.delete(msg.commandId);
+            pending.resolve(msg.data);
+          }
+          return;
+        }
+
+        // ── Standard UI messages ──────────────────────────────────────────────
         if (msg.type === 'chat') {
           const userId = msg.userId || 'paddy';
           await this.processChat(msg.text, msg.model || 'groq-fast', server, msg.productContext, userId);
@@ -406,7 +449,13 @@ export class FalkorAgent {
       }
     });
 
-    server.addEventListener('close', () => { this.sessions.delete(wsId); });
+    server.addEventListener('close', () => {
+      const session = this.sessions.get(wsId);
+      if (session && session.isBridge) {
+        this.broadcastToUI({ type: 'bridge_status', connected: false });
+      }
+      this.sessions.delete(wsId);
+    });
     server.addEventListener('error', () => { this.sessions.delete(wsId); });
 
     return new Response(null, { status: 101, webSocket: client });
@@ -478,6 +527,74 @@ export class FalkorAgent {
         return imgData.url;
       }
       // If image gen failed, fall through to regular chat with an explanation
+    }
+
+    // ── 3b. Phase 81: Local bridge command ───────────────────────────────────
+    if (intent && intent.agent === 'bridge') {
+      const bridgeWs = this.getBridgeWs();
+      if (!bridgeWs) {
+        const msg = '🔌 **Local bridge not connected.** To use PC file and shell commands, run `node falkor-bridge.js` on your computer first. I can still help with other things!';
+        history.push({ role: 'user', content: text, ts: Date.now() });
+        history.push({ role: 'assistant', content: msg, ts: Date.now() });
+        await this.state.storage.put('history', JSON.stringify(history.slice(-200)));
+        this.broadcastToUI({ type: 'assistant_reply', text: msg, model: 'bridge', provider: 'bridge' });
+        return msg;
+      }
+
+      const commandId = 'br_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+      const cmd = this.parseBridgeCommand(text);
+
+      const bridgeResult = await new Promise((resolve, reject) => {
+        this.pendingBridgeCommands.set(commandId, { resolve, reject });
+        setTimeout(() => {
+          if (this.pendingBridgeCommands.has(commandId)) {
+            this.pendingBridgeCommands.delete(commandId);
+            reject(new Error('Bridge timeout (12s) — is falkor-bridge.js still running?'));
+          }
+        }, BRIDGE_TIMEOUT_MS);
+        try {
+          bridgeWs.send(JSON.stringify({ type: 'bridge_command', commandId, ...cmd }));
+        } catch (err) {
+          this.pendingBridgeCommands.delete(commandId);
+          reject(err);
+        }
+      }).catch(err => ({ error: err.message }));
+
+      // Ask Haiku to summarise the result in natural language
+      const bridgeSummaryPrompt = bridgeResult.error
+        ? 'The user asked: "' + text + '". The local bridge returned this error: ' + bridgeResult.error + '. Explain it helpfully and suggest how to fix it.'
+        : 'The user asked: "' + text + '". The local bridge returned this data: ' + JSON.stringify(bridgeResult, null, 2).slice(0, 2500) + '. Summarise it naturally and helpfully for the user.';
+
+      let bridgeReply = '';
+      let bridgeModel = 'haiku';
+      try {
+        const resp = await fetch(aiUrl + '/chat/smart', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Pin': aiPin },
+          body: JSON.stringify({
+            message: bridgeSummaryPrompt,
+            context: [],
+            system: 'You are Falkor, ' + userCtx.name + "'s AI assistant. Be concise. Format file listings as a neat list. If there's a screenshot, describe how to view it.",
+            model: 'haiku',
+            max_tokens: 800,
+          }),
+        });
+        if (resp.ok) {
+          const d = await resp.json();
+          bridgeReply = d.reply || d.content || '';
+          bridgeModel = d.model_key || 'haiku';
+        }
+      } catch { /* non-fatal */ }
+
+      if (!bridgeReply) bridgeReply = bridgeResult.error
+        ? '⚠️ ' + bridgeResult.error
+        : '✅ ' + JSON.stringify(bridgeResult).slice(0, 500);
+
+      history.push({ role: 'user', content: text, ts: Date.now() });
+      history.push({ role: 'assistant', content: bridgeReply, ts: Date.now() });
+      await this.state.storage.put('history', JSON.stringify(history.slice(-200)));
+      this.broadcastToUI({ type: 'assistant_reply', text: bridgeReply, model: bridgeModel, provider: 'bridge' });
+      return bridgeReply;
     }
 
     if (intent && intent.agent !== 'image') {
@@ -578,11 +695,21 @@ export class FalkorAgent {
     return reply;
   }
 
-  broadcast(msg) {
+  broadcast(msg) { this.broadcastToUI(msg); }
+
+  broadcastToUI(msg) {
     const payload = JSON.stringify(msg);
-    for (const [id, ws] of this.sessions) {
-      try { ws.send(payload); } catch { this.sessions.delete(id); }
+    for (const [id, session] of this.sessions) {
+      if (session.isBridge) continue;
+      try { session.ws.send(payload); } catch { this.sessions.delete(id); }
     }
+  }
+
+  getBridgeWs() {
+    for (const [, session] of this.sessions) {
+      if (session.isBridge) return session.ws;
+    }
+    return null;
   }
 
   async getHistory() {
@@ -606,6 +733,40 @@ export class FalkorAgent {
     await this.state.storage.put('memory', JSON.stringify(memory));
   }
   async clearMemory() { await this.state.storage.delete('memory'); }
+
+  // Phase 81: Parse natural language into a bridge action object
+  parseBridgeCommand(text) {
+    const t = text.toLowerCase().trim();
+    // Screenshot
+    if (/screenshot|screen shot|screen capture/.test(t))
+      return { action: 'screenshot' };
+    // Disk info
+    if (/disk (space|usage|info)|how much (space|storage)/.test(t))
+      return { action: 'disk_info' };
+    // System info
+    if (/system info|about (my |this )?pc|computer info/.test(t))
+      return { action: 'system_info' };
+    // Open app
+    const apps = ['chrome','firefox','edge','word','excel','notepad','explorer','terminal','finder','calculator','spotify','vscode','outlook','powerpoint'];
+    for (const app of apps) {
+      if (t.includes('open ' + app) || t.includes('launch ' + app)) return { action: 'open_app', app };
+    }
+    // Run shell command
+    const runM = t.match(/run (.{3,80}?)(\s+command)?$/);
+    if (runM && /^(python|node|npm|pip|git|dir|ls|echo|ipconfig|ping|curl)/.test(runM[1]))
+      return { action: 'run_command', command: runM[1].trim() };
+    // Read specific file
+    const readM = t.match(/read (?:my |the )?([\w\s./\:-]+\.\w{2,6})/);
+    if (readM) return { action: 'read_file', path: readM[1].trim() };
+    // Search files
+    const searchM = t.match(/search (?:my |for )?(?:files? (?:named |called )?)?["']?([^"']+?)["']?(?:\s+in\s+([\w\s:/\]+))?$/);
+    if (searchM) return { action: 'search_files', query: searchM[1].trim(), path: searchM[2] || '~' };
+    // List directory — pick up path hint
+    for (const hint of ['downloads','desktop','documents','pictures','music','google drive','luck dragon']) {
+      if (t.includes(hint)) return { action: 'list_dir', path: hint };
+    }
+    return { action: 'list_dir', path: '~' };
+  }
 }
 
 // ── Router ────────────────────────────────────────────────────────────────────
@@ -627,7 +788,7 @@ export default {
     }
 
     if (url.pathname === '/health') {
-      return Response.json({ status: 'ok', version: '1.8.0', worker: 'falkor-agent' });
+      return Response.json({ status: 'ok', version: '1.9.0', worker: 'falkor-agent' });
     }
 
     const userId = request.headers.get('X-User-Id') || url.searchParams.get('uid') || 'paddy';
