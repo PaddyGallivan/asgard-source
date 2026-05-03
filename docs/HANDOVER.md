@@ -368,3 +368,37 @@ End of handover. **PIN is `<ASK MONA — PIN provided out-of-band, not stored in
 - Add GRAPH_ACCESS_TOKEN secret to falkor-agent to enable "check my email" (Outlook read)
 - ws.carnivaltiming.com CNAME still needed in CF DNS (ws → carnival-timing-ws.pgallivan.workers.dev)
 - GOOGLE_CAL_ICS_URL secret needed on falkor-calendar for Google Calendar events in briefing
+
+
+## SLY R8 session (2026-05-03)
+
+### Superleague Yeah v4 — changes deployed
+
+**`sly-api.js`** (committed SHA `660a676dcbd6da7b`):
+- Fixtures endpoint now returns `home_score`/`away_score` via correlated subqueries (rounds alias `rr` to avoid JS variable collision). R7 verified: Josh 259 vs Isaac 219 ✓
+
+**`sly-app-v2.js`** v5.4 (committed SHA `4318aff9d061ce46`):
+- Serve-time `html.replace()` patches applied before serving KV content (avoids WAF block on 383KB KV writes):
+  - Fund tab: OUTSTANDING column added between COLLECTED and BALANCE
+  - `loadSlushFund()`: computes outstanding = total − collected
+  - After score recalc: `_slyFixturesCache={}` cleared so Fixtures tab updates immediately
+
+**D1 changes:**
+- `sly_config` table: `sly_gold` key inserted (value `{}` = empty JSON, API returns hardcoded defaults)
+
+**Domain:**
+- `sly-api.luckdragon.io` custom domain live for the sly-api worker
+
+**R8 status:**
+- All 16 coaches have picks (175 rows in `round_picks` for round_id=9). Old site cross-check done.
+- GC vs GWS still live as of ~20:00 AEST. R8 scoring not yet run.
+- Once game ends: Admin → Auto-Sync AFL Fantasy Scores → R8 → Sync, then Recalc. Then `UPDATE rounds SET is_complete=1 WHERE id=9`.
+
+**Fund:**
+- 0/16 coaches paid. $800 outstanding. Not a code issue — chase coaches.
+
+**Verified live:**
+```
+curl -s https://superleague.streamlinewebapps.com | grep -o 'fundOutstanding\|OUTSTANDING\|_slyFixturesCache={};'
+# returns: OUTSTANDING, fundOutstanding, _slyFixturesCache={};
+```
