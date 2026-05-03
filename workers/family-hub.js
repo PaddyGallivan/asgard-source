@@ -1,5 +1,5 @@
 // Family Hub v2 — single-file Cloudflare Worker
-// Built: 2026-05-01
+// Built: 2026-05-03 (v15 — bug fixes: dual polling, leaderboard, family scoping, ownership checks)
 
 // Family Hub v2 - Part 1: Auth, Crypto, Core API helpers
 
@@ -86,6 +86,8 @@ function err(msg, status=400) { return json({error:msg}, status); }
 
 async function createNotif(env, userId, type, title, body, refId=null, refType=null) {
   try {
+    const pref = await env.DB.prepare('SELECT enabled FROM notification_prefs WHERE user_id=? AND type=?').bind(userId, type).first();
+    if (pref && pref.enabled === 0) return; // user disabled this type
     await env.DB.prepare(
       'INSERT INTO notifications (user_id,type,title,body,ref_id,ref_type) VALUES (?,?,?,?,?,?)'
     ).bind(userId, type, title, body, refId, refType).run();
@@ -104,7 +106,7 @@ async function handleAuth(path, request, env) {
   }
 
   if (path === '/api/auth/register' && method === 'POST') {
-    const {token, name, password} = await request.json();
+    const {token, name, email, password} = await request.json();
     const invite = await env.DB.prepare('SELECT * FROM invites WHERE token=? AND used=0').bind(token).first();
     if (!invite) return err('Invalid invite');
     const salt = crypto.randomUUID();
@@ -113,11 +115,11 @@ async function handleAuth(path, request, env) {
     let userId;
     if (invite.user_id) {
       userId = invite.user_id;
-      await env.DB.prepare('UPDATE users SET password_hash=?,salt=?,name=COALESCE(?,name) WHERE id=?').bind(hash, salt, name||null, userId).run();
+      await env.DB.prepare('UPDATE users SET password_hash=?,salt=?,name=COALESCE(?,name),email=COALESCE(?,email) WHERE id=?').bind(hash, salt, name||null, email||null, userId).run();
     } else {
       userId = crypto.randomUUID();
-      await env.DB.prepare('INSERT INTO users (id,name,role,password_hash,salt,avatar_color) VALUES (?,?,?,?,?,?)').bind(
-        userId, name || invite.name, invite.role, hash, salt, invite.avatar_color || '#6366f1'
+      await env.DB.prepare('INSERT INTO users (id,name,email,role,password_hash,salt,avatar_color) VALUES (?,?,?,?,?,?,?)').bind(
+        userId, name || invite.name, email||null, invite.role, hash, salt, invite.avatar_color || '#6366f1'
       ).run();
     }
     await env.DB.prepare('UPDATE invites SET used=1,used_by=?,used_at=datetime("now") WHERE token=?').bind(userId, token).run();
@@ -137,9 +139,11 @@ async function handleAuth(path, request, env) {
   }
 
   if (path === '/api/auth/login' && method === 'POST') {
-    const {name, password} = await request.json();
-    const user = await env.DB.prepare('SELECT * FROM users WHERE LOWER(name)=LOWER(?) AND password_hash IS NOT NULL ORDER BY created_at DESC').bind(name).first();
-    if (!user) return err('User not found', 401);
+    const {email, name, password} = await request.json();
+    const identifier = (email || name || '').trim();
+    if (!identifier) return err('Email is required', 400);
+    const user = await env.DB.prepare('SELECT * FROM users WHERE (LOWER(email)=LOWER(?) OR LOWER(name)=LOWER(?)) AND password_hash IS NOT NULL ORDER BY created_at DESC').bind(identifier, identifier).first();
+    if (!user) return err('No account found with that email', 401);
     const hash = await hashPassword(password, user.salt);
     if (hash !== user.password_hash) return err('Wrong password', 401);
     const token = crypto.randomUUID();
@@ -273,6 +277,20 @@ async function handlePosts(path, request, env, user) {
     }
   }
 
+  // DELETE post (owner only)
+  const deletePostMatch = path.match(/^\/api\/posts\/([^/]+)$/);
+  if (deletePostMatch && method === 'DELETE') {
+    const postId = deletePostMatch[1];
+    const post = await env.DB.prepare('SELECT user_id FROM posts WHERE id=?').bind(postId).first();
+    if (!post) return err('Not found', 404);
+    if (post.user_id !== user.id) return err('Forbidden', 403);
+    await env.DB.prepare('DELETE FROM post_media WHERE post_id=?').bind(postId).run();
+    await env.DB.prepare("DELETE FROM reactions WHERE ref_id=? AND ref_type='post'").bind(postId).run();
+    await env.DB.prepare('DELETE FROM comments WHERE post_id=?').bind(postId).run();
+    await env.DB.prepare('DELETE FROM posts WHERE id=?').bind(postId).run();
+    return json({ok:true});
+  }
+
   return null;
 }
 
@@ -334,9 +352,9 @@ async function handleChats(path, request, env, user) {
   }
 
   if (path === '/api/chats' && method === 'POST') {
-    const {name, member_ids, is_group} = await request.json();
-    const chatId = crypto.randomUUID();
-    await env.DB.prepare('INSERT INTO chats (id,name,is_group,created_by) VALUES (?,?,?,?)').bind(chatId, name||null, is_group?1:0, user.id).run();
+    const {name, member_ids, is_group, chat_type} = await request.json();
+    const ins = await env.DB.prepare('INSERT INTO chats (name,is_group,created_by,chat_type) VALUES (?,?,?,?)').bind(name||null, is_group?1:0, user.id, chat_type||'text').run();
+    const chatId = ins.meta.last_row_id;
     const allMembers = [...new Set([user.id, ...(member_ids||[])])];
     for (const uid of allMembers) {
       await env.DB.prepare('INSERT OR IGNORE INTO chat_members (chat_id,user_id) VALUES (?,?)').bind(chatId, uid).run();
@@ -625,6 +643,28 @@ async function handleTransfers(path, request, env, user) {
 }
 
 // ─── NOTIFICATIONS ────────────────────────────────────────────────────────────
+// ─── NOTIFICATION PREFS ──────────────────────────────────────────────────────
+async function handleNotifPrefs(path, request, env, user) {
+  if (path === '/api/notification-prefs') {
+    if (request.method === 'GET') {
+      const rows = await env.DB.prepare('SELECT type, enabled FROM notification_prefs WHERE user_id=?').bind(user.id).all();
+      // Default all types to enabled if no row exists
+      const types = ['post','comment','reaction','event','message','expense','transfer','chore','birthday','kk'];
+      const map = Object.fromEntries(types.map(t => [t, 1]));
+      for (const r of rows.results) map[r.type] = r.enabled;
+      return json(map);
+    }
+    if (request.method === 'PUT') {
+      const prefs = await request.json();
+      for (const [type, enabled] of Object.entries(prefs)) {
+        await env.DB.prepare('INSERT OR REPLACE INTO notification_prefs (user_id,type,enabled) VALUES (?,?,?)').bind(user.id, type, enabled ? 1 : 0).run();
+      }
+      return json({ok:true});
+    }
+  }
+  return null;
+}
+
 async function handleNotifications(path, request, env, user) {
   const method = request.method;
 
@@ -920,38 +960,40 @@ function getSPA() {
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#6366f1">
 <link rel="manifest" href="/manifest.json">
-<link rel="apple-touch-icon" href="/icon.svg">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <title>Family Hub 🏠</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f172a;color:#f1f5f9;min-height:100vh}
-:root{--primary:#6366f1;--primary-dark:#4f46e5;--surface:#1e293b;--surface2:#334155;--border:#334155;--text:#f1f5f9;--muted:#94a3b8;--danger:#ef4444;--success:#22c55e;--warning:#f59e0b}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0a0f1e;color:#f0f4ff;min-height:100vh}
+:root{--primary:#818cf8;--primary-dark:#6366f1;--primary-glow:rgba(129,140,248,.25);--surface:#141b2d;--surface2:#1e2942;--surface3:#253352;--border:#2a3a5c;--text:#f0f4ff;--muted:#7e8fb5;--danger:#f87171;--success:#34d399;--warning:#fbbf24;--card-shadow:0 2px 12px rgba(0,0,0,.35);--glow-shadow:0 0 20px rgba(129,140,248,.15)}
 .app{max-width:480px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column;position:relative}
 /* NAV */
-.bottom-nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:var(--surface);border-top:1px solid var(--border);display:flex;z-index:100;padding-bottom:env(safe-area-inset-bottom)}
-.nav-item{flex:1;display:flex;flex-direction:column;align-items:center;padding:8px 0;cursor:pointer;color:var(--muted);font-size:10px;gap:2px;transition:color .2s;position:relative}
+.bottom-nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:rgba(14,19,36,.92);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-top:1px solid var(--border);display:flex;z-index:100;padding-bottom:env(safe-area-inset-bottom)}
+.nav-item{flex:1;display:flex;flex-direction:column;align-items:center;padding:10px 0 8px;cursor:pointer;color:var(--muted);font-size:10px;gap:3px;transition:all .2s;position:relative}
 .nav-item.active{color:var(--primary)}
+.nav-item.active svg{filter:drop-shadow(0 0 6px var(--primary))}
 .nav-item svg{width:22px;height:22px}
 .nav-badge{position:absolute;top:4px;right:calc(50% - 18px);background:var(--danger);color:#fff;font-size:9px;border-radius:99px;padding:1px 4px;min-width:16px;text-align:center}
 /* HEADER */
-.header{position:sticky;top:0;background:var(--surface);z-index:50;padding:12px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border)}
+.header{position:sticky;top:0;background:rgba(14,19,36,.92);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);z-index:50;padding:12px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border)}
 .header h1{font-size:18px;font-weight:700;flex:1}
 .header-actions{display:flex;gap:8px}
 /* SCREENS */
 .screen{display:none;flex:1;flex-direction:column;padding-bottom:70px}
 .screen.active{display:flex}
 /* CARDS */
-.card{background:var(--surface);border-radius:16px;padding:16px;margin:0 12px 12px}
+.card{background:var(--surface2);border-radius:16px;padding:16px;margin:0 12px 12px;border:1px solid var(--border);box-shadow:var(--card-shadow)}
 .card-header{display:flex;align-items:center;gap:10px;margin-bottom:12px}
 /* AVATAR */
-.avatar{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;overflow:hidden}
+.avatar{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;overflow:hidden;box-shadow:0 0 0 2px rgba(255,255,255,.06)}
 .avatar img{width:100%;height:100%;object-fit:cover}
 .avatar-sm{width:30px;height:30px;font-size:12px}
 .avatar-lg{width:56px;height:56px;font-size:22px}
 /* BUTTONS */
 .btn{display:inline-flex;align-items:center;gap:6px;padding:10px 18px;border-radius:12px;border:none;font-size:14px;font-weight:600;cursor:pointer;transition:all .15s}
-.btn-primary{background:var(--primary);color:#fff}
-.btn-primary:hover{background:var(--primary-dark)}
+.btn-primary{background:linear-gradient(135deg,#818cf8,#6366f1);color:#fff;box-shadow:0 4px 14px rgba(99,102,241,.4)}
+.btn-primary:hover{background:linear-gradient(135deg,#9aa5fb,#818cf8);transform:translateY(-1px);box-shadow:0 6px 20px rgba(99,102,241,.5)}
+.btn-primary:active{transform:translateY(0)}
 .btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--border)}
 .btn-danger{background:var(--danger);color:#fff}
 .btn-sm{padding:6px 12px;font-size:13px}
@@ -960,13 +1002,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 /* INPUTS */
 .input-group{margin-bottom:14px}
 .input-group label{display:block;font-size:13px;color:var(--muted);margin-bottom:4px}
-input,textarea,select,.input{width:100%;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:15px;font-family:inherit;outline:none;transition:border-color .15s}
-input:focus,textarea:focus,select:focus{border-color:var(--primary)}
+input,textarea,select,.input{width:100%;padding:10px 12px;background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;color:var(--text);font-size:15px;font-family:inherit;outline:none;transition:all .15s}
+input:focus,textarea:focus,select:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-glow);background:var(--surface3)}
 textarea{resize:vertical;min-height:80px}
 /* MODAL */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;display:flex;align-items:flex-end;justify-content:center;opacity:0;pointer-events:none;transition:opacity .25s}
 .modal-overlay.open{opacity:1;pointer-events:all}
-.modal{background:var(--surface);border-radius:24px 24px 0 0;width:100%;max-width:480px;padding:20px 16px;max-height:90vh;overflow-y:auto;transform:translateY(100%);transition:transform .3s cubic-bezier(.32,.72,0,1)}
+.modal{background:var(--surface2);border-radius:24px 24px 0 0;width:100%;max-width:480px;padding:20px 16px;max-height:90vh;overflow-y:auto;transform:translateY(100%);transition:transform .3s cubic-bezier(.32,.72,0,1);border:1px solid var(--border);border-bottom:none}
 .modal-overlay.open .modal{transform:translateY(0)}
 .modal-handle{width:40px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px}
 .modal h2{font-size:18px;font-weight:700;margin-bottom:16px}
@@ -979,8 +1021,8 @@ textarea{resize:vertical;min-height:80px}
 .chat-time{font-size:11px;color:var(--muted)}
 /* MESSAGES */
 .msg-bubble{max-width:75%;padding:10px 14px;border-radius:18px;font-size:15px;line-height:1.4;word-break:break-word}
-.msg-bubble.mine{background:var(--primary);color:#fff;border-bottom-right-radius:4px;align-self:flex-end}
-.msg-bubble.theirs{background:var(--surface2);border-bottom-left-radius:4px;align-self:flex-start}
+.msg-bubble.mine{background:linear-gradient(135deg,#818cf8,#6366f1);color:#fff;border-bottom-right-radius:4px;align-self:flex-end;box-shadow:0 2px 8px rgba(99,102,241,.4)}
+.msg-bubble.theirs{background:var(--surface3);border-bottom-left-radius:4px;align-self:flex-start;border:1px solid var(--border)}
 .msg-row{display:flex;flex-direction:column;margin-bottom:4px;padding:0 12px}
 .msg-sender{font-size:11px;color:var(--muted);margin-bottom:2px}
 .msg-reactions{display:flex;gap:4px;margin-top:4px;flex-wrap:wrap}
@@ -995,16 +1037,32 @@ textarea{resize:vertical;min-height:80px}
 .story-ring .avatar{width:100%;height:100%;border:2px solid var(--surface)}
 .story-item span{font-size:11px;color:var(--muted);max-width:60px;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* FEED POST */
-.post-card{background:var(--surface);margin:0 0 8px;border-bottom:1px solid var(--border)}
-.post-header{display:flex;align-items:center;gap:10px;padding:12px 16px 8px}
+.post-card{background:var(--surface2);margin:8px 12px;border-radius:16px;border:1px solid var(--border);box-shadow:var(--card-shadow);overflow:hidden}
+.post-header{display:flex;align-items:center;gap:12px;padding:14px 16px 8px}
 .post-content{padding:0 16px;font-size:15px;line-height:1.5;margin-bottom:10px}
 .post-media{display:grid;gap:2px;margin-bottom:10px}
 .post-media.count-1 img{width:100%;max-height:400px;object-fit:cover}
 .post-media.count-2{grid-template-columns:1fr 1fr}
 .post-media img{width:100%;height:180px;object-fit:cover;cursor:pointer}
-.post-actions{display:flex;gap:0;border-top:1px solid var(--border);padding:4px 8px}
+.post-actions{display:flex;gap:0;border-top:1px solid var(--border);padding:2px 8px 2px;flex-wrap:wrap;position:relative;background:rgba(0,0,0,.15)}
+.post-delete-btn{background:none;border:none;cursor:pointer;font-size:16px;color:var(--muted);padding:4px 8px;border-radius:6px;opacity:.5;transition:opacity .15s;margin-left:auto}
+.post-delete-btn:hover{opacity:1;color:#ef4444}
+.react-picker{display:flex;gap:4px;padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:24px;box-shadow:0 4px 16px rgba(0,0,0,.2);margin:4px 8px;z-index:100;width:calc(100% - 16px)}
+.react-picker span{font-size:22px;cursor:pointer;transition:transform .1s;flex:1;text-align:center}
+.react-picker span:hover{transform:scale(1.3)}
 .post-action{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:8px;border-radius:8px;cursor:pointer;font-size:13px;color:var(--muted);transition:all .15s}
 .post-action:hover{background:var(--surface2);color:var(--text)}
+.comment-sheet{position:fixed;inset:0;z-index:200;display:flex;flex-direction:column;justify-content:flex-end;background:rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .25s}
+.comment-sheet.open{opacity:1;pointer-events:all}
+.comment-sheet-inner{background:var(--surface2);border-radius:20px 20px 0 0;display:flex;flex-direction:column;max-height:85vh;transform:translateY(100%);transition:transform .3s cubic-bezier(.32,.72,0,1);border:1px solid var(--border);border-bottom:none}
+.comment-sheet.open .comment-sheet-inner{transform:translateY(0)}
+.comment-list{flex:1;overflow-y:auto;padding:12px 16px}
+.comment-bubble{display:flex;gap:10px;margin-bottom:14px}
+.comment-bubble-body{background:var(--surface2);border-radius:0 12px 12px 12px;padding:8px 12px;flex:1}
+.comment-bubble-name{font-size:12px;font-weight:700;color:var(--primary);margin-bottom:2px}
+.comment-bubble-text{font-size:14px;line-height:1.4}
+.comment-bubble-time{font-size:11px;color:var(--muted);margin-top:2px}
+.comment-input-row{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--border);background:var(--surface)}
 .post-action.liked{color:#ef4444}
 /* PILLS / TABS */
 .tabs{display:flex;gap:6px;padding:12px 16px 0;overflow-x:auto;scrollbar-width:none}
@@ -1021,13 +1079,13 @@ textarea{resize:vertical;min-height:80px}
 .empty-state .icon{font-size:48px}
 .spinner{width:24px;height:24px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite;margin:32px auto}
 @keyframes spin{to{transform:rotate(360deg)}}
-.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1e293b;color:#f1f5f9;padding:10px 20px;border-radius:12px;font-size:14px;z-index:500;box-shadow:0 4px 20px rgba(0,0,0,.4);opacity:0;transition:opacity .3s;pointer-events:none}
-.toast.show{opacity:1}
+.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(4px);background:rgba(20,27,45,.96);backdrop-filter:blur(12px);color:#f0f4ff;padding:11px 22px;border-radius:14px;font-size:14px;font-weight:500;z-index:500;box-shadow:0 4px 24px rgba(0,0,0,.5),0 0 0 1px var(--border);opacity:0;transition:opacity .3s,transform .3s;pointer-events:none}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 /* AUTH */
-.auth-screen{position:fixed;inset:0;background:linear-gradient(150deg,#1e1b4b 0%,#0f172a 55%,#1e1b4b 100%);z-index:300;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;overflow-y:auto}
+.auth-screen{position:fixed;inset:0;background:radial-gradient(ellipse at 30% 20%,#1e1b4b 0%,#0a0f1e 55%,#1a0f3b 100%);z-index:300;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;overflow-y:auto}
 .auth-screen h1{font-size:30px;font-weight:800;margin-bottom:4px}
 .auth-screen>p{color:var(--muted);margin-bottom:24px;text-align:center;font-size:14px}
-.auth-card{background:rgba(30,27,75,.65);border:1px solid rgba(99,102,241,.3);border-radius:24px;padding:28px 22px;width:100%;max-width:380px}
+.auth-card{background:rgba(20,27,45,.75);backdrop-filter:blur(20px);border:1px solid rgba(129,140,248,.25);border-radius:24px;padding:28px 22px;width:100%;max-width:380px;box-shadow:0 16px 48px rgba(0,0,0,.5),var(--glow-shadow)}
 .auth-tabs{display:flex;background:rgba(15,23,42,.6);border-radius:12px;padding:4px;margin-bottom:24px;gap:4px}
 .auth-tab{flex:1;text-align:center;padding:10px;border-radius:9px;cursor:pointer;font-size:14px;font-weight:600;color:var(--muted);transition:all .2s;-webkit-tap-highlight-color:transparent;user-select:none}
 .auth-tab.active{background:var(--primary);color:#fff;box-shadow:0 2px 8px rgba(99,102,241,.4)}
@@ -1044,12 +1102,17 @@ textarea{resize:vertical;min-height:80px}
 .auth-btn:disabled{opacity:.55;cursor:not-allowed}
 .auth-divider{text-align:center;color:#475569;font-size:12px;margin:12px 0 16px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
 /* CHAT SCREEN */
-.chat-screen{position:fixed;inset:0;background:#0f172a;z-index:200;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .3s cubic-bezier(.32,.72,0,1)}
+.chat-screen{position:fixed;inset:0;background:#0a0f1e;z-index:200;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .3s cubic-bezier(.32,.72,0,1)}
 .chat-screen.open{transform:translateX(0)}
 .chat-messages{flex:1;overflow-y:auto;padding:12px 0;display:flex;flex-direction:column}
-.chat-input-bar{padding:8px 12px;background:var(--surface);border-top:1px solid var(--border);display:flex;gap:8px;align-items:flex-end;padding-bottom:calc(8px + env(safe-area-inset-bottom))}
+.chat-messages.photo-mode { display:grid; grid-template-columns:1fr 1fr; gap:3px; padding:3px; align-content:start; }
+.photo-grid-item { position:relative; aspect-ratio:1; overflow:hidden; cursor:pointer; background:var(--surface2); border-radius:4px; }
+.photo-grid-item img { width:100%; height:100%; object-fit:cover; display:block; }
+.photo-grid-caption { position:absolute; bottom:0; left:0; right:0; padding:4px 6px; background:linear-gradient(transparent,rgba(0,0,0,.65)); color:#fff; font-size:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.chat-input-bar{padding:8px 12px;background:rgba(14,19,36,.92);backdrop-filter:blur(16px);border-top:1px solid var(--border);display:flex;gap:8px;align-items:flex-end;padding-bottom:calc(8px + env(safe-area-inset-bottom))}
 .chat-input-bar textarea{flex:1;min-height:38px;max-height:120px;border-radius:20px;padding:8px 14px;font-size:15px;resize:none;line-height:1.4}
-.send-btn{width:40px;height:40px;border-radius:50%;background:var(--primary);border:none;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.send-btn{width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#818cf8,#6366f1);border:none;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 8px rgba(99,102,241,.4);transition:transform .1s,box-shadow .1s}
+.send-btn:active{transform:scale(.92)}
 /* STORY VIEWER */
 .story-viewer{position:fixed;inset:0;background:#000;z-index:400;display:flex;flex-direction:column}
 .story-progress{display:flex;gap:3px;padding:12px}
@@ -1059,7 +1122,7 @@ textarea{resize:vertical;min-height:80px}
 @keyframes progress-fill{from{transform-origin:left;transform:scaleX(0)}to{transform-origin:left;transform:scaleX(1)}}
 .story-content{flex:1;display:flex;align-items:center;justify-content:center;padding:20px;text-align:center;font-size:20px;font-weight:600;word-break:break-word}
 /* EVENTS */
-.event-card{background:var(--surface);border-radius:14px;padding:14px;margin:0 12px 10px;border-left:4px solid var(--primary)}
+.event-card{background:var(--surface2);border-radius:14px;padding:14px;margin:0 12px 10px;border-left:4px solid var(--primary);border:1px solid var(--border);border-left:4px solid var(--primary);box-shadow:var(--card-shadow)}
 .event-date{font-size:12px;color:var(--primary);font-weight:700;text-transform:uppercase;margin-bottom:4px}
 /* TRANSFERS */
 .transfer-item{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border)}
@@ -1111,7 +1174,7 @@ textarea{resize:vertical;min-height:80px}
 .shopping-title{flex:1;font-size:14px}
 .cat-badge{font-size:10px;padding:2px 6px;border-radius:99px;background:var(--surface2);color:var(--muted)}
 /* CHORE */
-.chore-card{background:var(--surface);border-radius:12px;padding:14px;margin-bottom:10px;display:flex;align-items:center;gap:12px}
+.chore-card{background:var(--surface2);border-radius:12px;padding:14px;margin-bottom:10px;display:flex;align-items:center;gap:12px;border:1px solid var(--border)}
 .chore-info{flex:1}
 .chore-title{font-size:14px;font-weight:600}
 .chore-meta{font-size:12px;color:var(--muted);margin-top:2px}
@@ -1121,9 +1184,9 @@ textarea{resize:vertical;min-height:80px}
 .kindness-card{background:var(--surface);border-radius:12px;padding:14px;margin-bottom:10px;border-left:3px solid #fbbf24}
 .kindness-card.done{border-left-color:var(--surface2);opacity:.6}
 /* FAMILY SETTINGS OVERLAY */
-#familySettingsScreen{position:fixed;inset:0;background:#0f172a;z-index:200;display:none;flex-direction:column;overflow-y:auto}
+#familySettingsScreen{position:fixed;inset:0;background:#0a0f1e;z-index:200;display:none;flex-direction:column;overflow-y:auto}
 #familySettingsScreen.open{display:flex}
-.fs-header{display:flex;align-items:center;padding:16px;gap:12px;border-bottom:1px solid var(--border);position:sticky;top:0;background:#0f172a;z-index:10}
+.fs-header{display:flex;align-items:center;padding:16px;gap:12px;border-bottom:1px solid var(--border);position:sticky;top:0;background:rgba(10,15,30,.92);backdrop-filter:blur(16px);z-index:10}
 .fs-section{padding:16px;border-bottom:1px solid var(--border)}
 .fs-section h3{font-size:16px;font-weight:700;margin-bottom:12px}
 /* AVATAR UPLOAD */
@@ -1139,6 +1202,33 @@ textarea{resize:vertical;min-height:80px}
 .emergency-row{display:flex;gap:8px;margin-bottom:6px;font-size:13px}
 .emergency-label{color:var(--muted);width:90px;flex-shrink:0}
 .invite-code-box{background:var(--surface2);border-radius:8px;padding:10px 14px;font-family:monospace;font-size:18px;letter-spacing:3px;display:flex;align-items:center;justify-content:space-between}
+/* FEED DIGEST HEADER */
+.feed-digest{background:linear-gradient(135deg,rgba(99,102,241,.15),rgba(168,85,247,.08));border:1px solid rgba(129,140,248,.2);border-radius:16px;margin:10px 12px 4px;padding:12px 14px;backdrop-filter:blur(8px)}
+.feed-digest-title{font-size:11px;font-weight:700;color:var(--primary);text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.digest-row{display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);cursor:pointer}
+.digest-row:last-child{border-bottom:none}
+.digest-date-pill{background:rgba(129,140,248,.2);color:var(--primary);border-radius:7px;padding:3px 8px;text-align:center;min-width:38px;flex-shrink:0}
+.digest-date-pill .mo{font-size:9px;font-weight:700;text-transform:uppercase}
+.digest-date-pill .dy{font-size:16px;font-weight:800;line-height:1.1}
+/* LEADERBOARD */
+.leaderboard{background:linear-gradient(135deg,rgba(251,191,36,.08),rgba(251,191,36,.03));border:1px solid rgba(251,191,36,.2);border-radius:14px;padding:12px 14px;margin-bottom:14px}
+.leaderboard-title{font-size:12px;font-weight:700;color:#fbbf24;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+.lb-row{display:flex;align-items:center;gap:10px;padding:4px 0}
+.lb-rank{width:22px;height:22px;border-radius:50%;background:rgba(251,191,36,.15);color:#fbbf24;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.lb-rank.gold{background:#fbbf24;color:#000}
+.lb-pts{margin-left:auto;font-weight:700;font-size:13px;color:#fbbf24}
+/* SHOPPING CATEGORIES */
+.shop-cat-header{font-size:11px;font-weight:700;color:var(--primary);text-transform:uppercase;letter-spacing:.5px;padding:10px 0 4px;border-bottom:1px solid var(--border);margin-bottom:4px}
+/* CLEAR DONE BTN */
+.clear-done-btn{background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.25);color:#f87171;border-radius:8px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s}
+.clear-done-btn:hover{background:rgba(248,113,113,.2)}
+/* REACTION LIKED */
+.post-action.liked span:first-child{filter:drop-shadow(0 0 4px rgba(248,113,113,.8))}
+/* SCROLL INERTIA */
+#feedList,#chatMessages,.comment-list{-webkit-overflow-scrolling:touch}
+/* SHIMMER SKELETON */
+@keyframes shimmer{0%{background-position:-200%}100%{background-position:200%}}
+.skeleton{background:linear-gradient(90deg,var(--surface2) 25%,var(--surface3) 50%,var(--surface2) 75%);background-size:200%;animation:shimmer 1.2s infinite;border-radius:8px}
 </style>
 </head>
 <body>
@@ -1156,9 +1246,9 @@ textarea{resize:vertical;min-height:80px}
       <div id="loginForm">
         <div id="loginError" class="auth-error"></div>
         <div class="auth-field">
-          <label>Your Name</label>
+          <label>Email</label>
           <div class="auth-field-inner">
-            <input type="text" id="loginName" placeholder="e.g. Paddy" autocomplete="username" autocapitalize="words" spellcheck="false" onkeydown="if(event.key==='Enter')document.getElementById('loginPass').focus()">
+            <input type="email" id="loginEmail" placeholder="your@email.com" autocomplete="email" autocapitalize="none" spellcheck="false" onkeydown="if(event.key==='Enter')document.getElementById('loginPass').focus()">
           </div>
         </div>
         <div class="auth-field">
@@ -1184,6 +1274,12 @@ textarea{resize:vertical;min-height:80px}
             <label>Your Name</label>
             <div class="auth-field-inner">
               <input type="text" id="inviteName" placeholder="As the family knows you" autocapitalize="words" autocomplete="name">
+            </div>
+          </div>
+          <div class="auth-field">
+            <label>Email <span style="font-weight:400;color:#64748b">(to log in later)</span></label>
+            <div class="auth-field-inner">
+              <input type="email" id="inviteEmail" placeholder="your@email.com" autocomplete="email" autocapitalize="none" spellcheck="false">
             </div>
           </div>
           <div class="auth-field">
@@ -1239,7 +1335,7 @@ textarea{resize:vertical;min-height:80px}
 
     <!-- MORE (Birthdays, Gifts, KK, Expenses, Transfers, Vault) -->
     <div class="screen" id="screenMore">
-      <div class="header"><h1>⋯ More</h1></div>
+      <div class="header"><h1 style="font-size:18px;font-weight:700">More</h1></div>
       <div class="tabs" id="moreTabs">
         <div class="tab active" onclick="switchMoreTab('birthdays')">🎂 Birthdays</div>
         <div class="tab" onclick="switchMoreTab('gifts')">🎁 Gifts</div>
@@ -1303,14 +1399,18 @@ textarea{resize:vertical;min-height:80px}
     </div>
     <div class="chat-messages" id="chatMessages"></div>
     <div class="chat-input-bar">
-      <label style="cursor:pointer;color:var(--muted)">
+      <label id="chatTextAttach" style="cursor:pointer;color:var(--muted);display:flex;align-items:center">
         📎
         <input type="file" id="chatFileInput" style="display:none" accept="image/*,video/*,application/pdf" onchange="sendChatFile()">
       </label>
       <textarea id="chatMsgInput" placeholder="Message..." onkeydown="handleMsgKey(event)" rows="1"></textarea>
-      <button class="send-btn" onclick="sendMsg()">
+      <button id="chatSendBtn" class="send-btn" onclick="sendMsg()">
         <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
       </button>
+      <label id="chatPhotoOnlyBtn" style="display:none;cursor:pointer;background:var(--primary);color:#fff;border-radius:50%;width:48px;height:48px;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">
+        📷
+        <input type="file" style="display:none" accept="image/*" multiple onchange="sendChatFile(this)">
+      </label>
     </div>
   </div>
 
@@ -1330,11 +1430,28 @@ textarea{resize:vertical;min-height:80px}
   </div>
 
   <!-- MODALS -->
+  <!-- COMMENT SHEET -->
+  <div class="comment-sheet" id="commentSheet" onclick="closeCommentSheet(event)">
+    <div class="comment-sheet-inner">
+      <div style="text-align:center;padding:10px 16px 0"><div style="width:40px;height:4px;background:var(--border);border-radius:2px;display:inline-block"></div></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 16px">
+        <h3 id="commentSheetTitle" style="font-size:16px;font-weight:700;margin:0">Comments</h3>
+        <button onclick="closeCommentSheet()" style="background:none;border:none;color:var(--muted);font-size:24px;cursor:pointer;line-height:1;padding:4px">&#215;</button>
+      </div>
+      <div class="comment-list" id="commentList"></div>
+      <div class="comment-input-row">
+        <input type="text" id="commentInput" placeholder="Add a comment..." style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:10px 14px;color:var(--text);font-size:14px" onkeydown="if(event.key==='Enter')submitComment()">
+        <button class="btn btn-primary" onclick="submitComment()" style="border-radius:20px;padding:10px 18px;min-width:auto">Send</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="newPostModal" onclick="handleOverlayClick(event,'newPostModal')">
     <div class="modal">
       <div class="modal-handle"></div>
       <h2>New Post</h2>
-      <textarea id="postContent" placeholder="What's happening in the family?" style="margin-bottom:12px"></textarea>
+      <textarea id="postContent" placeholder="What's happening in the family?" rows="3" style="margin-bottom:4px;resize:none" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px';qs('#postCharCount').textContent=this.value.length+'/500'" maxlength="500"></textarea>
+      <div id="postCharCount" style="text-align:right;font-size:11px;color:var(--muted);margin-bottom:8px">0/500</div>
       <div style="margin-bottom:12px">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;color:var(--muted);font-size:14px">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21,15 16,10 5,21"/></svg>
@@ -1351,7 +1468,8 @@ textarea{resize:vertical;min-height:80px}
     <div class="modal">
       <div class="modal-handle"></div>
       <h2>New Chat</h2>
-      <div class="input-group"><label>Name (optional)</label><input type="text" id="newChatName" placeholder="Group name..."></div>
+      <div class="input-group"><label>Name (optional)</label><input type="text" id="newChatName" placeholder="e.g. Holidays, Baby pics..."></div>
+      <div class="input-group"><label>Type</label><div style="display:flex;gap:8px"><button id="chatTypeBtnText" class="btn btn-primary btn-sm" style="flex:1" onclick="selectChatType('text')">💬 Chat</button><button id="chatTypeBtnPhoto" class="btn btn-sm" style="flex:1;background:var(--surface2)" onclick="selectChatType('photo')">📷 Photo Album</button></div></div>
       <div class="input-group"><label>Members</label><div id="userCheckboxes" style="display:flex;flex-direction:column;gap:8px;max-height:200px;overflow-y:auto"></div></div>
       <button class="btn btn-primary btn-full mt-3" onclick="createChat()">Start Chat</button>
     </div>
@@ -1365,7 +1483,7 @@ textarea{resize:vertical;min-height:80px}
       <div class="input-group"><label>When</label><input type="datetime-local" id="eventStart"></div>
       <div class="input-group"><label>Location</label><input type="text" id="eventLocation" placeholder="Address or link..."></div>
       <div class="input-group"><label>Notes</label><textarea id="eventDesc" placeholder="Details..."></textarea></div>
-      <button class="btn btn-primary btn-full" onclick="createEvent()">Add Event</button>
+      <button class="btn btn-primary btn-full" onclick="submitNewEvent()">Add Event</button>
     </div>
   </div>
 
@@ -1455,6 +1573,71 @@ textarea{resize:vertical;min-height:80px}
     </div>
   </div>
 
+
+  <!-- FAMILY SETTINGS OVERLAY -->
+  <div id="familySettingsScreen">
+    <div class="fs-header">
+      <button onclick="closeFamilySettings()" style="background:none;border:none;color:var(--text);font-size:22px;cursor:pointer;padding:4px 8px">←</button>
+      <h2 style="flex:1;margin:0;font-size:18px">⚙️ Family Settings</h2>
+    </div>
+    <div style="padding:16px;max-width:520px;margin:0 auto">
+
+      <div style="background:var(--surface);border-radius:12px;padding:16px;margin-bottom:14px">
+        <h3 style="font-size:15px;margin:0 0 12px">🏠 Family Info</h3>
+        <div class="input-group"><label>Family Name</label><input type="text" id="familyNameInput" placeholder="The Gallivans..."></div>
+        <div class="input-group"><label>Description</label><input type="text" id="familyDescInput" placeholder="Our family app"></div>
+        <button class="btn btn-primary" onclick="saveFamilyInfo()">Save</button>
+      </div>
+
+      <div style="background:var(--surface);border-radius:12px;padding:16px;margin-bottom:14px">
+        <h3 style="font-size:15px;margin:0 0 8px">🔗 Invite Code</h3>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 10px">Share this link so family can join</p>
+        <div class="invite-code-box">
+          <span id="familyInviteCode" style="font-size:22px;letter-spacing:3px;font-family:monospace">------</span>
+          <button class="btn-sm" onclick="copyInviteCode()">Copy</button>
+        </div>
+        <p style="font-size:11px;color:var(--muted);margin:8px 0 0">Link: hub.luckdragon.io/?invite=<span id="inviteCodeDisplay">...</span></p>
+      </div>
+
+      <div style="background:var(--surface);border-radius:12px;padding:16px;margin-bottom:14px">
+        <h3 style="font-size:15px;margin:0 0 12px">👥 Members</h3>
+        <div id="familyMembersList"></div>
+      </div>
+
+      <div style="background:var(--surface);border-radius:12px;padding:16px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h3 style="font-size:15px;margin:0">📨 Pending Invites</h3>
+          <button class="btn-sm" onclick="toggleNewInviteForm()">+ New</button>
+        </div>
+        <div id="newInviteForm" style="display:none;background:var(--surface2);border-radius:8px;padding:12px;margin-bottom:10px">
+          <div class="input-group" style="margin-bottom:8px"><label style="font-size:12px">Name</label><input type="text" id="newInviteName" placeholder="e.g. Kelly"></div>
+          <div class="input-group" style="margin-bottom:8px"><label style="font-size:12px">Email</label><input type="email" id="newInviteEmail" placeholder="their@email.com"></div>
+          <div class="input-group" style="margin-bottom:10px"><label style="font-size:12px">Role</label><input type="text" id="newInviteRole" placeholder="e.g. Sister, Partner..."></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-primary btn-sm" onclick="createAndSendInvite()">Send Invite</button>
+            <button class="btn-sm" onclick="toggleNewInviteForm()">Cancel</button>
+          </div>
+        </div>
+        <div id="pendingInvitesList"><div style="color:var(--muted);font-size:13px">Loading...</div></div>
+      </div>
+
+      <div style="background:var(--surface);border-radius:12px;padding:16px;margin-bottom:14px">
+        <h3 style="font-size:15px;margin:0 0 12px">🎛️ Features</h3>
+        <div id="featureToggles"></div>
+      </div>
+
+      <div style="background:var(--surface);border-radius:12px;padding:16px;margin-bottom:14px">
+        <h3 style="font-size:15px;margin:0 0 12px">📋 Family Rules</h3>
+        <div id="familyRulesList"></div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <input type="text" id="newRuleInput" placeholder="Add a rule..." style="flex:1;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+          <button class="btn btn-primary btn-sm" onclick="addFamilyRule()">Add</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
   <div class="toast" id="toast"></div>
 </div>
 
@@ -1465,6 +1648,7 @@ let currentUser = null;
 let allUsers = [];
 let currentChatId = null;
 let currentChatName = '';
+let currentChatType = 'text';
 let chatPollInterval = null;
 let lastMsgTime = null;
 let currentMoreTab = 'birthdays';
@@ -1501,6 +1685,7 @@ function timeAgo(ts) {
   return Math.floor(diff/86400000) + 'd ago';
 }
 function initials(name) { return (name||'?').split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2); }
+function esc(s) { return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function avatarEl(u, size='') {
   if (u.avatar_url) return \`<div class="avatar \${size}"><img src="\${u.avatar_url}" alt="\${u.name}"></div>\`;
   return \`<div class="avatar \${size}" style="background:\${u.avatar_color||'#6366f1'}">\${initials(u.name)}</div>\`;
@@ -1579,14 +1764,16 @@ async function doInviteNext() {
     if (btn) btn.textContent = 'Create Account';
   } else {
     const name = (qs('#inviteName').value || '').trim();
+    const email = (qs('#inviteEmail').value || '').trim();
     const password = qs('#invitePass').value || '';
     if (!name) { showAuthError('inviteError', 'Enter your name'); return; }
+    if (!email) { showAuthError('inviteError', "Enter your email — you'll need it to log in"); qs('#inviteEmail').focus(); return; }
     if (password.length < 6) { showAuthError('inviteError', 'Password must be at least 6 characters'); return; }
     if (btn) { btn.disabled = true; btn.textContent = 'Creating account…'; }
-    const data = await api('/api/auth/register', {method:'POST', body:JSON.stringify({token:inviteToken, name, password})});
+    const data = await api('/api/auth/register', {method:'POST', body:JSON.stringify({token:inviteToken, name, email, password})});
     if (btn) { btn.disabled = false; btn.textContent = 'Create Account'; }
     if (!data || data.error) { showAuthError('inviteError', data?.error || 'Registration failed'); return; }
-    localStorage.setItem('fh_last_name', name);
+    localStorage.setItem('fh_last_email', email);
     session = {token: data.token, user: data.user};
     localStorage.setItem('fh_session', JSON.stringify(session));
     startApp();
@@ -1595,17 +1782,17 @@ async function doInviteNext() {
 
 async function doLogin() {
   clearAuthErrors();
-  const name = (qs('#loginName').value || '').trim();
+  const email = (qs('#loginEmail').value || '').trim();
   const password = qs('#loginPass').value || '';
-  if (!name) { showAuthError('loginError', 'Enter your name'); qs('#loginName').focus(); return; }
+  if (!email) { showAuthError('loginError', 'Enter your email'); qs('#loginEmail').focus(); return; }
   if (!password) { showAuthError('loginError', 'Enter your password'); qs('#loginPass').focus(); return; }
   const btn = document.getElementById('loginBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'Logging in…'; }
-  localStorage.setItem('fh_last_name', name);
-  const data = await api('/api/auth/login', {method:'POST', body:JSON.stringify({name, password})});
+  localStorage.setItem('fh_last_email', email);
+  const data = await api('/api/auth/login', {method:'POST', body:JSON.stringify({email, password})});
   if (btn) { btn.disabled = false; btn.textContent = 'Log In'; }
   if (!data || data.error) {
-    const msg = data?.error === 'User not found' ? 'Name not found — check the spelling'
+    const msg = data?.error === 'No account found with that email' ? 'No account found — check your email'
               : data?.error === 'Wrong password' ? 'Wrong password — try again'
               : 'Login failed — try again';
     showAuthError('loginError', msg);
@@ -1617,9 +1804,9 @@ async function doLogin() {
 }
 
 // Pre-fill saved name; check invite URL param
-const _savedName = localStorage.getItem('fh_last_name');
-if (_savedName && document.getElementById('loginName')) {
-  document.getElementById('loginName').value = _savedName;
+const _savedEmail = localStorage.getItem('fh_last_email') || localStorage.getItem('fh_last_name');
+if (_savedEmail && document.getElementById('loginEmail')) {
+  document.getElementById('loginEmail').value = _savedEmail;
 }
 const _urlParams = new URLSearchParams(location.search);
 const urlInvite = _urlParams.get('token') || _urlParams.get('invite');
@@ -1652,6 +1839,10 @@ if (session?.token) startApp();
 else qs('#authScreen').style.display = 'flex';
 
 // ─── NAV ────────────────────────────────────────────────────────────────────
+function showTab(name) {
+  const map = {feed:'Feed',chats:'Chats',events:'Events',more:'More',profile:'Profile'};
+  if (map[name]) switchScreen(map[name]);
+}
 function switchScreen(name) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -1772,10 +1963,48 @@ async function postStory() {
 }
 
 // ─── FEED ────────────────────────────────────────────────────────────────────
-async function loadFeed() {
-  const posts = await api('/api/posts?limit=20');
+let _feedOffset = 0, _feedLoading = false, _feedDone = false;
+
+async function loadFeed(append=false) {
+  if (append && (_feedLoading || _feedDone)) return;
+  if (!append) { _feedOffset = 0; _feedDone = false; }
+  _feedLoading = true;
+  const [posts, events] = await Promise.all([
+    api('/api/posts?limit=20&offset=' + _feedOffset),
+    append ? Promise.resolve(null) : api('/api/events')
+  ]);
+  _feedLoading = false;
+  if (!posts || posts.length < 20) _feedDone = true;
+  _feedOffset += (posts?.length || 0);
   const list = qs('#feedList');
-  if (!posts?.length) {
+  // Upcoming events banner (next 3 within 30 days)
+  const now = Date.now();
+  const upcoming = (events||[]).filter(e => {
+    const t = new Date(e.starts_at).getTime();
+    return t >= now && t <= now + 30*24*3600*1000;
+  }).slice(0,3);
+  let evHtml = '';
+  if (upcoming.length) {
+    const eventCards = upcoming.map(e => {
+      const d = new Date(e.starts_at);
+      const mo = d.toLocaleString('en',{month:'short'});
+      const dy = d.getDate();
+      const hr = d.toLocaleString('en',{hour:'numeric',minute:'2-digit'});
+      return \`<div class="digest-row" onclick="showTab('events')">
+        <div class="digest-date-pill"><div class="mo">\${mo}</div><div class="dy">\${dy}</div></div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">\${esc(e.title)}</div>
+          <div style="font-size:12px;color:var(--muted)">\${hr}\${e.location?' · '+esc(e.location):''}</div>
+        </div>
+      </div>\`;
+    }).join('');
+    evHtml = \`<div class="feed-digest">
+      <div class="feed-digest-title">📅 Coming Up</div>
+      \${eventCards}
+      <div style="text-align:right;margin-top:6px"><button class="btn btn-sm btn-ghost" style="font-size:12px" onclick="showTab('events')">See all →</button></div>
+    </div>\`;
+  }
+  if (!posts?.length && !evHtml) {
     list.innerHTML = \`<div class="empty-state">
       <div class="icon">👋</div>
       <h3 style="margin:0 0 8px;font-size:18px">Welcome to Family Hub!</h3>
@@ -1784,30 +2013,61 @@ async function loadFeed() {
     </div>\`;
     return;
   }
-  list.innerHTML = posts.map(p => renderPost(p)).join('');
+  if (append) {
+    list.insertAdjacentHTML('beforeend', (posts||[]).map(p => renderPost(p)).join(''));
+    if (_feedDone) list.insertAdjacentHTML('beforeend', '<div style="text-align:center;padding:24px;color:var(--muted);font-size:13px">All caught up ✓</div>');
+  } else {
+    list.innerHTML = evHtml + (posts||[]).map(p => renderPost(p)).join('');
+    list.onscroll = () => { if (list.scrollHeight - list.scrollTop - list.clientHeight < 250) loadFeed(true); };
+  }
 }
 function renderPost(p) {
   const mediaHtml = p.media?.length ? \`<div class="post-media count-\${Math.min(p.media.length,4)}">\${p.media.slice(0,4).map(m=>\`<img src="/api/photos/\${encodeURIComponent(m.r2_key)}" onclick="viewImg('\${m.r2_key}')" loading="lazy">\`).join('')}</div>\` : '';
-  const emoji = p.my_reaction || '❤️';
-  return \`<div class="post-card">
+  const isOwn = p.user_id === currentUser?.id;
+  const reactionEmoji = p.my_reaction || '❤️';
+  const deleteBtn = isOwn ? \`<button class="post-delete-btn" onclick="deletePost('\${p.id}')" title="Delete post">🗑</button>\` : '';
+  return \`<div class="post-card" data-post-id="\${p.id}">
     <div class="post-header">
       <div class="avatar" style="background:\${p.avatar_color||'#6366f1'}">\${initials(p.author_name)}</div>
-      <div>
+      <div style="flex:1">
         <div style="font-weight:700;font-size:15px">\${p.author_name}</div>
         <div class="text-xs text-muted">\${timeAgo(p.created_at)}</div>
       </div>
+      \${deleteBtn}
     </div>
     \${p.content ? \`<div class="post-content">\${p.content}</div>\` : ''}
     \${mediaHtml}
     <div class="post-actions">
-      <div class="post-action \${p.my_reaction?'liked':''}" onclick="reactPost('\${p.id}','❤️',this)">
-        <span>❤️</span> <span>\${p.reaction_count||0}</span>
+      <div class="post-action \${p.my_reaction?'liked':''}" onclick="showReactPicker('\${p.id}',this)" style="position:relative">
+        <span>\${reactionEmoji}</span> <span>\${p.reaction_count||0}</span>
       </div>
       <div class="post-action" onclick="loadComments('\${p.id}','\${p.author_name}')">
         <span>💬</span> <span>\${p.comment_count||0}</span>
       </div>
     </div>
   </div>\`;
+}
+function showReactPicker(postId, el) {
+  // If already reacted, clicking again un-reacts
+  const card = el.closest('.post-card');
+  const existing = card.querySelector('.react-picker');
+  if (existing) { existing.remove(); return; }
+  const picker = document.createElement('div');
+  picker.className = 'react-picker';
+  picker.innerHTML = ['❤️','😂','🔥','👍','😮','😢'].map(e =>
+    \`<span onclick="reactPost('\${postId}','\${e}',this.closest('.post-actions').querySelector('.post-action'));this.closest('.react-picker').remove()" title="\${e}">\${e}</span>\`
+  ).join('');
+  el.parentNode.insertBefore(picker, el.nextSibling);
+  setTimeout(() => { document.addEventListener('click', function rm(ev) { if (!picker.contains(ev.target) && ev.target !== el) { picker.remove(); document.removeEventListener('click', rm); } }, {once:false}); }, 10);
+}
+async function deletePost(postId) {
+  if (!confirm('Delete this post?')) return;
+  const r = await api('/api/posts/' + postId, {method:'DELETE'});
+  if (!r.error) {
+    const card = document.querySelector(\`[data-post-id="\${postId}"]\`);
+    if (card) card.remove();
+    toast('Post deleted');
+  }
 }
 async function reactPost(postId, reaction, el) {
   const r = await api('/api/posts/' + postId + '/react', {method:'POST', body:JSON.stringify({reaction})});
@@ -1817,36 +2077,49 @@ function viewImg(key) {
   window.open('/api/photos/' + encodeURIComponent(key), '_blank');
 }
 let commentPostId = null;
+function _renderComments(comments) {
+  if (!comments || !comments.length) return \`<div style="text-align:center;padding:40px;color:var(--muted)"><div style="font-size:32px;margin-bottom:8px">💬</div><p>No comments yet</p></div>\`;
+  return comments.map(c => \`<div class="comment-bubble">
+    <div class="avatar avatar-sm" style="background:\${c.avatar_color||'#6366f1'};flex-shrink:0">\${initials(c.name)}</div>
+    <div class="comment-bubble-body">
+      <div class="comment-bubble-name">\${esc(c.name)}</div>
+      <div class="comment-bubble-text">\${esc(c.content)}</div>
+      <div class="comment-bubble-time">\${timeAgo(c.created_at)}</div>
+    </div>
+  </div>\`).join('');
+}
 async function loadComments(postId, authorName) {
   commentPostId = postId;
+  const sheet = document.getElementById('commentSheet');
+  const list = document.getElementById('commentList');
+  if (!sheet) return;
+  document.getElementById('commentSheetTitle').textContent = 'Comments';
+  list.innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted)">Loading...</div>';
+  sheet.classList.add('open');
+  setTimeout(() => document.getElementById('commentInput')?.focus(), 350);
   const comments = await api('/api/posts/' + postId + '/comments');
-  // Simple inline comment view - show in a temp modal
-  let html = \`<div style="position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:250;display:flex;flex-direction:column;max-height:100vh">
-    <div style="background:var(--surface);flex:1;overflow-y:auto;padding:16px;padding-top:56px">
-      <button onclick="this.parentElement.parentElement.remove()" style="position:fixed;top:12px;right:16px;background:none;border:none;color:var(--muted);font-size:24px;cursor:pointer;z-index:1">×</button>
-      <h3 style="margin-bottom:12px">Comments</h3>
-      \${!comments.length ? '<p style="color:var(--muted)">No comments yet</p>' : ''}
-      \${(comments||[]).map(c=>\`<div style="display:flex;gap:8px;margin-bottom:12px">
-        <div class="avatar avatar-sm" style="background:\${c.avatar_color||'#6366f1'}">\${initials(c.name)}</div>
-        <div><span style="font-weight:600;font-size:13px">\${c.name}</span> <span style="color:var(--muted);font-size:12px">\${timeAgo(c.created_at)}</span>
-        <p style="font-size:14px;margin-top:2px">\${c.content}</p></div>
-      </div>\`).join('')}
-    </div>
-    <div style="background:var(--surface);padding:12px;display:flex;gap:8px;border-top:1px solid var(--border)">
-      <input type="text" id="commentInput" placeholder="Add a comment..." style="flex:1">
-      <button class="btn btn-primary btn-sm" onclick="submitComment()">Post</button>
-    </div>
-  </div>\`;
-  document.body.insertAdjacentHTML('beforeend', html);
+  list.innerHTML = _renderComments(comments);
+  list.scrollTop = list.scrollHeight;
+}
+function closeCommentSheet(e) {
+  if (e && e.target !== document.getElementById('commentSheet')) return;
+  document.getElementById('commentSheet')?.classList.remove('open');
 }
 async function submitComment() {
   const input = document.getElementById('commentInput');
-  const content = input.value.trim();
+  const content = input?.value.trim();
   if (!content) return;
-  await api('/api/posts/' + commentPostId + '/comments', {method:'POST', body:JSON.stringify({content})});
   input.value = '';
-  document.querySelector('[id^="commentInput"]')?.closest('[style*="position:fixed"]')?.remove();
-  loadFeed();
+  const r = await api('/api/posts/' + commentPostId + '/comments', {method:'POST', body:JSON.stringify({content})});
+  if (r?.error) { toast('\u274c ' + r.error); return; }
+  const comments = await api('/api/posts/' + commentPostId + '/comments');
+  const list = document.getElementById('commentList');
+  if (list) { list.innerHTML = _renderComments(comments); list.scrollTop = list.scrollHeight; }
+  const card = document.querySelector(\`[data-post-id="\${commentPostId}"]\`);
+  if (card) {
+    const cnt = card.querySelectorAll('.post-action')[1]?.querySelector('span:last-child');
+    if (cnt) cnt.textContent = parseInt(cnt.textContent||'0') + 1;
+  }
 }
 let postMediaFiles = [];
 function previewPostMedia() {
@@ -1865,10 +2138,12 @@ async function submitPost() {
   const r = await apiForm('/api/posts', fd);
   if (r.error) { toast('❌ ' + r.error); return; }
   closeModal('newPostModal');
-  qs('#postContent').value = '';
+  const _pc = qs('#postContent'); if (_pc) { _pc.value=''; _pc.style.height=''; }
+  const _pcc = qs('#postCharCount'); if (_pcc) _pcc.textContent='0/500';
   postMediaFiles = [];
   qs('#postMediaPreview').innerHTML = '';
   toast('Posted! 🎉');
+  _feedOffset=0; _feedDone=false;
   loadFeed();
 }
 
@@ -1876,43 +2151,70 @@ async function submitPost() {
 async function loadChats() {
   const chats = await api('/api/chats');
   const list = qs('#chatList');
-  if (!chats?.length) { list.innerHTML = '<div class="empty-state"><div class="icon">💬</div><p>No chats yet</p></div>'; return; }
+  if (!chats?.length) { list.innerHTML = '<div class="empty-state"><div class="icon">💬</div><p>No chats yet</p></div>'; const _b=document.getElementById('chatBadge'); if(_b)_b.style.display='none'; return; }
+  const _seen = JSON.parse(localStorage.getItem('fh_chat_seen')||'{}');
+  let _unreadCount = 0;
   list.innerHTML = chats.map(c => {
     const name = c.name || c.members?.filter(m=>m.id!==currentUser?.id).map(m=>m.name).join(', ') || 'Chat';
     const avatarColor = c.members?.find(m=>m.id!==currentUser?.id)?.avatar_color || '#6366f1';
-    const avatarTxt = c.is_group ? '👨‍👩‍👧‍👦' : initials(name);
-    return \`<div class="chat-item" onclick="openChat('\${c.id}',\${JSON.stringify(name).replace(/"/g,'&quot;')})">
+    const avatarTxt = c.chat_type === 'photo' ? '📷' : (c.is_group ? '👨‍👩‍👧‍👦' : initials(name));
+    const isUnread = c.last_msg_at && c.last_sender && c.last_sender !== currentUser?.name && (!_seen[c.id] || c.last_msg_at > _seen[c.id]);
+    if (isUnread) _unreadCount++;
+    return \`<div class="chat-item" onclick="openChat('\${c.id}',\${JSON.stringify(name).replace(/"/g,'&quot;')},'\${c.chat_type||'text'}')">
       <div class="avatar" style="background:\${c.is_group?'#4f46e5':avatarColor}">\${c.is_group?'👨‍👩‍👧‍👦':initials(name)}</div>
       <div class="chat-meta">
-        <h3>\${name}</h3>
-        <p>\${c.last_msg || (c.last_sender?c.last_sender+': ...':'No messages')}</p>
+        <h3 style="\${isUnread?'font-weight:800;color:var(--text)':''}">\${name}\${isUnread?'<span style="display:inline-block;width:7px;height:7px;background:var(--primary);border-radius:50%;margin-left:6px;vertical-align:middle"></span>':''}</h3>
+        <p style="\${isUnread?'color:var(--text);font-weight:500':''}">\${c.last_msg || (c.last_sender?c.last_sender+': ...':'No messages')}</p>
       </div>
       <div class="chat-time">\${timeAgo(c.last_msg_at||c.created_at)}</div>
     </div>\`;
   }).join('');
+  const _cb = document.getElementById('chatBadge');
+  if (_cb) { _cb.textContent = _unreadCount > 9 ? '9+' : _unreadCount; _cb.style.display = _unreadCount > 0 ? 'flex' : 'none'; }
   // Pre-load users so new chat modal is ready
   if (!allUsers.length) { api('/api/users').then(u => { allUsers = u||[]; }); }
+}
 
+function selectChatType(type) {
+  window._newChatType = type;
+  const isPhoto = type === 'photo';
+  const tb = qs('#chatTypeBtnText'), pb = qs('#chatTypeBtnPhoto');
+  if (tb) { tb.className = isPhoto ? 'btn btn-sm' : 'btn btn-primary btn-sm'; tb.style.background = isPhoto ? 'var(--surface2)' : ''; }
+  if (pb) { pb.className = isPhoto ? 'btn btn-primary btn-sm' : 'btn btn-sm'; pb.style.background = isPhoto ? '' : 'var(--surface2)'; }
+}
 async function createChat() {
   const name = qs('#newChatName').value.trim();
   const selected = Array.from(document.querySelectorAll('#userCheckboxes input:checked')).map(i=>i.value);
   if (!selected.length) { toast('Pick at least one person'); return; }
-  const r = await api('/api/chats', {method:'POST', body:JSON.stringify({name: name||null, member_ids:selected, is_group: selected.length>1})});
+  const chat_type = window._newChatType || 'text';
+  window._newChatType = 'text';
+  const r = await api('/api/chats', {method:'POST', body:JSON.stringify({name: name||null, member_ids:selected, is_group: selected.length>1||chat_type==='photo', chat_type})});
   if (r.error) { toast('❌ ' + r.error); return; }
   closeModal('newChatModal');
   toast('Chat created!');
   loadChats();
   openChat(r.id, name || 'Chat');
 }
-function openChat(chatId, chatName) {
+function openChat(chatId, chatName, chatType) {
+  const _s = JSON.parse(localStorage.getItem('fh_chat_seen')||'{}');
+  _s[chatId] = new Date().toISOString();
+  localStorage.setItem('fh_chat_seen', JSON.stringify(_s));
+  const _cb = document.getElementById('chatBadge');
+  if (_cb) { const n = Math.max(0, parseInt(_cb.textContent||'0')-1); _cb.textContent=n; _cb.style.display=n>0?'flex':'none'; }
   currentChatId = chatId;
   currentChatName = chatName;
+  currentChatType = chatType || 'text';
   lastMsgTime = null;
   qs('#chatScreenName').textContent = chatName;
+  const _isPhoto = currentChatType === 'photo';
+  qs('#chatMessages').className = 'chat-messages' + (_isPhoto ? ' photo-mode' : '');
+  if (qs('#chatMsgInput')) qs('#chatMsgInput').style.display = _isPhoto ? 'none' : '';
+  if (qs('#chatSendBtn')) qs('#chatSendBtn').style.display = _isPhoto ? 'none' : '';
+  if (qs('#chatTextAttach')) qs('#chatTextAttach').style.display = _isPhoto ? 'none' : 'flex';
+  if (qs('#chatPhotoOnlyBtn')) qs('#chatPhotoOnlyBtn').style.display = _isPhoto ? 'flex' : 'none';
   qs('#chatScreen').classList.add('open');
   loadMessages(chatId);
-  if (chatPollInterval) clearInterval(chatPollInterval);
-  chatPollInterval = setInterval(() => pollMessages(chatId), 3000);
+  // polling handled by startPolling() _pollIntervals.chat
 }
 function closeChat() {
   qs('#chatScreen').classList.remove('open');
@@ -1945,6 +2247,9 @@ function appendMessages(msgs) {
   if (atBottom) container.scrollTop = container.scrollHeight;
 }
 function renderMsg(m) {
+  if (currentChatType === 'photo' && m.msg_type === 'image' && m.media_key) {
+    return \`<div class="photo-grid-item" onclick="viewImg('\${m.media_key}')"><img src="/api/photos/\${encodeURIComponent(m.media_key)}" loading="lazy"><div class="photo-grid-caption">\${esc(m.sender_name)}\${m.content?' · '+esc(m.content):''}</div></div>\`;
+  }
   const mine = m.user_id === currentUser?.id;
   let content = '';
   if (m.msg_type === 'image' && m.media_key) {
@@ -1979,16 +2284,20 @@ async function sendMsg() {
     lastMsgTime = now;
   }
 }
-async function sendChatFile() {
-  const file = qs('#chatFileInput').files[0];
-  if (!file || !currentChatId) return;
-  const fd = new FormData();
-  fd.append('file', file);
+async function sendChatFile(inputEl) {
+  const input = inputEl || qs('#chatFileInput');
+  if (!input?.files?.length || !currentChatId) return;
   const headers = {};
   if (session?.token) headers['x-session-token'] = session.token;
-  const r = await fetch('/api/chats/'+currentChatId+'/messages', {method:'POST', headers, body:fd}).then(r=>r.json());
-  if (r.error) toast('❌ ' + r.error);
-  else { toast('File sent!'); lastMsgTime = new Date().toISOString(); }
+  for (const file of Array.from(input.files)) {
+    const fd = new FormData();
+    fd.append('file', file);
+    const r = await fetch('/api/chats/'+currentChatId+'/messages', {method:'POST', headers, body:fd}).then(r=>r.json());
+    if (r.error) { toast('❌ ' + r.error); break; }
+  }
+  input.value = '';
+  lastMsgTime = new Date().toISOString();
+  loadMessages(currentChatId);
 }
 function handleMsgKey(e) {
   if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); }
@@ -2027,7 +2336,7 @@ async function loadEvents() {
     </div>\`;
   }).join('');
 }
-async function createEvent() {
+async function submitNewEvent() {
   const title = qs('#eventTitle').value.trim();
   const starts_at = qs('#eventStart').value;
   if (!title || !starts_at) { toast('Title and date required'); return; }
@@ -2418,7 +2727,7 @@ async function loadProfile() {
       <h3 style="margin-bottom:4px;font-size:15px">🏠 \${esc(fam.name)}</h3>
       <p style="color:var(--muted);font-size:13px;margin-bottom:10px">Invite code: <strong style="font-size:16px;letter-spacing:2px">\${fam.invite_code||''}</strong></p>
       \${(families||[]).length > 1 ? \`<div style="margin:8px 0 10px"><p style="color:var(--muted);font-size:12px;margin-bottom:6px">Switch family:</p><div style="display:flex;flex-wrap:wrap;gap:6px">\${(families||[]).map(f=>\`<button onclick="switchFamily('\${f.id}')" style="padding:5px 12px;border-radius:20px;border:1px solid var(--border);background:\${f.id===fam.id?'var(--primary)':'var(--surface)'};color:\${f.id===fam.id?'#fff':'var(--text)'};cursor:pointer;font-size:13px">\${esc(f.name)}</button>\`).join('')}</div></div>\` : ''}
-      <button class="btn btn-ghost btn-sm" onclick="openFamilySettings()">⚙️ Family Settings</button>
+      <button style="padding:10px 18px;border-radius:12px;border:1.5px solid var(--primary);background:rgba(129,140,248,.1);color:var(--primary);font-size:14px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px" onclick="openFamilySettings()">⚙️ Family Settings</button>
     </div>\` : ''}
 
     <div style="background:var(--surface2);border-radius:12px;padding:16px;margin-bottom:14px">
@@ -2433,9 +2742,60 @@ async function loadProfile() {
       </div>\`).join('')}
     </div>
 
+    <div style="background:var(--surface2);border-radius:12px;padding:16px;margin-bottom:14px" id="notifPrefsCard">
+      <h3 style="margin-bottom:4px;font-size:15px">⚙️ Notification Settings</h3>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:12px">Choose what you get notified about</p>
+      <div id="notifPrefToggles" style="display:flex;flex-direction:column;gap:10px">
+        <div style="text-align:center;color:var(--muted);font-size:13px">Loading...</div>
+      </div>
+    </div>
+
     <button class="btn btn-ghost btn-full" onclick="logout()" style="color:#ef4444;margin-top:4px">Log Out</button>
   \`;
+  loadNotifPrefs();
 }
+const _notifLabels = {
+  post: {icon:'📸', label:'New posts', desc:'When someone shares a post'},
+  comment: {icon:'💬', label:'Comments', desc:'When someone comments on your post'},
+  reaction: {icon:'❤️', label:'Reactions', desc:'When someone reacts to your post'},
+  event: {icon:'📅', label:'Events', desc:'When a new event is added'},
+  message: {icon:'💬', label:'Messages', desc:'New chat messages'},
+  expense: {icon:'💸', label:'Expenses', desc:'When added to an expense'},
+  transfer: {icon:'💳', label:'Transfers', desc:'Money requests and confirmations'},
+  chore: {icon:'✅', label:'Chores', desc:'Chore reminders and completions'},
+  birthday: {icon:'🎂', label:'Birthdays', desc:'Birthday reminders'},
+  kk: {icon:'🎅', label:'KK Draw', desc:'Secret Santa assignments'}
+};
+
+async function loadNotifPrefs() {
+  const prefs = await api('/api/notification-prefs');
+  const el = document.getElementById('notifPrefToggles');
+  if (!el || !prefs) return;
+  el.innerHTML = Object.entries(_notifLabels).map(([type, {icon, label, desc}]) => {
+    const on = prefs[type] !== 0;
+    return \`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">
+      <div>
+        <div style="font-size:14px;font-weight:600">\${icon} \${label}</div>
+        <div style="font-size:12px;color:var(--muted)">\${desc}</div>
+      </div>
+      <button onclick="toggleNotifPref('\${type}',this)" style="background:\${on?'var(--primary)':'var(--surface)'};border:2px solid \${on?'var(--primary)':'var(--border)'};border-radius:20px;width:48px;height:26px;cursor:pointer;position:relative;transition:all .2s" data-on="\${on}">
+        <span style="position:absolute;top:2px;\${on?'right:2px':'left:2px'};width:18px;height:18px;background:\${on?'#fff':'var(--muted)'};border-radius:50%;transition:all .2s;display:block"></span>
+      </button>
+    </div>\`;
+  }).join('');
+}
+
+async function toggleNotifPref(type, btn) {
+  const on = btn.dataset.on !== 'true';
+  btn.dataset.on = on;
+  btn.style.background = on ? 'var(--primary)' : 'var(--surface)';
+  btn.style.borderColor = on ? 'var(--primary)' : 'var(--border)';
+  const span = btn.querySelector('span');
+  if (span) { span.style.right = on ? '2px' : ''; span.style.left = on ? '' : '2px'; span.style.background = on ? '#fff' : 'var(--muted)'; }
+  await api('/api/notification-prefs', {method:'PUT', body:JSON.stringify({[type]: on ? 1 : 0})});
+  toast(on ? '🔔 ' + (_notifLabels[type]?.label||type) + ' on' : '🔕 ' + (_notifLabels[type]?.label||type) + ' off');
+}
+
 function switchFamily(famId) {
   localStorage.setItem('fh_active_family', famId);
   currentFamily = null;
@@ -2509,6 +2869,9 @@ async function openFamilySettings() {
   document.getElementById('familyNameInput').value = fam.name||'';
   document.getElementById('familyDescInput').value = fam.description||'';
   document.getElementById('familyInviteCode').textContent = fam.invite_code||'------';
+  const codeEl = document.getElementById('inviteCodeDisplay');
+  if (codeEl) codeEl.textContent = fam.invite_code||'';
+  loadPendingInvites();
   const settings = await api('/api/families/'+fam.id+'/settings')||{};
   const FEATURES = ['Feed','Stories','Chats','Events','Birthdays','Gifts','KK Draw','Expenses','Transfers','Vault','Shopping','Chores','Meals','Milestones','Recipes','Kindness'];
   document.getElementById('featureToggles').innerHTML = FEATURES.map(f=>\`
@@ -2529,6 +2892,49 @@ async function openFamilySettings() {
     </div>\`).join('');
 }
 function closeFamilySettings() { document.getElementById('familySettingsScreen').classList.remove('open'); }
+function toggleNewInviteForm() {
+  const el = document.getElementById('newInviteForm');
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+async function loadPendingInvites() {
+  const el = document.getElementById('pendingInvitesList');
+  if (!el) return;
+  const invites = await api('/api/admin/invites') || [];
+  if (!invites.length) { el.innerHTML = '<div style="color:var(--muted);font-size:13px">All invites accepted ✓</div>'; return; }
+  el.innerHTML = invites.map(inv => \`
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+      <div style="flex:1">
+        <div style="font-size:14px;font-weight:600">\${esc(inv.name)}</div>
+        <div style="font-size:11px;color:var(--muted)">\${inv.role||'member'}\${inv.email?' · '+esc(inv.email):''}</div>
+      </div>
+      <button class="btn-sm" onclick="sendInviteEmail(\${inv.id},'\${inv.name}')" style="font-size:11px">📧 \${inv.email ? 'Resend' : 'Email'}</button>
+    </div>
+  \`).join('');
+}
+async function sendInviteEmail(inviteId, name) {
+  const el = document.querySelector(\`#pendingInvitesList button[onclick*="sendInviteEmail(\${inviteId}"]\`);
+  // Prompt for email if not stored
+  let email = prompt(\`Email address for \${name}:\`);
+  if (!email) return;
+  const r = await api(\`/api/admin/invites/\${inviteId}/email\`, {method:'POST', body:JSON.stringify({email})});
+  if (r && r.ok) { toast(\`📧 Invite sent to \${email}!\`); loadPendingInvites(); }
+  else toast('❌ ' + (r?.error || 'Failed to send'));
+}
+async function createAndSendInvite() {
+  const name = document.getElementById('newInviteName')?.value.trim();
+  const email = document.getElementById('newInviteEmail')?.value.trim();
+  const role = document.getElementById('newInviteRole')?.value.trim() || 'member';
+  if (!name) { toast('Enter a name'); return; }
+  const r = await api('/api/admin/invites', {method:'POST', body:JSON.stringify({name, email, role})});
+  if (r?.ok) {
+    toast(email ? \`📧 Invite sent to \${email}!\` : '✅ Invite created');
+    document.getElementById('newInviteName').value = '';
+    document.getElementById('newInviteEmail').value = '';
+    document.getElementById('newInviteRole').value = '';
+    toggleNewInviteForm();
+    loadPendingInvites();
+  } else toast('❌ ' + (r?.error || 'Failed'));
+}
 async function saveFamilyInfo() {
   const fam = await ensureFamily();
   if (!fam) return;
@@ -2559,7 +2965,8 @@ async function applyAllFeatureToggles() {
 }
 function copyInviteCode() {
   const code = document.getElementById('familyInviteCode').textContent;
-  if (navigator.clipboard) { navigator.clipboard.writeText(code).then(()=>toast('Copied! 📋')); }
+  const link = 'https://hub.luckdragon.io/?invite=' + code;
+  if (navigator.clipboard) { navigator.clipboard.writeText(link).then(()=>toast('Link copied! 📋')); }
   else { const t=document.createElement('textarea');t.value=code;document.body.appendChild(t);t.select();document.execCommand('copy');document.body.removeChild(t);toast('Copied! 📋'); }
 }
 async function loadFamilyRules(familyId) {
@@ -2588,15 +2995,18 @@ async function loadShopping() {
   c.innerHTML = \`<div style="padding:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <h3 style="font-size:16px;font-weight:700">🛒 Shopping List</h3>
-      <button class="btn-sm" onclick="toggleShoppingForm()">+ Add</button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="clear-done-btn" id="clearDoneBtn" style="display:none" onclick="clearDoneShopping()">Clear done</button>
+        <button class="btn-sm" onclick="toggleShoppingForm()">+ Add</button>
+      </div>
     </div>
-    <div id="shoppingAddForm" style="display:none;background:var(--surface);border-radius:10px;padding:12px;margin-bottom:12px">
-      <input id="shoppingInput" placeholder="Item..." style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);margin-bottom:8px">
-      <select id="shoppingCat" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);margin-bottom:8px">
+    <div id="shoppingAddForm" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">
+      <input id="shoppingInput" placeholder="Item name..." style="width:100%;padding:10px 12px;background:var(--surface3);border:1.5px solid var(--border);border-radius:8px;color:var(--text);margin-bottom:8px;font-size:15px">
+      <select id="shoppingCat" style="width:100%;padding:10px 12px;background:var(--surface3);border:1.5px solid var(--border);border-radius:8px;color:var(--text);margin-bottom:8px">
         <option value="Groceries">🥦 Groceries</option><option value="Household">🏠 Household</option>
         <option value="Kids">👶 Kids</option><option value="Other">📦 Other</option>
       </select>
-      <button class="btn" onclick="addShoppingItem()">Add Item</button>
+      <button class="btn btn-primary" onclick="addShoppingItem()">Add Item</button>
     </div>
     <div id="shoppingList"></div>
   </div>\`;
@@ -2607,14 +3017,41 @@ async function renderShoppingItems() {
   const items = await api('/api/shopping');
   const el = document.getElementById('shoppingList');
   if (!el) return;
-  if (!items||!items.length){el.innerHTML='<div style="text-align:center;color:var(--muted);padding:32px">Nothing on the list 🛒</div>';return;}
-  const sorted=[...items.filter(i=>!i.done),...items.filter(i=>i.done)];
-  el.innerHTML=sorted.map(i=>\`<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
-    <input type="checkbox" style="width:20px;height:20px;cursor:pointer;accent-color:var(--primary)" \${i.done?'checked':''} onchange="toggleShoppingItem('\${i.id}',this.checked)">
-    <span style="flex:1;font-size:14px;\${i.done?'text-decoration:line-through;color:var(--muted)':''}">\${esc(i.title)}</span>
-    <span style="font-size:10px;padding:2px 6px;border-radius:99px;background:var(--surface2);color:var(--muted)">\${esc(i.category||'')}</span>
-    <button onclick="deleteShoppingItem('\${i.id}')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px">🗑</button>
-  </div>\`).join('');
+  const doneItems = (items||[]).filter(i=>i.done);
+  const clearBtn = document.getElementById('clearDoneBtn');
+  if (clearBtn) { clearBtn.style.display = doneItems.length ? 'block' : 'none'; if(doneItems.length) clearBtn.textContent = \`Clear done (\${doneItems.length})\`; }
+  if (!items||!items.length){el.innerHTML='<div style="text-align:center;color:var(--muted);padding:32px"><div style="font-size:36px;margin-bottom:8px">🛒</div><p>Nothing on the list yet</p></div>';return;}
+  const undone = items.filter(i=>!i.done);
+  const done = items.filter(i=>i.done);
+  // Group undone by category
+  const cats = {};
+  for (const i of undone) { const c = i.category||'Other'; if(!cats[c]) cats[c]=[]; cats[c].push(i); }
+  const catIcons = {Groceries:'🥦',Household:'🏠',Kids:'👶',Other:'📦'};
+  let html = '';
+  for (const [cat, catItems] of Object.entries(cats)) {
+    html += \`<div class="shop-cat-header">\${catIcons[cat]||'📦'} \${cat}</div>\`;
+    html += catItems.map(i=>\`<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+      <input type="checkbox" style="width:20px;height:20px;cursor:pointer;accent-color:var(--primary);flex-shrink:0" onchange="toggleShoppingItem('\${i.id}',this.checked)">
+      <span style="flex:1;font-size:14px">\${esc(i.title)}</span>
+      <button onclick="deleteShoppingItem('\${i.id}')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;padding:2px 4px">🗑</button>
+    </div>\`).join('');
+  }
+  if (done.length) {
+    html += \`<div class="shop-cat-header" style="color:var(--muted)">✓ Done</div>\`;
+    html += done.map(i=>\`<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.04);opacity:.55">
+      <input type="checkbox" checked style="width:20px;height:20px;cursor:pointer;accent-color:var(--primary);flex-shrink:0" onchange="toggleShoppingItem('\${i.id}',this.checked)">
+      <span style="flex:1;font-size:14px;text-decoration:line-through;color:var(--muted)">\${esc(i.title)}</span>
+      <button onclick="deleteShoppingItem('\${i.id}')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;padding:2px 4px">🗑</button>
+    </div>\`).join('');
+  }
+  el.innerHTML = html;
+}
+async function clearDoneShopping() {
+  const items = await api('/api/shopping');
+  const done = (items||[]).filter(i=>i.done);
+  await Promise.all(done.map(i=>api('/api/shopping/'+i.id,{method:'DELETE'})));
+  renderShoppingItems();
+  toast(\`Cleared \${done.length} done item\${done.length===1?'':'s'} ✓\`);
 }
 async function addShoppingItem(){
   const t=document.getElementById('shoppingInput')?.value.trim();
@@ -2635,7 +3072,8 @@ async function loadChores() {
       <h3 style="font-size:16px;font-weight:700">✅ Chores</h3>
       <button class="btn-sm" onclick="toggleChoreForm()">+ Add</button>
     </div>
-    <div id="choreAddForm" style="display:none;background:var(--surface);border-radius:10px;padding:12px;margin-bottom:12px">
+    <div id="choreLeaderboard" style="margin-bottom:12px"></div>
+    <div id="choreAddForm" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">
       <input id="choreTitleInput" placeholder="Chore name..." style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);margin-bottom:8px">
       <select id="choreAssign" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);margin-bottom:8px">
         <option value="">Anyone</option>\${(allUsers||[]).map(u=>\`<option value="\${u.id}">\${esc(u.name)}</option>\`).join('')}
@@ -2653,6 +3091,36 @@ async function loadChores() {
     <div id="choreList"></div>
   </div>\`;
   renderChores();
+  renderChoreLeaderboard();
+}
+async function renderChoreLeaderboard() {
+  const el = document.getElementById('choreLeaderboard');
+  if (!el) return;
+  const chores = await api('/api/chores') || [];
+  // Tally points by assigned person if they have done chores today
+  const pts = {};
+  for (const ch of chores) {
+    const doer = ch.assigned_to;
+    const doneCount = parseInt(ch.done_today||0);
+    if (doer && doneCount > 0) {
+      pts[doer] = (pts[doer]||0) + (ch.points||1) * doneCount;
+    }
+    // also count unassigned chores done today toward last completer if available
+  }
+  const sorted = Object.entries(pts).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  if (!sorted.length) { el.innerHTML=''; return; }
+  const medals = ['🥇','🥈','🥉','4th','5th'];
+  el.innerHTML = \`<div class="leaderboard">
+    <div class="leaderboard-title">⭐ Today's Stars</div>
+    \${sorted.map(([uid,p],i)=>{
+      const u=(allUsers||[]).find(x=>x.id===uid);
+      return \`<div class="lb-row">
+        <div class="lb-rank \${i===0?'gold':''}">\${medals[i]||i+1}</div>
+        <div style="font-size:13px;font-weight:600">\${esc(u?.name||'Unknown')}</div>
+        <div class="lb-pts">\${p}pt\${p===1?'':'s'}</div>
+      </div>\`;
+    }).join('')}
+  </div>\`;
 }
 function toggleChoreForm(){const f=document.getElementById('choreAddForm');if(f)f.style.display=f.style.display==='none'?'block':'none';}
 async function renderChores() {
@@ -2681,15 +3149,27 @@ async function addChore(){
   if(document.getElementById('choreAddForm'))document.getElementById('choreAddForm').style.display='none';
   renderChores();
 }
-async function completeChore(id){await api('/api/chores/'+id+'/complete',{method:'POST'});renderChores();}
+async function completeChore(id){const r=await api('/api/chores/'+id+'/complete',{method:'POST'});if(r?.ok)toast('✅ Chore done! ⭐');renderChores();renderChoreLeaderboard();}
 async function deleteChore(id){if(!confirm('Delete this chore?'))return;await api('/api/chores/'+id,{method:'DELETE'});renderChores();}
 
 // ── MEALS ─────────────────────────────────
+let mealWeekOffset = 0;
 const DAYS=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 async function loadMeals() {
   const c = qs('#moreContent');
-  c.innerHTML = '<div style="padding:16px"><h3 style="font-size:16px;font-weight:700;margin-bottom:12px">🍽️ Meal Rota</h3><div id="mealGrid"></div></div>';
-  const resp = await api('/api/meals');
+  const weekLabel = mealWeekOffset === 0 ? 'This Week' : mealWeekOffset === -1 ? 'Last Week' : mealWeekOffset === 1 ? 'Next Week' : (mealWeekOffset > 0 ? \`+\${mealWeekOffset}w\` : \`\${mealWeekOffset}w\`);
+  c.innerHTML = \`<div style="padding:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <h3 style="font-size:16px;font-weight:700;margin:0">🍽️ Meal Rota</h3>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button class="btn-sm" onclick="mealWeekOffset--;loadMeals()">‹</button>
+        <span style="font-size:13px;font-weight:600;min-width:80px;text-align:center">\${weekLabel}</span>
+        <button class="btn-sm" onclick="mealWeekOffset++;loadMeals()">›</button>
+      </div>
+    </div>
+    <div id="mealGrid"></div>
+  </div>\`;
+  const resp = await api('/api/meals?offset=' + mealWeekOffset);
   const meals = (resp && resp.meals) || [];
   const grid = document.getElementById('mealGrid');
   if (!grid) return;
@@ -2727,7 +3207,8 @@ async function saveMeal(i){
   const meal=document.getElementById('mealInput_'+i)?.value.trim();
   const cook_id=document.getElementById('mealCook_'+i)?.value||null;
   if(!meal)return;
-  await api('/api/meals',{method:'POST',body:JSON.stringify({day_of_week:i,meal,cook_id})});
+  const r=await api('/api/meals',{method:'POST',body:JSON.stringify({day_of_week:i,meal,cook_id,week_offset:mealWeekOffset})});
+  if(r?.ok){toast('🍽️ Meal saved!',1800);}else{toast('❌ Failed to save meal');}
   loadMeals();
 }
 
@@ -3050,6 +3531,29 @@ let _pollIntervals = {};
 let _lastChatMsgId = null;
 let _lastFeedTs = null;
 
+function initPullToRefresh() {
+  const list = document.getElementById('feedList');
+  if (!list || list._ptr) return;
+  list._ptr = true;
+  let startY = 0, pulling = false, ind = null;
+  list.addEventListener('touchstart', e => { if (list.scrollTop === 0) { startY = e.touches[0].clientY; pulling = true; } }, {passive:true});
+  list.addEventListener('touchmove', e => {
+    if (!pulling) return;
+    const dy = e.touches[0].clientY - startY;
+    if (dy > 8 && dy < 90) {
+      if (!ind) { ind = document.createElement('div'); ind.style.cssText='text-align:center;padding:10px;color:var(--primary);font-size:13px;font-weight:600'; ind.textContent='\u2193 Pull to refresh'; list.prepend(ind); }
+      ind.style.opacity = Math.min(1, dy/60);
+      ind.textContent = dy > 60 ? '\u2191 Release to refresh' : '\u2193 Pull to refresh';
+    }
+  }, {passive:true});
+  list.addEventListener('touchend', e => {
+    if (!pulling) return; pulling = false;
+    const dy = e.changedTouches[0].clientY - startY;
+    if (ind) { ind.remove(); ind = null; }
+    if (dy > 60) { if (navigator.vibrate) navigator.vibrate(30); loadFeed(); toast('Refreshed ✓'); }
+  }, {passive:true});
+}
+let _lastNotifCount = 0;
 function startPolling() {
   stopPolling();
   // Chat: every 5s when chat screen visible
@@ -3062,6 +3566,7 @@ function startPolling() {
     const lastId = msgs[msgs.length-1]?.id;
     if (lastId && lastId !== _lastChatMsgId) {
       _lastChatMsgId = lastId;
+      if (navigator.vibrate) navigator.vibrate([30,15,30]);
       renderMessages(msgs);
       // Auto-scroll to bottom only if already near bottom
       const ml = document.getElementById('messageList');
@@ -3071,36 +3576,79 @@ function startPolling() {
     }
   }, 5000);
 
-  // Feed: every 15s when feed screen visible
+  // Feed: every 15s when feed screen active
   _pollIntervals.feed = setInterval(async () => {
-    const screen = document.getElementById('feedScreen');
-    if (!screen || screen.classList.contains('hidden')) return;
-    const posts = await api('/api/feed');
+    const screen = document.getElementById('screenFeed');
+    if (!screen || !screen.classList.contains('active')) return;
+    const posts = await api('/api/posts?limit=20');
     if (!posts || !Array.isArray(posts) || !posts.length) return;
     const newTs = posts[0]?.created_at;
     if (newTs && newTs !== _lastFeedTs) {
+      if (_lastFeedTs) toast('\u2728 New post from the family!');
       _lastFeedTs = newTs;
-      renderFeed(posts);
+      _feedOffset=0; _feedDone=false;
+      loadFeed();
     }
   }, 15000);
 
-  // Notifications: every 30s always
+  // Notifications: every 20s always
   _pollIntervals.notif = setInterval(async () => {
     if (!currentUser) return;
     const n = await api('/api/notifications');
     if (!n) return;
     const unread = (n.items||[]).filter(x=>!x.read).length;
     const badge = document.getElementById('notifBadge');
-    if (badge) badge.textContent = unread > 0 ? unread : '';
-    if (badge) badge.style.display = unread > 0 ? 'flex' : 'none';
+    if (badge) { badge.textContent = unread > 0 ? unread : ''; badge.style.display = unread > 0 ? 'flex' : 'none'; }
+    if (unread > _lastNotifCount && _lastNotifCount >= 0) {
+      const newest = n.items?.find(x=>!x.read);
+      if (newest) toast('\U0001F514 ' + newest.title);
+    }
+    _lastNotifCount = unread;
+  }, 20000);
+
+  // Events: every 30s when events screen active
+  _pollIntervals.events = setInterval(async () => {
+    const screen = document.getElementById('screenEvents');
+    if (!screen || !screen.classList.contains('active')) return;
+    const evs = await api('/api/events');
+    if (!evs) return;
+    const el = document.getElementById('eventsList');
+    const newSig = evs.map(e=>e.id+e.going_count).join(',');
+    if (el && el.dataset.sig !== newSig) { el.dataset.sig = newSig; loadEvents(); }
   }, 30000);
 
-  // Stories: every 60s when stories visible
+  // Chat list: every 20s — update badge always, full list only when on chats screen
+  _pollIntervals.chatList = setInterval(async () => {
+    if (!currentUser) return;
+    const chats = await api('/api/chats');
+    if (!chats) return;
+    // Always update badge
+    const _seen = JSON.parse(localStorage.getItem('fh_chat_seen')||'{}');
+    const unread = chats.filter(c => c.last_msg_at && c.last_sender && c.last_sender !== currentUser?.name && (!_seen[c.id] || c.last_msg_at > _seen[c.id])).length;
+    const _cb = document.getElementById('chatBadge');
+    if (_cb) { _cb.textContent = unread > 9 ? '9+' : unread; _cb.style.display = unread > 0 ? 'flex' : 'none'; }
+    // Re-render list if on chats screen
+    const screen = document.getElementById('screenChats');
+    if (screen && screen.classList.contains('active')) loadChats();
+  }, 20000);
+
+  // More tab: every 30s when visible
+  _pollIntervals.more = setInterval(async () => {
+    const screen = document.getElementById('screenMore');
+    if (!screen || !screen.classList.contains('active')) return;
+    const tab = currentMoreTab;
+    if (tab === 'shopping') renderShoppingItems();
+    else if (tab === 'chores') renderChores();
+    else if (tab === 'expenses') loadExpenses();
+    else if (tab === 'photos') loadAlbum();
+  }, 30000);
+
+  // Stories: every 30s when feed active
   _pollIntervals.stories = setInterval(async () => {
-    const bar = document.getElementById('storyStrip');
-    if (!bar) return;
+    const screen = document.getElementById('screenFeed');
+    if (!screen || !screen.classList.contains('active')) return;
     loadStories();
-  }, 60000);
+  }, 30000);
 }
 
 function stopPolling() {
@@ -3108,12 +3656,32 @@ function stopPolling() {
   _pollIntervals = {};
 }
 
+// Refresh on visibility change (user returns to tab/app)
+let _lastHidden = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    _lastHidden = Date.now();
+  } else if (document.visibilityState === 'visible' && currentUser) {
+    const away = Date.now() - _lastHidden;
+    if (away > 30000) { // away > 30s → refresh active screen
+      const active = document.querySelector('.screen.active');
+      if (!active) return;
+      const id = active.id;
+      if (id === 'screenFeed') { _feedOffset=0; _feedDone=false; loadFeed(); loadStories(); }
+      else if (id === 'screenChats') loadChats();
+      else if (id === 'screenEvents') loadEvents();
+      else if (id === 'screenMore') loadMoreTab(currentMoreTab);
+    }
+  }
+});
+
 // Hook: start polling after login
 const _origInit = typeof initApp === 'function' ? initApp : null;
 // Patch: start polling whenever currentUser is set
 const _pollOnLogin = setInterval(() => {
   if (currentUser && !_pollIntervals.notif) {
     startPolling();
+    initPullToRefresh();
     clearInterval(_pollOnLogin);
   }
 }, 1000);
@@ -3208,7 +3776,12 @@ export default {
     `CREATE TABLE IF NOT EXISTS album_reactions (photo_id TEXT NOT NULL, user_id TEXT NOT NULL, reaction TEXT NOT NULL, PRIMARY KEY (photo_id,user_id))`,
     `CREATE TABLE IF NOT EXISTS meal_rota (id TEXT PRIMARY KEY, week_date TEXT NOT NULL, day_of_week INTEGER NOT NULL, meal TEXT NOT NULL, cook_id TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(week_date, day_of_week))`,
     `ALTER TABLE invites ADD COLUMN user_id TEXT`,
+`ALTER TABLE invites ADD COLUMN email TEXT`,
+    `ALTER TABLE shopping_items ADD COLUMN family_id TEXT`,
+    `ALTER TABLE chores ADD COLUMN family_id TEXT`,
+    `ALTER TABLE meal_rota ADD COLUMN family_id TEXT`,
     `CREATE TABLE IF NOT EXISTS story_views (story_id TEXT NOT NULL, user_id TEXT NOT NULL, viewed_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (story_id, user_id))`,
+    `ALTER TABLE chats ADD COLUMN chat_type TEXT NOT NULL DEFAULT 'text'`,
   ];
   for (const sql of v3tables) { try { await env.DB.exec(sql); } catch(e) {} }
 
@@ -3224,7 +3797,16 @@ export default {
     // Serve SPA
     if (path === '/' || path === '/index.html' || (!path.startsWith('/api/'))) {
       // PWA manifest
-      if (url.pathname === '/manifest.json') {
+      // iOS apple-touch-icon
+  if (url.pathname === '/apple-touch-icon.png' || url.pathname === '/apple-touch-icon-precomposed.png') {
+    const b64 = 'iVBORw0KGgoAAAANSUhEUgAAALQAAAC0CAYAAAA9zQYyAAACx0lEQVR42u3bMWpDQRQEwbmrwff3CWwUKDEIlBjWvTXQB/hvKxPaDt/H59e3zmkGLPAAC3CIBTfIAhtkXQHbIykD28MogdpjKAPbAyiD2uGVQe3gyqB2aGVQO7AyqB1WGdQOqgxqh1QKtSMqA9oBlUHtcEqhdjRlQDuYUqgdSxnQDqUUakdSBrQDKYXacQS0dCJoh1EKtaMIaAlo6Y9BO4hSqB1DQEtAS0BLQAtoCWjpKNAOoRRqRxDQEtAS0BLQAloCWgJaAloCWkBLQOuNHnMHoDOYn3MPoDOYoQY6hxlqoHOYoQY6BRlsoLOYoQY6hxlqoHOYoQY6hxlqoFOQwQY6ixlqoHOYoQY6hxlqoHOYoQY6BRlsoLOYoQY6hxlqoHOYoQY6hxlqoFOQwQY6ixlqoHOYob4cdHlAwww10CCDDTTMUAMNM9RAw3wd6sEMNdAggw00zFADDTPU94I2qAezlVAPZCvBHsxWQj2YrYR6MFsJ9WC2EuqBbCXYg9lKqAezlVAPZiuhHsxWQj2QrQR7MFsJ9WC2EurBbCXUg9lKqAeylWD7C5b5CxbQQAMNNNBAAw000AY00EADDTTQQAMNNNBAAw20AQ000EADDTTQQAMNNNBAA21AA33W4wMNNNBAAw000ED7JqA9vm8CGmiggQYaaKCBBhpo3wS0xwcaaKCBBhpooIEGGmigfRPQHh9ooIEGGmiggQYaaKCB9k1Ae3yggQYaaKCBLoN+DGigM5iBBhpooH0T0B7fNwHt8YEGGmiggQYaaKB905GgS6iBvhP0fq/2i6HuCmgBLf0b0FArhRloAS2dDBpqpTADrRxoqJXCDLRyoKFWCjPQyoGGWinMUCuHGWjlQEOtFGaolcMMtXKYoVYOM9TKYYZaOcxQK4cZauUwg60cZKiVxAy2cpDBVhIy2EpChlu7bR4dYOAF7Iv9AKMcfmOIha4cAAAAAElFTkSuQmCC';
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i=0; i<binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new Response(bytes, {headers:{'content-type':'image/png','cache-control':'public,max-age=604800'}});
+  }
+
+  if (url.pathname === '/manifest.json') {
         const manifest = {
           name: 'Family Hub',
           short_name: 'Family Hub',
@@ -3317,6 +3899,11 @@ export default {
     }
 
     // Notifications
+    if (path.startsWith('/api/notification-prefs')) {
+      const r = await handleNotifPrefs(path, request, env, user);
+      if (r) return r;
+    }
+
     if (path.startsWith('/api/notifications')) {
       const r = await handleNotifications(path, request, env, user);
       if (r) return r;
@@ -3458,13 +4045,17 @@ export default {
 
     // ── SHOPPING ──────────────────────────────────────────────────────────────
     if (path === '/api/shopping' && method === 'GET') {
-      const rows = await env.DB.prepare('SELECT s.*,u.name as added_by_name FROM shopping_items s LEFT JOIN users u ON u.id=s.added_by ORDER BY s.done ASC, s.created_at DESC').all();
+      const famRow = await env.DB.prepare('SELECT family_id FROM family_members WHERE user_id=? LIMIT 1').bind(user.id).first();
+      if (!famRow) return json([]);
+      const rows = await env.DB.prepare('SELECT s.*,u.name as added_by_name FROM shopping_items s LEFT JOIN users u ON u.id=s.added_by WHERE s.family_id=? ORDER BY s.done ASC, s.created_at DESC').bind(famRow.family_id).all();
       return json(rows.results);
     }
     if (path === '/api/shopping' && method === 'POST') {
+      const famRow = await env.DB.prepare('SELECT family_id FROM family_members WHERE user_id=? LIMIT 1').bind(user.id).first();
+      if (!famRow) return err('No family');
       const {title,category} = await request.json();
       const id = crypto.randomUUID();
-      await env.DB.prepare('INSERT INTO shopping_items (id,title,category,added_by) VALUES (?,?,?,?)').bind(id,title,category||null,user.id).run();
+      await env.DB.prepare('INSERT INTO shopping_items (id,title,category,added_by,family_id) VALUES (?,?,?,?,?)').bind(id,title,category||null,user.id,famRow.family_id).run();
       return json({id,ok:true},201);
     }
     const shopItemMatch = path.match(/^\/api\/shopping\/([^/]+)$/);
@@ -3474,31 +4065,32 @@ export default {
       return json({ok:true});
     }
     if (shopItemMatch && method === 'DELETE') {
-      await env.DB.prepare('DELETE FROM shopping_items WHERE id=?').bind(shopItemMatch[1]).run();
+      const famRow = await env.DB.prepare('SELECT family_id FROM family_members WHERE user_id=? LIMIT 1').bind(user.id).first();
+      if (famRow) await env.DB.prepare('DELETE FROM shopping_items WHERE id=? AND family_id=?').bind(shopItemMatch[1],famRow.family_id).run();
       return json({ok:true});
     }
 
     // ── CHORES ────────────────────────────────────────────────────────────────
     if (path === '/api/chores' && method === 'GET') {
+      const famRow = await env.DB.prepare('SELECT family_id FROM family_members WHERE user_id=? LIMIT 1').bind(user.id).first();
+      if (!famRow) return json([]);
       const rows = await env.DB.prepare(`
         SELECT c.*, (SELECT COUNT(*) FROM chore_completions cc WHERE cc.chore_id=c.id AND date(cc.completed_at)=date('now')) as done_today
-        FROM chores c ORDER BY c.created_at DESC`).all();
+        FROM chores c WHERE c.family_id=? ORDER BY c.created_at DESC`).bind(famRow.family_id).all();
       return json(rows.results);
     }
     if (path === '/api/chores' && method === 'POST') {
+      const famRow = await env.DB.prepare('SELECT family_id FROM family_members WHERE user_id=? LIMIT 1').bind(user.id).first();
+      if (!famRow) return err('No family');
       const {title,assigned_to,points,frequency} = await request.json();
       const id = crypto.randomUUID();
-      await env.DB.prepare('INSERT INTO chores (id,title,assigned_to,points,frequency,created_by) VALUES (?,?,?,?,?,?)').bind(id,title,assigned_to||null,points||1,frequency||'daily',user.id).run();
+      await env.DB.prepare('INSERT INTO chores (id,title,assigned_to,points,frequency,created_by,family_id) VALUES (?,?,?,?,?,?,?)').bind(id,title,assigned_to||null,points||1,frequency||'daily',user.id,famRow.family_id).run();
       return json({id,ok:true},201);
     }
     const choreMatch = path.match(/^\/api\/chores\/([^/]+)$/);
     if (choreMatch && method === 'DELETE') {
-      await env.DB.prepare('DELETE FROM chores WHERE id=?').bind(choreMatch[1]).run();
-      return json({ok:true});
-    }
-    const choreDelMatch = path.match(/^\/api\/chores\/([^/]+)$/);
-    if (choreDelMatch && method === 'DELETE') {
-      await env.DB.prepare('DELETE FROM chores WHERE id=?').bind(choreDelMatch[1]).run();
+      const famRow = await env.DB.prepare('SELECT family_id FROM family_members WHERE user_id=? LIMIT 1').bind(user.id).first();
+      if (famRow) await env.DB.prepare('DELETE FROM chores WHERE id=? AND family_id=?').bind(choreMatch[1],famRow.family_id).run();
       return json({ok:true});
     }
     const choreCompleteMatch = path.match(/^\/api\/chores\/([^/]+)\/complete$/);
@@ -3612,25 +4204,71 @@ export default {
     }
 
     // ── MEAL ROTA ─────────────────────────────────────────────────────────────
+    // ── ADMIN: invites
+    if (path === '/api/admin/invites' && method === 'GET') {
+      if (!user || user.role !== 'admin') return err('Forbidden', 403);
+      const rows = await env.DB.prepare('SELECT id,name,role,token,email FROM invites WHERE used=0 ORDER BY id').all();
+      return json(rows.results);
+    }
+    if (path === '/api/admin/invites' && method === 'POST') {
+      if (!user || user.role !== 'admin') return err('Forbidden', 403);
+      const {name, email, role} = await request.json();
+      if (!name) return err('Name required');
+      const token = Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b=>b.toString(16).padStart(2,'0')).join('');
+      const invId = await env.DB.prepare('INSERT INTO invites (name,role,token,email) VALUES (?,?,?,?) RETURNING id').bind(name, role||'member', token, email||null).first();
+      // Send email if provided
+      if (email && env.RESEND_API_KEY) {
+        const link = `https://hub.luckdragon.io/?invite=${token}`;
+        await fetch('https://api.resend.com/emails', {
+          method:'POST', headers:{'Authorization':`Bearer ${env.RESEND_API_KEY}`,'Content-Type':'application/json'},
+          body:JSON.stringify({from:'Family Hub <paddy@luckdragon.io>',to:[email],subject:`${user.name} invited you to Family Hub 🏠`,html:`<p>Hi ${name}! ${user.name} has invited you to join the Gallivan Family Hub.</p><p><a href="${link}" style="background:#6366f1;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block">Join Family Hub →</a></p><p>Or copy this link: ${link}</p>`})
+        });
+      }
+      return json({ok:true, id:invId?.id, token});
+    }
+    if (/^\/api\/admin\/invites\/\d+\/email$/.test(path) && method === 'POST') {
+      if (!user || user.role !== 'admin') return err('Forbidden', 403);
+      const inviteId = parseInt(path.split('/')[4]);
+      const {email} = await request.json();
+      if (!email) return err('Email required');
+      const invite = await env.DB.prepare('SELECT * FROM invites WHERE id=?').bind(inviteId).first();
+      if (!invite) return err('Invite not found', 404);
+      // Store email on invite
+      await env.DB.prepare('UPDATE invites SET email=? WHERE id=?').bind(email, inviteId).run();
+      // Send via Resend
+      if (!env.RESEND_API_KEY) return err('Email not configured');
+      const link = `https://hub.luckdragon.io/?invite=${invite.token}`;
+      const resp = await fetch('https://api.resend.com/emails', {
+        method:'POST', headers:{'Authorization':`Bearer ${env.RESEND_API_KEY}`,'Content-Type':'application/json'},
+        body:JSON.stringify({from:'Family Hub <paddy@luckdragon.io>',to:[email],subject:`${user.name} invited you to Family Hub 🏠`,html:`<p>Hi ${invite.name}! ${user.name} has invited you to join the Gallivan Family Hub.</p><p><a href="${link}" style="background:#6366f1;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block">Join Family Hub →</a></p><p>Or copy this link: ${link}</p><p style="color:#888;font-size:12px">Reply to this email if you have questions.</p>`})
+      });
+      const resendData = await resp.json();
+      if (resp.ok) return json({ok:true});
+      return err('Email send failed: ' + JSON.stringify(resendData), 500);
+    }
     if (path === '/api/meals' && method === 'GET') {
-      // Get monday of current week
+      const famRow = await env.DB.prepare('SELECT family_id FROM family_members WHERE user_id=? LIMIT 1').bind(user.id).first();
+      if (!famRow) return json({week_date:'', meals:[]});
+      const offsetParam = parseInt(url.searchParams.get('offset')||'0');
       const now = new Date();
       const day = now.getDay();
       const monday = new Date(now);
-      monday.setDate(now.getDate() - (day===0?6:day-1));
+      monday.setDate(now.getDate() - (day===0?6:day-1) + (offsetParam*7));
       const weekDate = monday.toISOString().slice(0,10);
-      const rows = await env.DB.prepare('SELECT mr.*,u.name as cook_name FROM meal_rota mr LEFT JOIN users u ON u.id=mr.cook_id WHERE mr.week_date=? ORDER BY mr.day_of_week').bind(weekDate).all();
+      const rows = await env.DB.prepare('SELECT mr.*,u.name as cook_name FROM meal_rota mr LEFT JOIN users u ON u.id=mr.cook_id WHERE mr.week_date=? AND mr.family_id=? ORDER BY mr.day_of_week').bind(weekDate, famRow.family_id).all();
       return json({week_date:weekDate, meals:rows.results});
     }
     if (path === '/api/meals' && method === 'POST') {
-      const {day_of_week,meal,cook_id} = await request.json();
+      const famRow = await env.DB.prepare('SELECT family_id FROM family_members WHERE user_id=? LIMIT 1').bind(user.id).first();
+      if (!famRow) return err('No family');
+      const {day_of_week,meal,cook_id,week_offset} = await request.json();
       const now = new Date();
       const day = now.getDay();
       const monday = new Date(now);
-      monday.setDate(now.getDate() - (day===0?6:day-1));
+      monday.setDate(now.getDate() - (day===0?6:day-1) + ((week_offset||0)*7));
       const weekDate = monday.toISOString().slice(0,10);
       const id = crypto.randomUUID();
-      await env.DB.prepare('INSERT OR REPLACE INTO meal_rota (id,week_date,day_of_week,meal,cook_id) VALUES (COALESCE((SELECT id FROM meal_rota WHERE week_date=? AND day_of_week=?),?),?,?,?,?)').bind(weekDate,day_of_week,id,weekDate,day_of_week,meal,cook_id||null).run();
+      await env.DB.prepare('INSERT OR REPLACE INTO meal_rota (id,week_date,day_of_week,meal,cook_id,family_id) VALUES (COALESCE((SELECT id FROM meal_rota WHERE week_date=? AND day_of_week=? AND family_id=?),?),?,?,?,?,?)').bind(weekDate,day_of_week,famRow.family_id,id,weekDate,day_of_week,meal,cook_id||null,famRow.family_id).run();
       return json({ok:true});
     }
 
