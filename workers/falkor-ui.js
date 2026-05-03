@@ -22,7 +22,7 @@ const JSON_MANIFEST = JSON.stringify({
 });
 
 const SW_CODE = `
-const CACHE = 'falkor-v9.8.0';
+const CACHE = 'falkor-v9.23.0';
 const CACHE_URLS = ['/'];
 
 self.addEventListener('install', e => {
@@ -111,7 +111,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === '/health') {
-      return new Response(JSON.stringify({status:'ok',version:'9.7.0',worker:'falkor-ui'}), {
+      return new Response(JSON.stringify({status:'ok',version:'9.21.0',worker:'falkor-ui'}), {
         headers: {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}
       });
     }
@@ -361,6 +361,34 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 /* ── Connection banner ── */
 .conn-banner{text-align:center;padding:6px;font-size:12px;background:rgba(245,158,11,.12);color:var(--warning);border-bottom:1px solid rgba(245,158,11,.2);display:flex;align-items:center;justify-content:center;gap:6px;animation:pulse-banner 2s infinite}
 @keyframes pulse-banner{0%,100%{opacity:.8}50%{opacity:1}}
+
+/* ── Home Panel ── */
+.home-panel{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+.home-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+.home-greeting{font-size:20px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.home-ts{font-size:11px;color:var(--muted)}
+.home-refresh{background:none;border:none;cursor:pointer;color:var(--muted);font-size:15px;padding:4px;border-radius:6px;line-height:1;transition:color .15s}
+.home-refresh:hover{color:var(--accent2)}
+.hcard{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px 16px;cursor:pointer;transition:border-color .15s,transform .1s}
+.hcard:hover{border-color:var(--accent);transform:translateY(-1px)}
+.hcard-label{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.hcard-main{font-size:22px;font-weight:800;line-height:1.2;margin-bottom:4px}
+.hcard-sub{font-size:13px;color:var(--muted);line-height:1.4}
+.hcard-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.hcard-pill{font-size:12px;padding:3px 9px;border-radius:20px;background:rgba(108,99,255,.1);border:1px solid rgba(108,99,255,.2);color:var(--accent2);font-weight:600;white-space:nowrap;cursor:pointer}
+.hcard-pill.pe-ok{background:rgba(34,197,94,.1);border-color:rgba(34,197,94,.25);color:#4ade80}
+.hcard-pill.pe-no{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.25);color:#f87171}
+.home-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:480px){.home-grid{grid-template-columns:1fr}}
+.hcard-team-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px}
+.hcard-team-row:last-child{border-bottom:none}
+.hcard-team-row .pos{color:var(--muted);font-size:12px;width:20px;flex-shrink:0}
+.hcard-team-row .team{flex:1;font-weight:500}
+.hcard-team-row .pts{color:var(--muted);font-size:12px}
+.hcard-team-row.highlight{color:var(--accent2)}
+.hcard-team-row.highlight .pts{color:var(--accent2)}
+.home-skeleton{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px 16px;animation:shimmer 1.5s infinite}
+@keyframes shimmer{0%,100%{opacity:.4}50%{opacity:.9}}
 </style>
 </head>
 <body>
@@ -374,6 +402,7 @@ const AUTH_URL     = 'https://asgard.luckdragon.io';
 const AI_URL       = 'https://asgard-ai.luckdragon.io';
 const USERS_URL    = 'https://falkor-push.luckdragon.io';
 const CALENDAR_URL = 'https://falkor-calendar.luckdragon.io';
+const KBT_URL      = 'https://falkor-kbt.luckdragon.io';
 
 const MODELS = [
   { key: 'groq-fast',  label: '⚡ Groq Fast' },
@@ -484,7 +513,7 @@ function VoiceModal({ voiceState, transcript, reply, analyserRef, onMicClick, on
       {transcript && <div className="voice-transcript">"{transcript}"</div>}
       {reply && <div className="voice-reply">{reply}</div>}
       <button className={'voice-mic-btn ' + voiceState} onClick={onMicClick}
-        disabled={voiceState === 'processing' || voiceState === 'speaking'}>
+        disabled={voiceState === 'processing'}>
         {voiceState === 'listening' ? '⏹' : voiceState === 'speaking' ? '🔊' : '🎤'}
       </button>
     </div>
@@ -598,34 +627,6 @@ function SettingsPanel({ onClose, theme, onThemeToggle, voiceEnabled, onVoiceTog
   );
 }
 
-
-/* ── Home Panel ── */
-.home-panel{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
-.home-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
-.home-greeting{font-size:20px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.home-ts{font-size:11px;color:var(--muted)}
-.home-refresh{background:none;border:none;cursor:pointer;color:var(--muted);font-size:15px;padding:4px;border-radius:6px;line-height:1;transition:color .15s}
-.home-refresh:hover{color:var(--accent2)}
-.hcard{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px 16px;cursor:pointer;transition:border-color .15s,transform .1s}
-.hcard:hover{border-color:var(--accent);transform:translateY(-1px)}
-.hcard-label{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;display:flex;align-items:center;gap:6px}
-.hcard-main{font-size:22px;font-weight:800;line-height:1.2;margin-bottom:4px}
-.hcard-sub{font-size:13px;color:var(--muted);line-height:1.4}
-.hcard-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
-.hcard-pill{font-size:12px;padding:3px 9px;border-radius:20px;background:rgba(108,99,255,.1);border:1px solid rgba(108,99,255,.2);color:var(--accent2);font-weight:600;white-space:nowrap;cursor:pointer}
-.hcard-pill.pe-ok{background:rgba(34,197,94,.1);border-color:rgba(34,197,94,.25);color:#4ade80}
-.hcard-pill.pe-no{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.25);color:#f87171}
-.home-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-@media(max-width:480px){.home-grid{grid-template-columns:1fr}}
-.hcard-team-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px}
-.hcard-team-row:last-child{border-bottom:none}
-.hcard-team-row .pos{color:var(--muted);font-size:12px;width:20px;flex-shrink:0}
-.hcard-team-row .team{flex:1;font-weight:500}
-.hcard-team-row .pts{color:var(--muted);font-size:12px}
-.hcard-team-row.highlight{color:var(--accent2)}
-.hcard-team-row.highlight .pts{color:var(--accent2)}
-.home-skeleton{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px 16px;animation:shimmer 1.5s infinite}
-@keyframes shimmer{0%,100%{opacity:.4}50%{opacity:.9}}
 
 
 // ─── HomePanel ────────────────────────────────────────────────────────────────
@@ -885,111 +886,171 @@ function NRLPanel({pin}){
 }
 
 
-function RacingPanel({pin}){
-  var [meetings,setMeetings]=React.useState([]);
-  var [selMeeting,setSelMeeting]=React.useState(null);
-  var [races,setRaces]=React.useState([]);
-  var [myTips,setMyTips]=React.useState({});
-  var [leaderboard,setLeaderboard]=React.useState([]);
-  var [loading,setLoading]=React.useState(true);
-  var [tab,setTab]=React.useState('pick');
-  var [player,setPlayer]=React.useState(function(){try{var u=JSON.parse(localStorage.getItem('falkor.user')||'null');if(u&&u.name){localStorage.setItem('falkor.sport.player',u.name);return u.name;}}catch{}return localStorage.getItem('falkor.sport.player')||'';});
-  var loggedInName=(function(){try{var u=JSON.parse(localStorage.getItem('falkor.user')||'null');return u&&u.name?u.name:null;}catch{return null;}})();
-  var today=new Date().toISOString().slice(0,10);
-  var RURL='https://falkor-sport.luckdragon.io';
-  function rsf(path){var sep=path.includes('?')?'&':'?';return fetch(RURL+path+sep+'pin='+pin).then(function(r){return r.json();});}
-  function rLoad(){
+function RacingPanel({ pin }) {
+  const [meetings, setMeetings] = React.useState([]);
+  const [selMeeting, setSelMeeting] = React.useState(null);
+  const [races, setRaces] = React.useState([]);
+  const [myTips, setMyTips] = React.useState({});
+  const [leaderboard, setLeaderboard] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [racesLoading, setRacesLoading] = React.useState(false);
+  const [tab, setTab] = React.useState('pick');
+  const today = new Date().toISOString().slice(0, 10);
+  const RURL = 'https://falkor-sport.luckdragon.io';
+  const loggedInName = (() => { try { const u = JSON.parse(localStorage.getItem('falkor.user') || 'null'); return u?.name || null; } catch { return null; } })();
+  const playerName = loggedInName || localStorage.getItem('falkor.sport.player') || 'Guest';
+
+  function rf(path) { const sep = path.includes('?') ? '&' : '?'; return fetch(RURL + path + sep + 'pin=' + pin).then(r => r.json()); }
+
+  async function load() {
     setLoading(true);
-    Promise.allSettled([rsf('/racing/meetings?date='+today),rsf('/racing/leaderboard'),rsf('/racing/comp?date='+today)]).then(function(res){
-      if(res[0].status==='fulfilled') setMeetings(res[0].value.meetings||[]);
-      if(res[1].status==='fulfilled') setLeaderboard(res[1].value.leaderboard||[]);
-      if(res[2].status==='fulfilled'){var ex={};(res[2].value.tips||[]).forEach(function(t){if(t.player===player)ex[t.race_id]=t.selection;});setMyTips(ex);}
-      setLoading(false);
+    const [m, lb, tips] = await Promise.allSettled([
+      rf('/racing/meetings?date=' + today),
+      rf('/racing/leaderboard'),
+      rf('/racing/comp?date=' + today),
+    ]);
+    if (m.status === 'fulfilled') setMeetings(m.value.meetings || []);
+    if (lb.status === 'fulfilled') setLeaderboard(lb.value.leaderboard || []);
+    if (tips.status === 'fulfilled') {
+      const ex = {};
+      (tips.value.tips || []).filter(t => t.player === playerName).forEach(t => { ex[t.race_id] = t.selection; });
+      setMyTips(ex);
+    }
+    setLoading(false);
+  }
+
+  async function loadRaces(m) {
+    setSelMeeting(m); setRaces([]); setRacesLoading(true);
+    const d = await rf('/racing/races?date=' + today + '&venue=' + encodeURIComponent(m.id || m.name) + '&type=' + (m.type || 'R'));
+    setRaces(d.races || []);
+    setRacesLoading(false);
+  }
+
+  function pick(raceId, raceName, horse) {
+    if (!playerName || playerName === 'Guest') { alert('Log in first to save tips'); return; }
+    setMyTips(prev => ({ ...prev, [raceId]: horse }));
+    fetch(RURL + '/racing/comp/tip?pin=' + pin, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ player: playerName, date: today, raceId, raceName, selection: horse }),
     });
   }
-  function rLoadRaces(m){
-    setSelMeeting(m);setRaces([]);
-    rsf('/racing/races?date='+today+'&venue='+encodeURIComponent(m.id||m.name)+'&type='+(m.type||'R')).then(function(d){setRaces(d.races||[]);});
-  }
-  function rPick(raceId,raceName,horse){
-    var pName=loggedInName||player;
-    if(!pName){alert('Enter your name first');return;}
-    if(!loggedInName) localStorage.setItem('falkor.sport.player',pName);
-    setMyTips(function(prev){var n=Object.assign({},prev);n[raceId]=horse;return n;});
-    fetch(RURL+'/racing/comp/tip?pin='+pin,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({player:pName,date:today,raceId:raceId,raceName:raceName,selection:horse})});
-  }
-  useEffect(function(){rLoad();},[]);
-  var RTB=function(t){return {padding:'6px 14px',border:'none',borderRadius:'7px',cursor:'pointer',fontSize:'13px',fontWeight:tab===t?600:400,background:tab===t?'rgba(108,99,255,.15)':'transparent',color:tab===t?'var(--accent2)':'var(--muted)',marginRight:'4px'};};
+
+  React.useEffect(() => { load(); }, []);
+
+  const medalOf = i => i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i+1)+'.';
+
   return (
-    <div style={{flex:1,overflow:'auto',padding:'16px 20px'}}>
-      <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'16px',flexWrap:'wrap'}}>
-        <span style={{fontSize:'18px',fontWeight:800}}>Racing Tips</span>
-        <span style={{fontSize:'12px',color:'var(--muted)'}}>{today}</span>
-        <div style={{marginLeft:'auto'}}>
-          {['pick','leaderboard'].map(function(t){return <button key={t} style={RTB(t)} onClick={function(){setTab(t);}}>{t==='pick'?'Pick Tips':'Board'}</button>;})}
-        </div>
+    <div style={{ flex:1, overflow:'auto', padding:'12px 16px' }}>
+      {/* Header */}
+      <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14 }}>
+        <span style={{ fontSize:18, fontWeight:800 }}>🏇 Racing Tips</span>
+        <span style={{ fontSize:12, color:'var(--muted)', marginRight:'auto' }}>{today}</span>
+        <button onClick={load} style={{ background:'none', border:'1px solid var(--border)', borderRadius:8, color:'var(--muted)', padding:'4px 10px', cursor:'pointer', fontSize:12 }}>↻</button>
       </div>
-      <div style={{marginBottom:'12px',display:'flex',gap:'8px',alignItems:'center'}}>
-        {loggedInName ? <span style={{background:'rgba(108,99,255,.12)',border:'1px solid var(--accent)',borderRadius:'20px',color:'var(--accent2)',padding:'5px 14px',fontSize:'13px',fontWeight:600}}>🏇 {loggedInName}</span> : <input value={player} onChange={function(e){setPlayer(e.target.value);}} onBlur={function(){localStorage.setItem('falkor.sport.player',player);}} placeholder='Your name' style={{background:'var(--input-bg)',border:'1px solid var(--border)',borderRadius:'8px',color:'var(--text)',padding:'7px 12px',fontSize:'13px',width:'160px'}}/>}
-        <span style={{fontSize:'12px',color:'var(--muted)'}}>Pick a winner each race</span>
+
+      {/* Player badge */}
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:14 }}>
+        <span style={{ background:'rgba(99,102,241,.15)', border:'1px solid var(--accent)', borderRadius:20, color:'var(--accent)', padding:'4px 14px', fontSize:13, fontWeight:600 }}>
+          {loggedInName ? ('🏇 ' + loggedInName) : '👤 Guest — log in to save tips'}
+        </span>
       </div>
-      {loading && <div style={{color:'var(--muted)',fontSize:'13px',padding:'20px'}}>Loading meetings...</div>}
-      {!loading && tab==='pick' && (
+
+      {/* Tabs */}
+      <div style={{ display:'flex', gap:6, marginBottom:14 }}>
+        {['pick','leaderboard'].map(t => (
+          <button key={t} onClick={() => setTab(t)} style={{ padding:'7px 16px', borderRadius:20, border:'1px solid', borderColor: tab===t ? 'var(--accent)' : 'var(--border)', background: tab===t ? 'var(--accent)' : 'transparent', color: tab===t ? '#fff' : 'var(--muted)', cursor:'pointer', fontSize:13, fontWeight: tab===t ? 700 : 400 }}>
+            {t === 'pick' ? '🐎 Pick Tips' : '🏆 Leaderboard'}
+          </button>
+        ))}
+      </div>
+
+      {loading && <div style={{ color:'var(--muted)', padding:20, textAlign:'center' }}>Loading race day…</div>}
+
+      {!loading && tab === 'pick' && (
         <div>
-          <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:'16px'}}>
-            {meetings.length===0 && <div style={{color:'var(--muted)',fontSize:'13px'}}>No race meetings today. Check back on race day!</div>}
-            {meetings.map(function(m){return (
-              <button key={m.id} onClick={function(){rLoadRaces(m);}} style={{padding:'8px 14px',borderRadius:'8px',border:'2px solid '+(selMeeting&&selMeeting.id===m.id?'var(--accent)':'var(--border)'),background:selMeeting&&selMeeting.id===m.id?'rgba(108,99,255,.15)':'var(--input-bg)',color:'var(--text)',cursor:'pointer',fontSize:'13px'}}>
-                {m.type==='R'?'Thoroughbred':m.type==='G'?'Greyhound':m.type==='H'?'Harness':'Race'} - {m.name}
-              </button>
-            );})}
-          </div>
-          {selMeeting&&races.length===0 && <div style={{color:'var(--muted)',fontSize:'13px'}}>Loading race card...</div>}
-          {races.map(function(race){
-            var rId=(selMeeting.id||selMeeting.name)+'_'+(selMeeting.type||'R')+'_'+race.id;
-            var myPick=myTips[rId];
-            var done=race.status==='Final'||race.status==='Interim'||race.status==='Closed';
+          {/* Meeting selector */}
+          {meetings.length === 0 && <div style={{ color:'var(--muted)', fontSize:13, padding:'20px 0' }}>No race meetings today.</div>}
+          {meetings.length > 0 && (
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:16 }}>
+              {meetings.map(m => {
+                const label = m.type==='G' ? '🐕 Greyhound' : m.type==='H' ? '🐴 Harness' : '🏇 Thoroughbred';
+                const active = selMeeting?.id === m.id;
+                return (
+                  <button key={m.id} onClick={() => loadRaces(m)} style={{ padding:'10px 16px', borderRadius:10, border:'2px solid', borderColor: active ? 'var(--accent)' : 'var(--border)', background: active ? 'rgba(99,102,241,.15)' : 'var(--panel)', color:'var(--text)', cursor:'pointer', fontSize:13, fontWeight: active ? 700 : 400, textAlign:'center' }}>
+                    <div>{label}</div>
+                    <div style={{ fontSize:11, color:'var(--muted)', marginTop:2 }}>{m.name}</div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {racesLoading && <div style={{ color:'var(--muted)', fontSize:13, padding:'12px 0' }}>Loading race card…</div>}
+
+          {/* Race cards */}
+          {races.map(race => {
+            const rId = (selMeeting?.id||selMeeting?.name) + '_' + (selMeeting?.type||'R') + '_' + race.id;
+            const myPick = myTips[rId];
+            const done = ['Final','Interim','Closed'].includes(race.status);
             return (
-              <div key={race.id} style={{background:'var(--panel)',border:'1px solid var(--border)',borderRadius:'10px',padding:'12px 16px',marginBottom:'10px'}}>
-                <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'8px'}}>
-                  <span style={{fontWeight:700}}>Race {race.id}</span>
-                  {race.name && <span style={{color:'var(--muted)',fontSize:'12px'}}>{race.name}</span>}
-                  {race.distance && <span style={{color:'var(--muted)',fontSize:'11px'}}>{race.distance}m</span>}
-                  <span style={{marginLeft:'auto',fontSize:'11px',padding:'2px 8px',borderRadius:'20px',background:done?'rgba(34,197,94,.12)':'var(--border)',color:done?'var(--success)':'var(--muted)',fontWeight:600}}>{race.status||'Open'}</span>
+              <div key={race.id} style={{ background:'var(--panel)', border:'1px solid var(--border)', borderRadius:12, padding:14, marginBottom:12 }}>
+                <div style={{ display:'flex', alignItems:'center', marginBottom:10 }}>
+                  <div>
+                    <span style={{ fontWeight:700, fontSize:15 }}>Race {race.id}</span>
+                    {race.name && <span style={{ color:'var(--muted)', fontSize:12, marginLeft:8 }}>{race.name}</span>}
+                    {race.distance && <span style={{ color:'var(--muted)', fontSize:11, marginLeft:6 }}>{race.distance}m</span>}
+                  </div>
+                  <span style={{ marginLeft:'auto', fontSize:11, padding:'3px 10px', borderRadius:20, background: done ? 'rgba(34,197,94,.15)' : 'rgba(99,102,241,.1)', color: done ? 'var(--success)' : 'var(--accent)', fontWeight:700 }}>
+                    {race.status || 'Open'}
+                  </span>
                 </div>
-                {myPick && <div style={{fontSize:'12px',color:'var(--accent2)',marginBottom:'6px'}}>Your pick: <strong>{myPick}</strong></div>}
-                <div style={{display:'flex',flexWrap:'wrap',gap:'6px'}}>
-                  {race.runners.length===0 && <div style={{color:'var(--muted)',fontSize:'12px'}}>Runners not yet available</div>}
-                  {race.runners.map(function(r){return (
-                    <button key={r.num} onClick={function(){if(!done)rPick(rId,race.name||('Race '+race.id),r.name);}} style={{padding:'6px 12px',borderRadius:'8px',border:'2px solid '+(myPick===r.name?'var(--accent)':'var(--border)'),background:myPick===r.name?'rgba(108,99,255,.15)':'var(--input-bg)',color:'var(--text)',cursor:done?'default':'pointer',fontSize:'12px',fontWeight:myPick===r.name?700:400}}>
-                      <span style={{color:'var(--muted)'}}>{r.num}. </span>{r.name}
-                    </button>
-                  );})}
+
+                {myPick && (
+                  <div style={{ background:'rgba(99,102,241,.12)', border:'1px solid var(--accent)', borderRadius:8, padding:'6px 12px', marginBottom:10, fontSize:13, color:'var(--accent)', fontWeight:600 }}>
+                    ✓ Your pick: {myPick}
+                  </div>
+                )}
+
+                {/* Horse cards — large tap targets */}
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
+                  {race.runners.length === 0 && <div style={{ color:'var(--muted)', fontSize:12, gridColumn:'1/-1' }}>Runners not yet available</div>}
+                  {race.runners.map(r => {
+                    const selected = myPick === r.name;
+                    return (
+                      <button key={r.num} onClick={() => { if (!done) pick(rId, race.name || ('Race ' + race.id), r.name); }}
+                        style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 12px', borderRadius:10, border:'2px solid', borderColor: selected ? 'var(--accent)' : 'var(--border)', background: selected ? 'rgba(99,102,241,.2)' : 'var(--bg)', cursor: done ? 'default' : 'pointer', textAlign:'left', width:'100%', opacity: done && !selected ? 0.5 : 1 }}>
+                        <span style={{ background:'var(--border)', borderRadius:6, padding:'2px 6px', fontSize:11, fontWeight:700, color:'var(--muted)', minWidth:22, textAlign:'center' }}>{r.num}</span>
+                        <span style={{ fontSize:13, fontWeight: selected ? 700 : 500, color: selected ? 'var(--accent)' : 'var(--text)', lineHeight:1.2 }}>{r.name}</span>
+                        {selected && <span style={{ marginLeft:'auto', fontSize:14 }}>✓</span>}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             );
           })}
         </div>
       )}
-      {!loading && tab==='leaderboard' && (
+
+      {!loading && tab === 'leaderboard' && (
         <div>
-          {leaderboard.length===0 && <div style={{color:'var(--muted)',fontSize:'13px'}}>No results yet - get your tips in on race day!</div>}
-          {leaderboard.length>0 && (
-            <table className="sport-table">
-              <thead><tr><th>#</th><th>Player</th><th style={{textAlign:'center'}}>Wins</th><th style={{textAlign:'center'}}>Tips</th><th style={{textAlign:'center'}}>Days</th><th style={{textAlign:'center'}}>%</th></tr></thead>
-              <tbody>{leaderboard.map(function(p,i){return (
-                <tr key={p.player} style={{fontWeight:p.player===player?700:400}}>
-                  <td style={{color:'var(--muted)'}}>{i+1}</td>
-                  <td>{p.player}{p.player===player && ' You'}</td>
-                  <td style={{textAlign:'center',color:'var(--success)',fontWeight:600}}>{p.wins}</td>
-                  <td style={{textAlign:'center'}}>{p.total}</td>
-                  <td style={{textAlign:'center',color:'var(--muted)'}}>{p.days}</td>
-                  <td style={{textAlign:'center',color:'var(--muted)'}}>{p.pct}%</td>
-                </tr>
-              );})}
-              </tbody>
-            </table>
-          )}
+          {leaderboard.length === 0 && <div style={{ color:'var(--muted)', fontSize:13, padding:'20px 0' }}>No results yet — tips comp starts race day!</div>}
+          {leaderboard.map((p, i) => (
+            <div key={p.player} style={{ display:'flex', alignItems:'center', gap:12, background: p.player===playerName ? 'rgba(99,102,241,.1)' : 'var(--panel)', border:'1px solid', borderColor: p.player===playerName ? 'var(--accent)' : 'var(--border)', borderRadius:10, padding:'12px 14px', marginBottom:8 }}>
+              <span style={{ fontSize:20, minWidth:30 }}>{medalOf(i)}</span>
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight: p.player===playerName ? 700 : 500, fontSize:15 }}>{p.player}{p.player===playerName && ' (you)'}</div>
+                <div style={{ color:'var(--muted)', fontSize:12 }}>{p.total} tips across {p.days} day{p.days!==1?'s':''}</div>
+              </div>
+              <div style={{ textAlign:'right' }}>
+                <div style={{ fontWeight:700, fontSize:18, color:'var(--accent)' }}>{p.wins}</div>
+                <div style={{ fontSize:11, color:'var(--muted)' }}>wins</div>
+              </div>
+              <div style={{ textAlign:'right', minWidth:38 }}>
+                <div style={{ fontWeight:600, fontSize:14, color: parseInt(p.pct) >= 30 ? 'var(--success)' : 'var(--muted)' }}>{p.pct}%</div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -1390,10 +1451,17 @@ function MessageBubble({ msg }) {
       <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
         <div className="msg-role">{msg.role === 'user' ? 'You' : '🐉 Falkor'}</div>
         {time && <div className="msg-timestamp">{time}</div>}
+        {msg.modelBadge && <div style={{ fontSize:'10px', color:'var(--muted)', background:'var(--panel2)', border:'1px solid var(--border)', borderRadius:'10px', padding:'1px 7px', fontWeight:500, letterSpacing:'0.02em' }}>{msg.modelBadge}</div>}
       </div>
       {msg.imageData && (
         <div className="msg-bubble" style={{ padding:'6px' }}>
           <img src={msg.imageData} alt="attached" style={{ maxWidth:'260px', maxHeight:'200px', borderRadius:'8px', display:'block' }}/>
+        </div>
+      )}
+      {msg.imageUrl && (
+        <div className="msg-bubble" style={{ padding:'8px' }}>
+          <img src={msg.imageUrl} alt={msg.imagePrompt || 'Generated image'} style={{ maxWidth:'100%', maxHeight:'480px', borderRadius:'10px', display:'block', cursor:'pointer' }} onClick={() => window.open(msg.imageUrl, '_blank')}/>
+          {msg.imagePrompt && <div style={{ fontSize:'11px', color:'var(--muted)', marginTop:'6px', fontStyle:'italic' }}>{msg.imagePrompt}</div>}
         </div>
       )}
       {msg.content && <div className="msg-bubble" dangerouslySetInnerHTML={{ __html: renderMD(msg.content || '') }}/>}
@@ -1412,6 +1480,940 @@ function TypingIndicator() {
   );
 }
 
+
+// ─── KBTPanel — Game Pack Builder ────────────────────────────────────────────
+function KBTPanel({ pin }) {
+  const [theme, setTheme] = React.useState('');
+  const [rounds, setRounds] = React.useState(6);
+  const [qpr, setQpr] = React.useState(10);
+  const [loading, setLoading] = React.useState(false);
+  const [pack, setPack] = React.useState(null);
+  const [activeRound, setActiveRound] = React.useState(1);
+  const [copied, setCopied] = React.useState(false);
+
+  async function buildPack() {
+    if (!theme.trim()) return;
+    setLoading(true); setPack(null);
+    try {
+      const r = await fetch(KBT_URL + '/build-pack', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
+        body: JSON.stringify({ theme: theme.trim(), rounds, questionsPerRound: qpr }),
+      });
+      const d = await r.json();
+      if (d.ok) { setPack(d); setActiveRound(1); }
+      else alert('Pack generation failed: ' + (d.error || 'unknown'));
+    } catch (e) { alert('Error: ' + e.message); }
+    setLoading(false);
+  }
+
+  function copyAnswers() {
+    if (!pack) return;
+    navigator.clipboard.writeText(pack.answerSheet).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  }
+
+  function copySuno() {
+    if (!pack) return;
+    navigator.clipboard.writeText(pack.sunoPrompt).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  }
+
+  const activeRoundData = pack?.rounds?.find(r => r.round === activeRound);
+
+  return (
+    <div style={{ padding:'16px', maxWidth:700, margin:'0 auto' }}>
+      <div style={{ fontSize:20, fontWeight:700, marginBottom:4 }}>🎯 KBT Game Pack Builder</div>
+      <div style={{ color:'var(--muted)', fontSize:13, marginBottom:16 }}>Generate a full trivia night in one shot</div>
+
+      <div style={{ background:'var(--panel)', border:'1px solid var(--border)', borderRadius:12, padding:16, marginBottom:16 }}>
+        <div style={{ marginBottom:12 }}>
+          <label style={{ fontSize:12, color:'var(--muted)', display:'block', marginBottom:4 }}>Theme</label>
+          <input value={theme} onChange={e => setTheme(e.target.value)}
+            placeholder="e.g. 80s Pop, Aussie Sport, Christmas, Football..."
+            style={{ width:'100%', background:'var(--bg)', border:'1px solid var(--border)', borderRadius:8, padding:'8px 12px', color:'var(--text)', fontSize:15, boxSizing:'border-box' }}
+            onKeyDown={e => e.key === 'Enter' && buildPack()}
+          />
+        </div>
+        <div style={{ display:'flex', gap:16, marginBottom:12 }}>
+          <div style={{ flex:1 }}>
+            <label style={{ fontSize:12, color:'var(--muted)', display:'block', marginBottom:4 }}>Rounds</label>
+            <select value={rounds} onChange={e => setRounds(Number(e.target.value))}
+              style={{ width:'100%', background:'var(--bg)', border:'1px solid var(--border)', borderRadius:8, padding:'8px 12px', color:'var(--text)' }}>
+              {[4,5,6,7,8].map(n => <option key={n} value={n}>{n} rounds</option>)}
+            </select>
+          </div>
+          <div style={{ flex:1 }}>
+            <label style={{ fontSize:12, color:'var(--muted)', display:'block', marginBottom:4 }}>Questions / Round</label>
+            <select value={qpr} onChange={e => setQpr(Number(e.target.value))}
+              style={{ width:'100%', background:'var(--bg)', border:'1px solid var(--border)', borderRadius:8, padding:'8px 12px', color:'var(--text)' }}>
+              {[5,8,10,12,15].map(n => <option key={n} value={n}>{n} questions</option>)}
+            </select>
+          </div>
+        </div>
+        <button className="btn" onClick={buildPack} disabled={loading || !theme.trim()} style={{ width:'100%' }}>
+          {loading ? '⏳ Generating pack…' : '🎯 Build Full Game Pack'}
+        </button>
+      </div>
+
+      {pack && (
+        <div>
+          <div style={{ fontSize:16, fontWeight:700, marginBottom:4 }}>{pack.gameTitle}</div>
+          <div style={{ color:'var(--muted)', fontSize:13, marginBottom:12 }}>{pack.totalQuestions} questions across {pack.rounds.length} rounds</div>
+
+          {/* Round tabs */}
+          <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:12 }}>
+            {pack.rounds.map(r => (
+              <button key={r.round}
+                onClick={() => setActiveRound(r.round)}
+                style={{ padding:'6px 12px', borderRadius:20, border:'1px solid var(--border)', background: activeRound === r.round ? 'var(--accent)' : 'var(--panel)', color: activeRound === r.round ? '#fff' : 'var(--text)', cursor:'pointer', fontSize:12, fontWeight: activeRound === r.round ? 700 : 400 }}>
+                R{r.round}
+              </button>
+            ))}
+          </div>
+
+          {/* Active round questions */}
+          {activeRoundData && (
+            <div style={{ background:'var(--panel)', border:'1px solid var(--border)', borderRadius:12, padding:16, marginBottom:12 }}>
+              <div style={{ fontWeight:700, marginBottom:8, color:'var(--accent)' }}>Round {activeRoundData.round}: {activeRoundData.category}</div>
+              {activeRoundData.questions.map((q, i) => (
+                <div key={i} style={{ marginBottom:10, paddingBottom:10, borderBottom: i < activeRoundData.questions.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                  <div style={{ fontWeight:500, marginBottom:2 }}>Q{i+1}. {q.q}</div>
+                  <div style={{ color:'var(--accent)', fontSize:13, marginBottom:2 }}>✓ {q.a}</div>
+                  {q.fun && <div style={{ color:'var(--muted)', fontSize:12 }}>💡 {q.fun}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+            <button className="btn" onClick={copyAnswers} style={{ flex:1 }}>
+              {copied ? '✓ Copied!' : '📋 Copy Answer Sheet'}
+            </button>
+            <button className="btn btn-ghost" onClick={copySuno} style={{ flex:1 }}>🎵 Copy Suno Prompt</button>
+          </div>
+
+          {/* Suno prompt preview */}
+          <div style={{ marginTop:10, background:'var(--bg)', border:'1px solid var(--border)', borderRadius:8, padding:10, fontSize:12, color:'var(--muted)' }}>
+            <span style={{ fontWeight:600 }}>Suno: </span>{pack.sunoPrompt}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ─── PEPanel — Lesson Planner ─────────────────────────────────────────────────
+const SCHOOL_URL = 'https://falkor-school.luckdragon.io';
+const YEAR_LEVELS = ['Foundation', 'Year 1/2', 'Year 3/4', 'Year 5/6', 'Mixed F-6'];
+const EQUIPMENT_OPTIONS = ['Balls (various)', 'Cones', 'Bibs', 'Hoops', 'Skipping ropes', 'Bats/racquets', 'Athletics equipment', 'Mats', 'Beanbags', 'Parachute'];
+
+function PEPanel({ pin }) {
+  const [yearLevel, setYearLevel] = React.useState('Mixed F-6');
+  const [duration, setDuration] = React.useState(45);
+  const [theme, setTheme] = React.useState('');
+  const [equipment, setEquipment] = React.useState([]);
+  const [classSize, setClassSize] = React.useState(25);
+  const [loading, setLoading] = React.useState(false);
+  const [weekData, setWeekData] = React.useState(null);
+  const [singleData, setSingleData] = React.useState(null);
+  const [activeDay, setActiveDay] = React.useState(0);
+  const [mode, setMode] = React.useState('week');
+  const [error, setError] = React.useState(null);
+  const [advisor, setAdvisor] = React.useState(null);
+  const [advisorLoading, setAdvisorLoading] = React.useState(false);
+
+  React.useEffect(function() {
+    setAdvisorLoading(true);
+    fetch(SCHOOL_URL + '/pe-advisor', { headers: { 'X-Pin': pin || '' } })
+      .then(function(r) { return r.json(); })
+      .then(function(d) { setAdvisor(d); setAdvisorLoading(false); })
+      .catch(function() { setAdvisorLoading(false); });
+  }, []);
+
+  function toggleEquip(e) {
+    setEquipment(function(prev) {
+      return prev.includes(e) ? prev.filter(function(x) { return x !== e; }) : prev.concat([e]);
+    });
+  }
+
+  async function buildWeek() {
+    setLoading(true); setError(null); setWeekData(null); setSingleData(null);
+    try {
+      const resp = await fetch(SCHOOL_URL + '/lesson-week', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Pin': pin || '' },
+        body: JSON.stringify({ year_level: yearLevel, duration: duration, theme: theme || null, equipment: equipment, class_size: classSize }),
+      });
+      const data = await resp.json();
+      if (!data.ok) throw new Error(data.error || 'Failed');
+      setWeekData(data); setActiveDay(0);
+    } catch (e) { setError(e.message); }
+    setLoading(false);
+  }
+
+  async function buildSingle() {
+    setLoading(true); setError(null); setWeekData(null); setSingleData(null);
+    try {
+      const resp = await fetch(SCHOOL_URL + '/lesson-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Pin': pin || '' },
+        body: JSON.stringify({ year_level: yearLevel, duration: duration, focus: theme || null }),
+      });
+      const data = await resp.json();
+      if (!data.ok) throw new Error(data.error || 'Failed');
+      setSingleData(data);
+    } catch (e) { setError(e.message); }
+    setLoading(false);
+  }
+
+  function copyPlan(text) {
+    navigator.clipboard.writeText(text).catch(function() {});
+  }
+
+  const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  const panelStyle = { padding: '16px', maxWidth: '600px', margin: '0 auto', fontFamily: 'system-ui, sans-serif' };
+  const cardStyle = { background: 'var(--surface)', borderRadius: '10px', padding: '14px', marginBottom: '12px', border: '1px solid var(--border)' };
+  const btnStyle = { padding: '10px 18px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '14px' };
+  const labelStyle = { fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px', display: 'block' };
+  const inputStyle = { width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: '14px', boxSizing: 'border-box' };
+  const selectStyle = Object.assign({}, inputStyle, { cursor: 'pointer' });
+  const tabStyle = function(active) { return { padding: '6px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: active ? 700 : 400, background: active ? 'var(--accent)' : 'var(--surface)', color: active ? '#fff' : 'var(--text)', marginRight: '6px' }; };
+
+  const rec = advisor ? advisor.recommendation : null;
+  const recColor = rec === 'OUTDOOR' ? '#22c55e' : rec === 'INDOOR' ? '#f59e0b' : '#888';
+
+  return React.createElement('div', { style: panelStyle },
+    React.createElement('div', { style: { fontSize: 20, fontWeight: 700, marginBottom: 4 } }, '🏫 PE Lesson Planner'),
+    React.createElement('div', { style: { fontSize: 13, color: 'var(--text-muted)', marginBottom: 14 } }, 'Williamstown Primary — Vic Curriculum 2.0'),
+
+    // Weather rec
+    React.createElement('div', { style: Object.assign({}, cardStyle, { display: 'flex', alignItems: 'center', gap: 10 }) },
+      advisorLoading
+        ? React.createElement('span', { style: { fontSize: 13, color: 'var(--text-muted)' } }, 'Checking weather...')
+        : advisor
+          ? React.createElement(React.Fragment, null,
+              React.createElement('div', { style: { fontSize: 22 } }, rec === 'OUTDOOR' ? '☀️' : rec === 'INDOOR' ? '🏠' : '🌤'),
+              React.createElement('div', null,
+                React.createElement('div', { style: { fontWeight: 700, color: recColor, fontSize: 14 } }, rec === 'OUTDOOR' ? 'Outdoor PE recommended' : rec === 'INDOOR' ? 'Indoor PE recommended' : 'Checking conditions...'),
+                React.createElement('div', { style: { fontSize: 12, color: 'var(--text-muted)' } }, advisor.verdict || '')
+              )
+            )
+          : React.createElement('span', { style: { fontSize: 13, color: 'var(--text-muted)' } }, 'Weather unavailable')
+    ),
+
+    // Config
+    React.createElement('div', { style: cardStyle },
+      React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 } },
+        React.createElement('div', null,
+          React.createElement('label', { style: labelStyle }, 'Year Level'),
+          React.createElement('select', { style: selectStyle, value: yearLevel, onChange: function(e) { setYearLevel(e.target.value); } },
+            YEAR_LEVELS.map(function(y) { return React.createElement('option', { key: y, value: y }, y); })
+          )
+        ),
+        React.createElement('div', null,
+          React.createElement('label', { style: labelStyle }, 'Duration (min)'),
+          React.createElement('select', { style: selectStyle, value: duration, onChange: function(e) { setDuration(parseInt(e.target.value)); } },
+            [30, 40, 45, 50, 60].map(function(d) { return React.createElement('option', { key: d, value: d }, d + ' min'); })
+          )
+        )
+      ),
+      React.createElement('div', { style: { marginBottom: 12 } },
+        React.createElement('label', { style: labelStyle }, 'Theme / Focus (optional)'),
+        React.createElement('input', { style: inputStyle, type: 'text', placeholder: 'e.g. Ball skills, Athletics, Team games...', value: theme, onChange: function(e) { setTheme(e.target.value); } })
+      ),
+      React.createElement('div', { style: { marginBottom: 12 } },
+        React.createElement('label', { style: labelStyle }, 'Class size'),
+        React.createElement('input', { style: Object.assign({}, inputStyle, { width: '80px' }), type: 'number', min: 5, max: 40, value: classSize, onChange: function(e) { setClassSize(parseInt(e.target.value) || 25); } })
+      ),
+      React.createElement('div', { style: { marginBottom: 14 } },
+        React.createElement('label', { style: labelStyle }, 'Available equipment'),
+        React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6 } },
+          EQUIPMENT_OPTIONS.map(function(eq) {
+            const active = equipment.includes(eq);
+            return React.createElement('button', {
+              key: eq,
+              onClick: function() { toggleEquip(eq); },
+              style: { padding: '4px 10px', borderRadius: '20px', border: '1px solid var(--border)', cursor: 'pointer', fontSize: 12, background: active ? 'var(--accent)' : 'var(--bg)', color: active ? '#fff' : 'var(--text)', fontWeight: active ? 600 : 400 }
+            }, eq);
+          })
+        )
+      ),
+      React.createElement('div', { style: { display: 'flex', gap: 10 } },
+        React.createElement('button', {
+          onClick: buildWeek,
+          disabled: loading,
+          style: Object.assign({}, btnStyle, { background: 'var(--accent)', color: '#fff', flex: 1 })
+        }, loading && mode === 'week' ? '⏳ Planning week...' : '📅 Plan Full Week'),
+        React.createElement('button', {
+          onClick: function() { setMode('single'); buildSingle(); },
+          disabled: loading,
+          style: Object.assign({}, btnStyle, { background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', flex: 1 })
+        }, loading && mode === 'single' ? '⏳ Planning...' : '📋 Single Lesson')
+      )
+    ),
+
+    error && React.createElement('div', { style: { color: '#ef4444', fontSize: 13, marginBottom: 12, padding: '10px', background: 'rgba(239,68,68,0.1)', borderRadius: 8 } }, 'Error: ' + error),
+
+    // Week results
+    weekData && React.createElement('div', { style: cardStyle },
+      React.createElement('div', { style: { fontSize: 15, fontWeight: 700, marginBottom: 2 } }, weekData.theme),
+      React.createElement('div', { style: { fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 } }, weekData.year_level + ' — ' + weekData.duration + ' min — week of ' + weekData.week_of),
+      React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', marginBottom: 14 } },
+        (weekData.days || []).map(function(day, i) {
+          return React.createElement('button', { key: i, style: tabStyle(activeDay === i), onClick: function() { setActiveDay(i); } }, day.name || ('Day ' + (i+1)));
+        })
+      ),
+      weekData.days && weekData.days[activeDay] && React.createElement('div', null,
+        Object.keys(weekData.days[activeDay].sections || {}).length > 0
+          ? Object.entries(weekData.days[activeDay].sections).map(function(entry) {
+              const key = entry[0]; const val = entry[1];
+              const label = key.replace(/_/g, ' ').replace(/\w/g, function(c) { return c.toUpperCase(); });
+              return React.createElement('div', { key: key, style: { marginBottom: 8 } },
+                React.createElement('span', { style: { fontWeight: 700, fontSize: 13 } }, label + ': '),
+                React.createElement('span', { style: { fontSize: 13 } }, val)
+              );
+            })
+          : React.createElement('pre', { style: { fontSize: 12, whiteSpace: 'pre-wrap', lineHeight: 1.6, color: 'var(--text)' } }, weekData.days[activeDay].raw)
+      ),
+      React.createElement('button', {
+        onClick: function() { copyPlan(weekData.raw_plan || ''); },
+        style: Object.assign({}, btnStyle, { background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', fontSize: 12, padding: '7px 14px', marginTop: 10 })
+      }, '📋 Copy Full Week Plan')
+    ),
+
+    // Single lesson result
+    singleData && React.createElement('div', { style: cardStyle },
+      React.createElement('div', { style: { fontSize: 14, fontWeight: 700, marginBottom: 8 } },
+        'Single Lesson — ' + singleData.year_level + ' (' + singleData.duration + ' min, ' + (singleData.outdoor ? 'Outdoor' : 'Indoor') + ')'
+      ),
+      singleData.weather_note && React.createElement('div', { style: { fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 } }, singleData.weather_note),
+      React.createElement('pre', { style: { fontSize: 12, whiteSpace: 'pre-wrap', lineHeight: 1.6, color: 'var(--text)', margin: 0 } }, singleData.plan),
+      React.createElement('button', {
+        onClick: function() { copyPlan(singleData.plan || ''); },
+        style: Object.assign({}, btnStyle, { background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', fontSize: 12, padding: '7px 14px', marginTop: 10 })
+      }, '📋 Copy Lesson Plan')
+    )
+  );
+}
+
+
+// ─── ScoreboardPanel — KBT Live Scoreboard ───────────────────────────────────
+const KBT_BASE = 'https://falkor-kbt.luckdragon.io';
+
+function ScoreboardPanel({ pin }) {
+  const [gameCode, setGameCode] = React.useState('');
+  const [inputCode, setInputCode] = React.useState('');
+  const [hostToken, setHostToken] = React.useState('');
+  const [addTeamName, setAddTeamName] = React.useState('');
+  const [customPts, setCustomPts] = React.useState('');
+  const [scoreMsg, setScoreMsg] = React.useState(null);
+  const [gameState, setGameState] = React.useState(null);
+  const [error, setError] = React.useState(null);
+  const [creating, setCreating] = React.useState(false);
+  const [newGameTheme, setNewGameTheme] = React.useState('');
+  const wsRef = React.useRef(null);
+  const pollRef = React.useRef(null);
+
+  function connectToGame(code) {
+    if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+
+    setGameCode(code);
+    setError(null);
+
+    // REST poll — simpler than WS inside falkor-ui
+    function poll() {
+      fetch(KBT_BASE + '/game/' + code + '/state', { headers: { 'X-Pin': pin || '' } })
+        .then(function(r) { return r.json(); })
+        .then(function(d) { if (d) setGameState(d); })
+        .catch(function() {});
+    }
+    poll();
+    pollRef.current = setInterval(poll, 3000);
+  }
+
+  React.useEffect(function() {
+    return function() {
+      if (wsRef.current) wsRef.current.close();
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
+  async function createGame() {
+    setCreating(true); setError(null);
+    try {
+      const resp = await fetch(KBT_BASE + '/game/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Pin': pin || '' },
+        body: JSON.stringify({ theme: newGameTheme || 'KBT Trivia Night', rounds: 4 }),
+      });
+      const data = await resp.json();
+      if (!data.ok && !data.code) throw new Error(data.error || 'Create failed');
+      const code = data.code;
+      setInputCode(code);
+      if (data.hostToken) setHostToken(data.hostToken);
+      connectToGame(code);
+    } catch (e) { setError(e.message); }
+    setCreating(false);
+  }
+
+  function openScoreboard() {
+    if (!gameCode) return;
+    window.open(KBT_BASE + '/scoreboard/' + gameCode, '_blank');
+  }
+
+  function copyScoreboardUrl() {
+    const url = KBT_BASE + '/scoreboard/' + gameCode;
+    navigator.clipboard.writeText(url).catch(function() {});
+  }
+
+  async function scoreCall(body) {
+    setScoreMsg(null);
+    try {
+      const r = await fetch(KBT_BASE + '/game/' + gameCode + '/scores', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Pin': pin || '', 'X-Host-Token': hostToken },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json();
+      if (d.ok) { setScoreMsg('Done'); if (d.leaderboard) setGameState(function(s) { return Object.assign({}, s, { leaderboard: d.leaderboard }); }); }
+      else setScoreMsg(d.error || 'Error');
+    } catch (e) { setScoreMsg(e.message); }
+  }
+
+  function awardPoints(teamId, pts) { scoreCall({ action: 'award', teamId: teamId, points: pts }); }
+  function addTeam() { if (!addTeamName.trim()) return; scoreCall({ action: 'add_team', teamName: addTeamName.trim() }); setAddTeamName(''); }
+  function resetScores() { scoreCall({ action: 'reset' }); }
+
+  const panelStyle = { padding: '16px', maxWidth: '600px', margin: '0 auto', fontFamily: 'system-ui, sans-serif' };
+  const cardStyle = { background: 'var(--surface)', borderRadius: '10px', padding: '14px', marginBottom: '12px', border: '1px solid var(--border)' };
+  const btnStyle = { padding: '10px 18px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '14px' };
+  const inputStyle = { flex: 1, padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: '14px' };
+  const labelStyle = { fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px', display: 'block' };
+  const medals = ['🥇', '🥈', '🥉'];
+
+  return React.createElement('div', { style: panelStyle },
+    React.createElement('div', { style: { fontSize: 20, fontWeight: 700, marginBottom: 4 } }, '🎯 KBT Live Scoreboard'),
+    React.createElement('div', { style: { fontSize: 13, color: 'var(--text-muted)', marginBottom: 14 } }, 'Create a game or connect to a live session'),
+
+    // Create new game
+    React.createElement('div', { style: cardStyle },
+      React.createElement('label', { style: labelStyle }, 'Create new game'),
+      React.createElement('div', { style: { display: 'flex', gap: 8, marginBottom: 8 } },
+        React.createElement('input', { style: inputStyle, type: 'text', placeholder: 'Theme (e.g. General Knowledge)', value: newGameTheme, onChange: function(e) { setNewGameTheme(e.target.value); } }),
+        React.createElement('button', { onClick: createGame, disabled: creating, style: Object.assign({}, btnStyle, { background: 'var(--accent)', color: '#fff', whiteSpace: 'nowrap' }) }, creating ? '⏳' : '+ New Game')
+      )
+    ),
+
+    // Connect to existing
+    React.createElement('div', { style: cardStyle },
+      React.createElement('label', { style: labelStyle }, 'Connect to existing game'),
+      React.createElement('div', { style: { display: 'flex', gap: 8 } },
+        React.createElement('input', { style: Object.assign({}, inputStyle, { textTransform: 'uppercase', letterSpacing: '3px', fontWeight: 700, fontSize: '16px' }), type: 'text', maxLength: 6, placeholder: 'GAME CODE', value: inputCode, onChange: function(e) { setInputCode(e.target.value.toUpperCase()); } }),
+        React.createElement('button', { onClick: function() { if (inputCode.length >= 4) connectToGame(inputCode.trim()); }, style: Object.assign({}, btnStyle, { background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)' }) }, 'Connect')
+      )
+    ),
+
+    error && React.createElement('div', { style: { color: '#ef4444', fontSize: 13, padding: '10px', background: 'rgba(239,68,68,0.1)', borderRadius: 8, marginBottom: 12 } }, error),
+
+    // Game state
+    gameCode && React.createElement('div', { style: cardStyle },
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 } },
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontSize: 15, fontWeight: 700 } }, 'Game: ' + gameCode),
+          gameState && React.createElement('div', { style: { fontSize: 12, color: 'var(--text-muted)', marginTop: 2 } },
+            'Status: ' + (gameState.status || 'lobby') + '  •  Players: ' + (gameState.playerCount || 0) + '  •  Q ' + ((gameState.currentQuestion || 0) + 1) + '/' + (gameState.totalQuestions || '?')
+          )
+        ),
+        React.createElement('div', { style: { display: 'flex', gap: 8 } },
+          React.createElement('button', { onClick: openScoreboard, style: Object.assign({}, btnStyle, { background: '#7c3aed', color: '#fff', fontSize: 12, padding: '7px 14px' }) }, '📺 Open Scoreboard'),
+          React.createElement('button', { onClick: copyScoreboardUrl, style: Object.assign({}, btnStyle, { background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)', fontSize: 12, padding: '7px 14px' }) }, '🔗 Copy URL')
+        )
+      ),
+
+      // Scoreboard URL hint
+      React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)', background: 'var(--bg)', padding: '6px 10px', borderRadius: 6, marginBottom: 14, wordBreak: 'break-all' } },
+        KBT_BASE + '/scoreboard/' + gameCode
+      ),
+
+      // Leaderboard
+      gameState && gameState.leaderboard && gameState.leaderboard.length > 0
+        ? React.createElement('div', null,
+            React.createElement('div', { style: { fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 } }, 'Live Leaderboard'),
+            gameState.leaderboard.map(function(t, i) {
+              return React.createElement('div', {
+                key: t.team,
+                style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: 8, marginBottom: 6, background: i === 0 ? 'rgba(245,158,11,0.15)' : 'var(--bg)', border: i === 0 ? '1px solid rgba(245,158,11,0.3)' : '1px solid var(--border)' }
+              },
+                React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 10 } },
+                  React.createElement('span', { style: { fontSize: 18 } }, medals[i] || (i + 1) + '.'),
+                  React.createElement('span', { style: { fontWeight: 600, fontSize: 14 } }, t.team)
+                ),
+                React.createElement('span', { style: { fontWeight: 800, fontSize: 18, color: '#f59e0b' } }, t.score + ' pts')
+              );
+            })
+          )
+        : React.createElement('div', { style: { color: 'var(--text-muted)', fontSize: 13, textAlign: 'center', padding: '20px' } }, gameState ? 'No scores yet — game in lobby' : 'Loading...'),
+
+      // Current question if active
+      gameState && gameState.status === 'active' && gameState.questionText && React.createElement('div', {
+        style: { marginTop: 14, padding: '12px 16px', background: 'var(--bg)', borderRadius: 10, border: '1px solid var(--border)' }
+      },
+        React.createElement('div', { style: { fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 } },
+          'Round ' + (gameState.currentRound || 1) + ' — Q' + ((gameState.currentQuestion || 0) + 1) + (gameState.questionCategory ? ' — ' + gameState.questionCategory : '') + ' (' + (gameState.questionPoints || 1) + ' pt)'
+        ),
+        React.createElement('div', { style: { fontSize: 14, fontWeight: 600 } }, gameState.questionText),
+        gameState.answerRevealed && gameState.answerText && React.createElement('div', { style: { marginTop: 8, color: '#22c55e', fontWeight: 700, fontSize: 13 } }, 'Answer: ' + gameState.answerText)
+      )
+    ),
+
+    // Score Controls (host only — shown when hostToken present)
+    gameCode && hostToken && React.createElement('div', { style: cardStyle },
+      React.createElement('div', { style: { fontSize: 13, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 12 } }, 'Host Score Controls'),
+
+      // Add team row
+      React.createElement('div', { style: { display: 'flex', gap: 8, marginBottom: 12 } },
+        React.createElement('input', { style: Object.assign({}, inputStyle, { fontSize: 13 }), type: 'text', placeholder: 'New team name', value: addTeamName, onChange: function(e) { setAddTeamName(e.target.value); } }),
+        React.createElement('button', { onClick: addTeam, style: Object.assign({}, btnStyle, { background: '#059669', color: '#fff', fontSize: 12, padding: '7px 12px', whiteSpace: 'nowrap' }) }, '+ Add Team')
+      ),
+
+      // Per-team score buttons
+      gameState && gameState.leaderboard && gameState.leaderboard.length > 0 && React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
+        gameState.leaderboard.map(function(t) {
+          return React.createElement('div', { key: 'sc-' + t.team, style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '8px 0', borderBottom: '1px solid var(--border)' } },
+            React.createElement('span', { style: { minWidth: 120, fontWeight: 600, fontSize: 13 } }, t.team),
+            React.createElement('span', { style: { color: '#f59e0b', fontWeight: 700, fontSize: 13, minWidth: 50 } }, t.score + ' pts'),
+            [1, 2, 5, 10].map(function(pts) {
+              return React.createElement('button', { key: pts, onClick: function() { awardPoints(t.team, pts); }, style: { padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 12, background: 'var(--accent)', color: '#fff' } }, '+' + pts)
+            }),
+            React.createElement('input', { style: { width: 52, padding: '4px 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12, textAlign: 'center' }, type: 'number', placeholder: 'pts', min: 0, value: customPts, onChange: function(e) { setCustomPts(e.target.value); } }),
+            React.createElement('button', { onClick: function() { if (customPts) { awardPoints(t.team, parseInt(customPts, 10) || 0); setCustomPts(''); } }, style: { padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 12, background: '#7c3aed', color: '#fff' } }, 'Award')
+          );
+        })
+      ),
+
+      // Reset + feedback
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 12 } },
+        React.createElement('button', { onClick: resetScores, style: Object.assign({}, btnStyle, { background: '#ef4444', color: '#fff', fontSize: 12, padding: '7px 14px' }) }, 'Reset All Scores'),
+        scoreMsg && React.createElement('span', { style: { fontSize: 12, color: scoreMsg === 'Done' ? '#22c55e' : '#ef4444' } }, scoreMsg)
+      )
+    ),
+
+    // Join instructions
+    gameCode && React.createElement('div', { style: Object.assign({}, cardStyle, { textAlign: 'center', background: 'var(--bg)' }) },
+      React.createElement('div', { style: { fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 } }, 'Players join at:'),
+      React.createElement('div', { style: { fontWeight: 700, fontSize: 14, color: 'var(--accent)' } }, 'falkor-kbt.luckdragon.io/join'),
+      React.createElement('div', { style: { fontSize: 12, color: 'var(--text-muted)', marginTop: 4 } }, 'Game code: ' + gameCode)
+    )
+  );
+}
+
+
+// ─── XCPanel — Cross Country Live Results ────────────────────────────────────
+const SCHOOL_BASE = 'https://falkor-school.luckdragon.io';
+const XC_CATEGORIES = ['10girls','10boys','11girls','11boys','12girls','12boys','open-girls','open-boys'];
+const MEDALS = ['🥇','🥈','🥉'];
+
+function XCPanel({ pin }) {
+  const today = new Date().toISOString().slice(0,10);
+  const [eventDate, setEventDate] = React.useState(today);
+  const [results, setResults] = React.useState({});
+  const [loading, setLoading] = React.useState(false);
+  const [lastRefresh, setLastRefresh] = React.useState(null);
+  const [entryMode, setEntryMode] = React.useState(false);
+  const [entryCat, setEntryCat] = React.useState('');
+  const [entryPos, setEntryPos] = React.useState('');
+  const [entryName, setEntryName] = React.useState('');
+  const [entryTime, setEntryTime] = React.useState('');
+  const [saving, setSaving] = React.useState(false);
+  const [saveMsg, setSaveMsg] = React.useState(null);
+  const pollRef = React.useRef(null);
+
+  function fetchResults(date) {
+    setLoading(true);
+    fetch(SCHOOL_BASE + '/xc/results?event_date=' + (date || eventDate), {
+      headers: { 'X-Pin': pin || '' }
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok) setResults(d.categories || {});
+        setLastRefresh(new Date().toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      })
+      .catch(function() {})
+      .finally(function() { setLoading(false); });
+  }
+
+  React.useEffect(function() {
+    fetchResults(eventDate);
+    pollRef.current = setInterval(function() { fetchResults(eventDate); }, 10000);
+    return function() { clearInterval(pollRef.current); };
+  }, [eventDate]);
+
+  async function saveEntry() {
+    if (!entryCat || !entryPos || !entryName.trim()) return;
+    setSaving(true); setSaveMsg(null);
+    try {
+      const r = await fetch(SCHOOL_BASE + '/xc/result', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Pin': pin || '' },
+        body: JSON.stringify({ category: entryCat, position: entryPos, name: entryName.trim(), time: entryTime.trim(), event_date: eventDate })
+      });
+      const d = await r.json();
+      if (d.ok) {
+        setSaveMsg('Saved!');
+        setEntryPos(''); setEntryName(''); setEntryTime('');
+        fetchResults(eventDate);
+        setTimeout(function() { setSaveMsg(null); }, 2000);
+      } else { setSaveMsg(d.error || 'Error'); }
+    } catch (e) { setSaveMsg(e.message); }
+    setSaving(false);
+  }
+
+  const panelStyle = { padding: '12px 14px', maxWidth: '700px', margin: '0 auto', fontFamily: 'system-ui,sans-serif' };
+  const cardStyle = { background: 'var(--surface)', borderRadius: '10px', padding: '12px 14px', marginBottom: '10px', border: '1px solid var(--border)' };
+  const inputStyle = { padding: '7px 10px', borderRadius: '7px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: '13px' };
+  const btnStyle = { padding: '7px 14px', borderRadius: '7px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '13px' };
+
+  const catEntries = Object.entries(results);
+  const totalResults = catEntries.reduce(function(n, e) { return n + e[1].length; }, 0);
+
+  return React.createElement('div', { style: panelStyle },
+
+    // Header
+    React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 } },
+      React.createElement('div', null,
+        React.createElement('div', { style: { fontSize: 20, fontWeight: 700 } }, '🏃 XC District Results'),
+        React.createElement('div', { style: { fontSize: 12, color: 'var(--muted)', marginTop: 2 } },
+          totalResults + ' result(s) recorded' + (lastRefresh ? ' · updated ' + lastRefresh : '')
+        )
+      ),
+      React.createElement('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
+        React.createElement('input', { type: 'date', value: eventDate, onChange: function(e) { setEventDate(e.target.value); }, style: Object.assign({}, inputStyle, { fontSize: 12 }) }),
+        React.createElement('button', { onClick: function() { fetchResults(eventDate); }, style: Object.assign({}, btnStyle, { background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', padding: '7px 10px' }) }, loading ? '⏳' : '↻'),
+        React.createElement('button', { onClick: function() { setEntryMode(!entryMode); }, style: Object.assign({}, btnStyle, { background: entryMode ? '#ef4444' : 'var(--accent)', color: '#fff' }) }, entryMode ? '✕ Close' : '+ Entry')
+      )
+    ),
+
+    // Quick entry form
+    entryMode && React.createElement('div', { style: Object.assign({}, cardStyle, { background: 'rgba(108,99,255,0.08)', border: '1px solid rgba(108,99,255,0.3)' }) },
+      React.createElement('div', { style: { fontSize: 12, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 } }, 'Record Result'),
+      React.createElement('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' } },
+        React.createElement('select', {
+          value: entryCat, onChange: function(e) { setEntryCat(e.target.value); },
+          style: Object.assign({}, inputStyle, { minWidth: 110 })
+        },
+          React.createElement('option', { value: '' }, 'Age group'),
+          XC_CATEGORIES.map(function(c) { return React.createElement('option', { key: c, value: c }, c); })
+        ),
+        React.createElement('input', { style: Object.assign({}, inputStyle, { width: 60 }), type: 'number', min: 1, placeholder: 'Place', value: entryPos, onChange: function(e) { setEntryPos(e.target.value); } }),
+        React.createElement('input', { style: Object.assign({}, inputStyle, { flex: 1, minWidth: 120 }), type: 'text', placeholder: 'Name', value: entryName, onChange: function(e) { setEntryName(e.target.value); } }),
+        React.createElement('input', { style: Object.assign({}, inputStyle, { width: 80 }), type: 'text', placeholder: 'Time (8:06)', value: entryTime, onChange: function(e) { setEntryTime(e.target.value); } }),
+        React.createElement('button', {
+          onClick: saveEntry, disabled: saving || !entryCat || !entryPos || !entryName.trim(),
+          style: Object.assign({}, btnStyle, { background: '#059669', color: '#fff', whiteSpace: 'nowrap' })
+        }, saving ? '...' : 'Save'),
+        saveMsg && React.createElement('span', { style: { fontSize: 12, color: saveMsg === 'Saved!' ? '#22c55e' : '#ef4444', fontWeight: 600 } }, saveMsg)
+      )
+    ),
+
+    // No results state
+    totalResults === 0 && !loading && React.createElement('div', { style: Object.assign({}, cardStyle, { textAlign: 'center', padding: '30px', color: 'var(--muted)' }) },
+      React.createElement('div', { style: { fontSize: 28, marginBottom: 8 } }, '🏁'),
+      React.createElement('div', { style: { fontSize: 14, fontWeight: 600, marginBottom: 4 } }, 'No results yet for ' + eventDate),
+      React.createElement('div', { style: { fontSize: 12 } }, 'Use + Entry above or /xc in Telegram to record results')
+    ),
+
+    // Results grid — 2 columns on wide, 1 on narrow
+    totalResults > 0 && React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 10 } },
+      XC_CATEGORIES.filter(function(cat) { return results[cat] && results[cat].length > 0; }).map(function(cat) {
+        const catResults = results[cat] || [];
+        const topThree = catResults.slice(0, 3);
+        const rest = catResults.slice(3);
+        return React.createElement('div', { key: cat, style: cardStyle },
+          React.createElement('div', { style: { fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--accent)', marginBottom: 10 } }, cat),
+
+          // Top 3 podium
+          topThree.map(function(r, i) {
+            return React.createElement('div', {
+              key: r.position + r.name,
+              style: {
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '8px 10px', borderRadius: 8, marginBottom: 4,
+                background: i === 0 ? 'rgba(245,158,11,0.15)' : i === 1 ? 'rgba(156,163,175,0.1)' : 'rgba(180,120,60,0.1)',
+                border: i === 0 ? '1px solid rgba(245,158,11,0.3)' : '1px solid var(--border)'
+              }
+            },
+              React.createElement('span', { style: { fontSize: 18, minWidth: 28 } }, MEDALS[i] || (i+1) + '.'),
+              React.createElement('div', { style: { flex: 1 } },
+                React.createElement('div', { style: { fontWeight: 700, fontSize: 14 } }, r.name),
+                r.school && React.createElement('div', { style: { fontSize: 11, color: 'var(--muted)' } }, r.school)
+              ),
+              r.time && React.createElement('span', { style: { fontWeight: 700, fontSize: 13, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' } }, r.time)
+            );
+          }),
+
+          // 4th+ places compact
+          rest.length > 0 && React.createElement('div', { style: { marginTop: 6, borderTop: '1px solid var(--border)', paddingTop: 6 } },
+            rest.map(function(r) {
+              return React.createElement('div', {
+                key: r.position + r.name,
+                style: { display: 'flex', alignItems: 'center', gap: 8, padding: '3px 4px', fontSize: 12 }
+              },
+                React.createElement('span', { style: { color: 'var(--muted)', minWidth: 24, fontWeight: 600 } }, r.position + '.'),
+                React.createElement('span', { style: { flex: 1 } }, r.name),
+                r.time && React.createElement('span', { style: { color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' } }, r.time)
+              );
+            })
+          )
+        );
+      })
+    )
+  );
+}
+
+
+// ─── TipsPanel ────────────────────────────────────────────────────────────────
+function TipsPanel({ pin }) {
+  const YEAR = 2026;
+  const [round, setRound] = React.useState(null);
+  const [games, setGames] = React.useState([]);
+  const [comp, setComp] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [player, setPlayer] = React.useState(function() {
+    return localStorage.getItem('falkor.tips.player') || 'Paddy';
+  });
+  const [saving, setSaving] = React.useState(null);
+  const [msg, setMsg] = React.useState('');
+  const canvasRef = React.useRef(null);
+
+  async function load(rnd) {
+    setLoading(true);
+    try {
+      const gSep = rnd ? '&round=' + rnd : '';
+      const gData = await fetch(SPORT_URL + '/afl/round?year=' + YEAR + gSep + '&pin=' + (pin||'')).then(function(r){return r.json();});
+      const detRound = rnd || (Array.isArray(gData) && gData[0] && gData[0].round) || null;
+      setGames(Array.isArray(gData) ? gData : []);
+      if (!rnd && detRound) setRound(detRound);
+      if (detRound) {
+        const cData = await fetch(SPORT_URL + '/afl/comp?year=' + YEAR + '&round=' + detRound + '&pin=' + (pin||'')).then(function(r){return r.json();});
+        setComp(cData);
+      }
+    } catch(e) {}
+    setLoading(false);
+  }
+
+  React.useEffect(function() { load(round); }, [round]);
+
+  React.useEffect(function() {
+    if (!comp || !canvasRef.current) return;
+    const season = comp.season || [];
+    if (!season.length) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    const n = season.length;
+    const slotW = (W - 40) / n;
+    const barW = Math.min(60, slotW - 10);
+    const maxC = Math.max.apply(null, season.map(function(s){return s.total||1;}));
+    const chartH = H - 40;
+    const colors = ['#6c63ff','#10b981','#f59e0b','#ef4444','#06b6d4','#8b5cf6'];
+    season.forEach(function(s, i) {
+      const x = 20 + i * slotW + (slotW - barW) / 2;
+      const totalH = maxC > 0 ? Math.round((s.total / maxC) * chartH) : 0;
+      const correctH = maxC > 0 ? Math.round((s.correct / maxC) * chartH) : 0;
+      // total bar (faint)
+      ctx.fillStyle = 'rgba(255,255,255,0.07)';
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(x, H - 30 - totalH, barW, totalH, 4);
+      else ctx.rect(x, H - 30 - totalH, barW, totalH);
+      ctx.fill();
+      // correct bar
+      ctx.fillStyle = colors[i % colors.length];
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(x, H - 30 - correctH, barW, correctH, 4);
+      else ctx.rect(x, H - 30 - correctH, barW, correctH);
+      ctx.fill();
+      // name
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      ctx.font = '11px system-ui,sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(s.player.slice(0,7), x + barW/2, H - 14);
+      // score label
+      if (correctH > 16) {
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 11px system-ui,sans-serif';
+        ctx.fillText(s.correct + '/' + s.total, x + barW/2, H - 30 - correctH - 5);
+      }
+    });
+  }, [comp]);
+
+  function changePlayer(name) {
+    setPlayer(name);
+    localStorage.setItem('falkor.tips.player', name);
+  }
+
+  async function tipGame(gameId, tip) {
+    setSaving(gameId);
+    setMsg('');
+    try {
+      const res = await fetch(SPORT_URL + '/afl/comp/tip?year=' + YEAR, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json','X-Pin':pin||''},
+        body: JSON.stringify({player:player, round:round, gameId:String(gameId), tip:tip})
+      });
+      const d = await res.json();
+      if (d.ok) {
+        setMsg('Tip saved: ' + tip);
+        setTimeout(function(){setMsg('');}, 2500);
+        load(round);
+      } else { setMsg(d.error || 'Error saving tip'); }
+    } catch(e) { setMsg(e.message); }
+    setSaving(null);
+  }
+
+  const FAMILY = ['Paddy','Jacky','George','Sasha','Mick','Neil','Deano','Wayne'];
+  const playerNames = comp ? Object.keys(comp.players || {}) : [];
+  const roundGames = Array.isArray(games) ? games.filter(function(g){return !round||g.round===round;}) : [];
+
+  const panelStyle = {padding:'12px 14px',maxWidth:'800px',margin:'0 auto',fontFamily:'system-ui,sans-serif'};
+  const cardStyle = {background:'var(--surface)',borderRadius:'10px',padding:'12px 14px',marginBottom:'10px',border:'1px solid var(--border)'};
+  const btnBase = {padding:'7px 12px',borderRadius:'7px',border:'1px solid var(--border)',cursor:'pointer',fontWeight:600,fontSize:'13px',background:'var(--surface)',color:'var(--text)',transition:'all .15s'};
+
+  if (loading) return (
+    <div style={panelStyle}>
+      <div style={{textAlign:'center',padding:'40px',color:'var(--muted)',fontSize:'15px'}}>Loading tips...</div>
+    </div>
+  );
+
+  return (
+    <div style={panelStyle}>
+
+      {/* ── Header ── */}
+      <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'14px',flexWrap:'wrap'}}>
+        <span style={{fontSize:'18px',fontWeight:700}}>🏉 AFL Family Tips</span>
+        <div style={{display:'flex',gap:'4px',alignItems:'center'}}>
+          <button style={{...btnBase,padding:'5px 10px',border:'1px solid var(--border)'}}
+            onClick={function(){setRound(function(r){return Math.max(1,(r||1)-1);});}}>‹</button>
+          <span style={{fontWeight:600,minWidth:'65px',textAlign:'center',fontSize:'14px',color:'var(--text)'}}>Round {round}</span>
+          <button style={{...btnBase,padding:'5px 10px',border:'1px solid var(--border)'}}
+            onClick={function(){setRound(function(r){return (r||1)+1;});}}>›</button>
+        </div>
+        <div style={{display:'flex',gap:'6px',alignItems:'center',marginLeft:'auto'}}>
+          <span style={{fontSize:'12px',color:'var(--muted)'}}>Tipping as:</span>
+          <select style={{padding:'5px 8px',borderRadius:'7px',border:'1px solid var(--border)',background:'var(--bg)',color:'var(--text)',fontSize:'13px'}}
+            value={player} onChange={function(e){changePlayer(e.target.value);}}>
+            {FAMILY.map(function(p){return <option key={p} value={p}>{p}</option>;})}
+          </select>
+        </div>
+      </div>
+
+      {msg && (
+        <div style={{background:'rgba(108,99,255,0.15)',border:'1px solid var(--accent)',borderRadius:'8px',padding:'8px 12px',marginBottom:'10px',fontSize:'13px',color:'var(--accent)'}}>
+          {msg}
+        </div>
+      )}
+
+      {/* ── Games ── */}
+      {roundGames.map(function(game) {
+        const myTip = comp && comp.players[player] && comp.players[player].tips.find(function(t){return t.gameId===String(game.id);});
+        const isFinal = game.status === 'final';
+        const isLive  = game.status === 'live';
+        const statusColor = isFinal ? '#10b981' : isLive ? '#f59e0b' : 'var(--accent)';
+
+        function teamBtn(team, score) {
+          const isMyPick = myTip && myTip.tip === team;
+          const isWinner = isFinal && game.winner === team;
+          let bg = 'var(--surface)';
+          let border = '1px solid var(--border)';
+          let color = 'var(--text)';
+          if (isMyPick) {
+            if (myTip.correct === 1)  { bg = '#059669'; border = '2px solid #10b981'; color = '#fff'; }
+            else if (myTip.correct === 0) { bg = '#b91c1c'; border = '2px solid #ef4444'; color = '#fff'; }
+            else { bg = '#4f46e5'; border = '2px solid #6c63ff'; color = '#fff'; }
+          } else if (isWinner) {
+            bg = 'rgba(16,185,129,0.1)'; border = '1px solid #10b981';
+          }
+          return (
+            <button key={team}
+              style={{flex:1,padding:'10px 8px',borderRadius:'8px',border:border,cursor:isFinal?'default':'pointer',
+                fontWeight:700,fontSize:'14px',background:bg,color:color,transition:'all .15s',
+                opacity:saving===game.id?0.6:1}}
+              disabled={saving===game.id||isFinal}
+              onClick={function(){if(!isFinal)tipGame(game.id,team);}}>
+              {team}
+              {isFinal && <span style={{display:'block',fontSize:'22px',fontWeight:900,lineHeight:1.1,marginTop:'3px'}}>{score}</span>}
+              {isMyPick && !isFinal && <span style={{display:'block',fontSize:'11px',fontWeight:400,opacity:.8,marginTop:'2px'}}>your pick ✓</span>}
+            </button>
+          );
+        }
+
+        return (
+          <div key={game.id} style={{...cardStyle,opacity:isFinal?0.88:1}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
+              <span style={{fontSize:'11px',color:statusColor,fontWeight:700,textTransform:'uppercase',letterSpacing:'.06em'}}>
+                {isFinal ? 'Final' : isLive ? '🔴 Live' : (function(){try{return new Date(game.date).toLocaleDateString('en-AU',{weekday:'short',month:'short',day:'numeric'});}catch(e){return game.date||'';}}())}
+              </span>
+              <span style={{fontSize:'11px',color:'var(--muted)'}}>{game.venue||''}</span>
+            </div>
+
+            <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'10px'}}>
+              {teamBtn(game.home, game.homeScore)}
+              <span style={{fontWeight:700,color:'var(--muted)',fontSize:'14px',flexShrink:0}}>v</span>
+              {teamBtn(game.away, game.awayScore)}
+            </div>
+
+            {playerNames.length > 0 && (
+              <div style={{display:'flex',gap:'5px',flexWrap:'wrap',borderTop:'1px solid var(--border)',paddingTop:'8px',marginTop:'4px'}}>
+                {playerNames.map(function(p) {
+                  const t = comp.players[p].tips.find(function(x){return x.gameId===String(game.id);});
+                  if (!t) return null;
+                  const bg = t.correct===1 ? 'rgba(16,185,129,0.2)' : t.correct===0 ? 'rgba(239,68,68,0.2)' : 'var(--surface)';
+                  const cl = t.correct===1 ? '#10b981' : t.correct===0 ? '#ef4444' : 'var(--muted)';
+                  return (
+                    <div key={p} style={{display:'flex',gap:'3px',alignItems:'center',background:bg,border:'1px solid '+cl,borderRadius:'20px',padding:'3px 9px',fontSize:'12px',fontWeight:600,color:cl}}>
+                      <span style={{opacity:0.8}}>{p.charAt(0)}</span>
+                      <span style={{color:'var(--text)'}}>{t.tip}</span>
+                      {t.correct===1&&<span>✓</span>}
+                      {t.correct===0&&<span>✗</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {roundGames.length === 0 && (
+        <div style={{textAlign:'center',padding:'40px',color:'var(--muted)'}}>No games found for round {round}</div>
+      )}
+
+      {/* ── Season Leaderboard ── */}
+      {comp && comp.season && comp.season.length > 0 && (
+        <div style={{...cardStyle,marginTop:'16px'}}>
+          <div style={{fontWeight:700,marginBottom:'12px',fontSize:'14px'}}>📊 Season {YEAR}</div>
+          <canvas ref={canvasRef} width={600} height={160} style={{width:'100%',height:'auto',display:'block',borderRadius:'6px'}}/>
+          <div style={{display:'flex',gap:'14px',flexWrap:'wrap',marginTop:'10px',justifyContent:'center'}}>
+            {comp.season.map(function(s,i){
+              const colors=['#6c63ff','#10b981','#f59e0b','#ef4444','#06b6d4','#8b5cf6'];
+              return (
+                <div key={s.player} style={{display:'flex',flexDirection:'column',alignItems:'center',fontSize:'12px',gap:'2px'}}>
+                  <span style={{width:'10px',height:'10px',borderRadius:'50%',background:colors[i%colors.length],display:'inline-block'}}/>
+                  <span style={{fontWeight:700,fontSize:'13px'}}>{s.player}</span>
+                  <span style={{color:'var(--muted)'}}>{s.correct}/{s.total} ({s.pct}%)</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 function App() {
   const [user, setUser] = useState(() => {
@@ -1422,7 +2424,7 @@ function App() {
       return _u;
     } catch { return null; }
   });
-  const [view, setView] = useState('chat');
+  const [view, setView] = useState('home');
   const [convos, setConvos] = useState(LS.convos);
   const [activeId, setActiveId] = useState(() => localStorage.getItem('falkor.activeId') || '');
   const [model, setModelS] = useState(LS.model);
@@ -1440,6 +2442,7 @@ function App() {
   const [voiceTranscript, setVoiceTranscript] = useState('');
   const [voiceReply, setVoiceReply] = useState('');
   const [drivingMode, setDrivingMode] = useState(false);
+  const [alwaysOn, setAlwaysOn] = useState(false);
   const [sidebarSearch, setSidebarSearch] = useState('');
 
   const analyserRef      = useRef(null);
@@ -1454,12 +2457,18 @@ function App() {
   const voiceEnabledRef  = useRef(voiceEnabled);
   const showVoiceRef     = useRef(showVoice);
   const drivingModeRef   = useRef(drivingMode);
+  const alwaysOnRef      = useRef(alwaysOn);
+  const audioRef         = useRef(null);
+  const interruptRecogRef = useRef(null);
+  const audioQueueRef     = useRef([]);
+  const audioPlayingRef   = useRef(false);
   const activeIdRef      = useRef(activeId);
   const streamTimerRef   = useRef(null);
 
   useEffect(() => { voiceEnabledRef.current = voiceEnabled; }, [voiceEnabled]);
   useEffect(() => { showVoiceRef.current = showVoice; }, [showVoice]);
   useEffect(() => { drivingModeRef.current = drivingMode; }, [drivingMode]);
+  useEffect(() => { alwaysOnRef.current = alwaysOn; if (alwaysOn) { setTimeout(startListening, 400); } else { stopRecording(); } }, [alwaysOn]);
   useEffect(() => { activeIdRef.current = activeId; }, [activeId]);
 
   const activeConvo = convos.find(c => c.id === activeId);
@@ -1507,12 +2516,27 @@ function App() {
     ws.onmessage = evt => {
       try {
         const msg = JSON.parse(evt.data);
-        if (msg.type === 'assistant_reply') {
+        if (msg.type === 'image_reply') {
+          setTyping(false);
+          const cid = activeIdRef.current;
+          const imgMsg = { id: uid(), role: 'assistant', content: '', imageUrl: msg.url, imagePrompt: msg.revised_prompt || msg.prompt || '', ts: Date.now(), modelBadge: '🎨 DALL·E' };
+          setConvos(prev => prev.map(c => c.id === cid ? { ...c, messages:[...(c.messages||[]), imgMsg] } : c));
+        } else if (msg.type === 'assistant_reply') {
           setTyping(false);
           const fullText = msg.text || '';
           const msgId = uid();
           const cid = activeIdRef.current;
-          setConvos(prev => prev.map(c => c.id === cid ? { ...c, messages:[...(c.messages||[]), { id:msgId, role:'assistant', content:'', ts:Date.now() }] } : c));
+          // Determine model badge from provider/model_key
+          const badge = (() => {
+            const p = (msg.provider || '').toLowerCase();
+            const mk = (msg.model || '').toLowerCase();
+            if (p === 'anthropic' || mk.includes('claude') || mk.includes('haiku') || mk.includes('sonnet') || mk.includes('opus')) return '🟠 Claude';
+            if (p === 'openai' || mk.includes('gpt')) return '🟢 GPT';
+            if (p === 'gemini' || mk.includes('gemini')) return '💙 Gemini';
+            if (p === 'groq' || mk.includes('groq')) return '⚡ Groq';
+            return '';
+          })();
+          setConvos(prev => prev.map(c => c.id === cid ? { ...c, messages:[...(c.messages||[]), { id:msgId, role:'assistant', content:'', ts:Date.now(), modelBadge: badge }] } : c));
           let i = 0;
           if (streamTimerRef.current) clearInterval(streamTimerRef.current);
           streamTimerRef.current = setInterval(() => {
@@ -1521,7 +2545,7 @@ function App() {
             if (i >= fullText.length) {
               clearInterval(streamTimerRef.current); streamTimerRef.current = null;
               if (drivingModeRef.current) { setVoiceReply(fullText); speakText(fullText); }
-              else if (showVoiceRef.current || voiceEnabledRef.current) speakText(fullText);
+              else if (alwaysOnRef.current || showVoiceRef.current || voiceEnabledRef.current) speakText(fullText);
             }
           }, 18);
         }
@@ -1543,7 +2567,7 @@ function App() {
     recog.onresult = e => {
       const t = Array.from(e.results).slice(-1)[0]?.[0]?.transcript?.toLowerCase() || '';
       if (t.includes('hey falkor') && !showVoiceRef.current && !drivingModeRef.current) {
-        setShowVoice(true); toast("🐉 Hey! I'm listening…");
+        if (!alwaysOnRef.current) { setAlwaysOn(true); toast("🐉 Always-on activated — I'm listening…"); }
       }
     };
     recog.onerror = () => {}; recog.onend = () => { try { recog.start(); } catch {} };
@@ -1551,29 +2575,119 @@ function App() {
     return () => { try { recog.stop(); } catch {}; };
   }, [user]);
 
-  // ── speakText ──
-  async function speakText(text) {
+
+  // ── stopCurrentAudio — interrupts TTS playback immediately ──
+  function stopCurrentAudio() {
+    // drain queue
+    audioQueueRef.current.forEach(item => { try { URL.revokeObjectURL(item.url); } catch {} });
+    audioQueueRef.current = [];
+    audioPlayingRef.current = false;
+    if (audioRef.current) {
+      try { audioRef.current.pause(); audioRef.current.src = ''; } catch {}
+      audioRef.current = null;
+    }
+    if (interruptRecogRef.current) {
+      try { interruptRecogRef.current.stop(); } catch {}
+      interruptRecogRef.current = null;
+    }
+  }
+
+  // ── startInterruptListener — listens for speech while Falkor talks ──
+  function startInterruptListener(onInterrupt) {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return;
+    const recog = new SR();
+    recog.continuous = false; recog.interimResults = false; recog.lang = 'en-AU';
+    recog.onresult = e => {
+      const t = (e.results[0]?.[0]?.transcript || '').trim();
+      if (t.length > 1) { onInterrupt(t); }
+    };
+    recog.onerror = () => {};
+    recog.onend = () => {};
+    interruptRecogRef.current = recog;
+    try { recog.start(); } catch {}
+  }
+
+  // ── speakText — sentence-streaming TTS ──
+  function splitSentences(text) {
+    const parts = text.match(/[^.!?\n]+[.!?\n]+\s*/g) || [text];
+    return parts.map(s => s.trim()).filter(s => s.length > 2);
+  }
+
+  function onAllSentencesDone() {
+    if (interruptRecogRef.current) { try { interruptRecogRef.current.stop(); } catch {} interruptRecogRef.current = null; }
+    setVoiceState('idle');
+    if (drivingModeRef.current) setTimeout(() => { if (drivingModeRef.current) startListening(); }, 600);
+    else if (alwaysOnRef.current) setTimeout(() => { if (alwaysOnRef.current) startListening(); }, 350);
+    else if (showVoiceRef.current) setTimeout(() => { if (showVoiceRef.current) startListening(); }, 700);
+  }
+
+  function playNextQueued() {
+    if (audioPlayingRef.current) return;
+    if (audioQueueRef.current.length === 0) return;
+    const item = audioQueueRef.current.shift();
+    audioPlayingRef.current = true;
+    audioRef.current = item.audio;
+    item.audio.onended = () => {
+      audioRef.current = null; audioPlayingRef.current = false;
+      try { URL.revokeObjectURL(item.url); } catch {}
+      if (audioQueueRef.current.length > 0) { playNextQueued(); }
+      else if (item.isLast) { onAllSentencesDone(); }
+    };
+    item.audio.onerror = () => {
+      audioRef.current = null; audioPlayingRef.current = false;
+      if (audioQueueRef.current.length > 0) { playNextQueued(); }
+      else if (item.isLast) { onAllSentencesDone(); }
+    };
+    // Wire analyser to first sentence for waveform
     try {
-      setVoiceState('speaking');
+      if (item.isFirst && audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
+        const ctx = audioCtxRef.current;
+        const analyser = ctx.createAnalyser(); analyser.fftSize = 256; analyserRef.current = analyser;
+        const msrc = ctx.createMediaElementSource(item.audio); msrc.connect(analyser); analyser.connect(ctx.destination);
+      }
+    } catch {}
+    item.audio.play().catch(() => {
+      audioPlayingRef.current = false;
+      if (audioQueueRef.current.length > 0) playNextQueued();
+      else if (item.isLast) onAllSentencesDone();
+    });
+  }
+
+  async function fetchAndQueueSentence(text, isFirst, isLast) {
+    try {
       const res = await fetch(AI_URL + '/speak', {
-        method:'POST', headers:{'Content-Type':'application/json'},
+        method:'POST', headers:{'Content-Type':'application/json','X-Pin':LS.agentPin()||LS.pin()},
         body: JSON.stringify({ text, model:'tts-1', voice:'nova' }),
       });
-      if (!res.ok) { setVoiceState('idle'); return; }
+      if (!res.ok) { if (isLast && audioQueueRef.current.length === 0 && !audioPlayingRef.current) onAllSentencesDone(); return; }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
-      try {
-        if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') audioCtxRef.current = new AudioContext();
-        const ctx = audioCtxRef.current;
-        if (ctx.state === 'suspended') await ctx.resume();
-        const analyser = ctx.createAnalyser(); analyser.fftSize = 256; analyserRef.current = analyser;
-        const src = ctx.createMediaElementSource(audio); src.connect(analyser); analyser.connect(ctx.destination);
-      } catch {}
-      audio.onended = () => { setVoiceState('idle'); URL.revokeObjectURL(url); if (drivingModeRef.current) setTimeout(() => { if (drivingModeRef.current) startListening(); }, 600); else if (showVoiceRef.current) setTimeout(() => { if (showVoiceRef.current) startListening(); }, 700); };
-      audio.onerror = () => { setVoiceState('idle'); if (drivingModeRef.current) setTimeout(() => { if (drivingModeRef.current) startListening(); }, 600); else if (showVoiceRef.current) setTimeout(() => { if (showVoiceRef.current) startListening(); }, 700); };
-      audio.play().catch(() => { setVoiceState('idle'); if (drivingModeRef.current) setTimeout(() => { if (drivingModeRef.current) startListening(); }, 600); else if (showVoiceRef.current) setTimeout(() => { if (showVoiceRef.current) startListening(); }, 700); });
-    } catch { setVoiceState('idle'); if (drivingModeRef.current) setTimeout(() => { if (drivingModeRef.current) startListening(); }, 600); else if (showVoiceRef.current) setTimeout(() => { if (showVoiceRef.current) startListening(); }, 700); }
+      audioQueueRef.current.push({ audio, url, isFirst, isLast });
+      // Start interrupt listener when first sentence is queued
+      if (isFirst && (alwaysOnRef.current || drivingModeRef.current || showVoiceRef.current)) {
+        startInterruptListener(interruptText => {
+          stopCurrentAudio();
+          setVoiceState('idle');
+          if (interruptText) { setVoiceTranscript(interruptText); sendMessage(interruptText, null); }
+        });
+      }
+      playNextQueued();
+    } catch { if (isLast && audioQueueRef.current.length === 0 && !audioPlayingRef.current) onAllSentencesDone(); }
+  }
+
+  function speakText(text) {
+    if (!text || !text.trim()) return;
+    setVoiceState('speaking');
+    audioQueueRef.current = [];
+    audioPlayingRef.current = false;
+    try {
+      if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') audioCtxRef.current = new AudioContext();
+      if (audioCtxRef.current.state === 'suspended') audioCtxRef.current.resume();
+    } catch {}
+    const sentences = splitSentences(text);
+    sentences.forEach((s, i) => fetchAndQueueSentence(s, i === 0, i === sentences.length - 1));
   }
 
   // ── startListening ──
@@ -1585,16 +2699,18 @@ function App() {
       if (ctx.state === 'suspended') await ctx.resume();
       const analyser = ctx.createAnalyser(); analyser.fftSize = 256; analyserRef.current = analyser;
       const src = ctx.createMediaStreamSource(stream); src.connect(analyser);
-      const mr = new MediaRecorder(stream, { mimeType:'audio/webm' });
+      const _mtype = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+                      : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '';
+      const mr = new MediaRecorder(stream, _mtype ? { mimeType:_mtype } : {});
       mediaRecorderRef.current = mr; chunksRef.current = [];
       mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       mr.onstop = async () => {
         stream.getTracks().forEach(t => t.stop());
         setVoiceState('processing');
-        const blob = new Blob(chunksRef.current, { type:'audio/webm' });
+        const blob = new Blob(chunksRef.current, { type: _mtype || 'audio/webm' });
         try {
           const fd = new FormData(); fd.append('audio', blob, 'audio.webm');
-          const res = await fetch(AI_URL + '/stt', { method:'POST', body:fd });
+          const res = await fetch(AI_URL + '/stt', { method:'POST', body:fd, headers:{'X-Pin':LS.agentPin()||LS.pin()} });
           const data = await res.json();
           const text = (data.text || data.transcript || '').trim();
           if (text) { setVoiceTranscript(text); sendMessage(text, null); setVoiceState('idle'); }
@@ -1620,7 +2736,7 @@ function App() {
     clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null;
   }
 
-  function handleMicClick() { if (voiceState === 'listening') stopRecording(); else startListening(); }
+  function handleMicClick() { if (voiceState === 'speaking') { stopCurrentAudio(); setVoiceState('idle'); setTimeout(startListening, 200); } else if (voiceState === 'listening') stopRecording(); else startListening(); }
 
   // ── sendMessage ──
   function sendMessage(text, fileContent) {
@@ -1730,7 +2846,7 @@ function App() {
           {voiceTranscript ? <div className="driving-transcript">"{voiceTranscript}"</div> : null}
           {voiceReply ? <div className="driving-reply">{voiceReply}</div> : null}
           <button className={'driving-mic '+(voiceState==='listening'?'listening':voiceState==='speaking'?'speaking':'')}
-            onClick={handleMicClick} disabled={voiceState==='processing'||voiceState==='speaking'}>
+            onClick={handleMicClick} disabled={voiceState==='processing'}>
             {voiceState==='listening'?'⏹':voiceState==='speaking'?'🔊':'🎤'}
           </button>
         </div>
@@ -1775,7 +2891,7 @@ function App() {
         {wsState === 'connecting' && <div className="conn-banner">⚡ Connecting to Falkor…</div>}
         {wsState === 'disconnected' && <div className="conn-banner" style={{background:'rgba(239,68,68,.1)',color:'var(--danger)',borderColor:'rgba(239,68,68,.2)'}}>⚠️ Disconnected — reconnecting…</div>}
 
-        <div className="topbar"><button id="install-btn" onclick="installApp()" title="Install Falkor" style="display:none;align-items:center;gap:6px;background:#d97757;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer;"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 110 20A10 10 0 0112 2zm0 5v6m0 0l-3-3m3 3l3-3M7 17h10"/></svg>Install</button>
+        <div className="topbar"><button id="install-btn" onClick={()=>installApp()} title="Install Falkor" style={{display:'none',alignItems:'center',gap:'6px',background:'#d97757',color:'#fff',border:'none',borderRadius:'8px',padding:'6px 12px',fontSize:'13px',fontWeight:600,cursor:'pointer'}}><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 110 20A10 10 0 0112 2zm0 5v6m0 0l-3-3m3 3l3-3M7 17h10"/></svg>Install</button>
           <button className="icon-btn" onClick={() => setSidebarOpen(true)}>☰</button>
           <span className="topbar-title">{activeConvo?.title || 'Falkor'}</span>
 
@@ -1786,10 +2902,14 @@ function App() {
           <button className={'nav-btn'+(view==='sport'?' active':'')} onClick={() => setView('sport')}>🏈</button>
           <button className={'nav-btn'+(view==='calendar'?' active':'')} onClick={() => setView('calendar')}>📅</button>
           <button className={'nav-btn'+(view==='sites'?' active':'')} onClick={() => setView('sites')}>🌐</button>
-          <button className={'nav-btn'+(view==='tips'?' active':'')} onClick={() => setView('tips')}>🏆</button>
+          <button className={'nav-btn'+(view==='tips'?' active':'')} onClick={() => setView('tips')}>🏉</button>
           <button className={'nav-btn'+(view==='history'?' active':'')} onClick={() => setView('history')}>📖</button>
             <button className={'nav-btn'+(view==='racing'?' active':'')} onClick={() => setView('racing')}>Racing</button>
           <button className={'nav-btn'+(view==='nrl'?' active':'')} onClick={() => setView('nrl')}>NRL</button>
+          <button className={'nav-btn'+(view==='kbt'?' active':'')} onClick={() => setView('kbt')}>🎯</button>
+          <button className={'nav-btn'+(view==='pe'?' active':'')} onClick={() => setView('pe')}>🏫</button>
+          <button className={'nav-btn'+(view==='scoreboard'?' active':'')} onClick={() => setView('scoreboard')}>📺</button>
+          <button className={'nav-btn'+(view==='xc'?' active':'')} onClick={() => setView('xc')}>🏃</button>
           <div className="nav-sep"/>
 
           <select className="model-select" value={model} onChange={e => { setModelS(e.target.value); LS.setModel(e.target.value); }}>
@@ -1805,9 +2925,13 @@ function App() {
 
         {view === 'home'     && <HomePanel pin={LS.agentPin() || LS.pin()} userName={user && user.name || 'Paddy'} onNavigate={(v,q) => { setView(v); if (q) setTimeout(() => sendMessage(q, null), 400); }}/>}
         {view === 'sport'    && <SportPanel pin={LS.agentPin() || LS.pin()}/>}
-        {view === 'tips'     && <SportPanel pin={LS.agentPin() || LS.pin()} initialTab="comp"/>}
+        {view === 'tips'     && <TipsPanel pin={LS.agentPin() || LS.pin()}/>}
         {view === 'racing'   && <RacingPanel pin={LS.agentPin() || LS.pin()}/>}
         {view === 'nrl'      && <NRLPanel pin={LS.agentPin() || LS.pin()}/>}
+        {view === 'kbt'      && <KBTPanel pin={LS.agentPin() || LS.pin()}/>}
+        {view === 'pe'       && <PEPanel pin={LS.agentPin() || LS.pin()}/>}
+        {view === 'scoreboard' && <ScoreboardPanel pin={LS.agentPin() || LS.pin()}/>}
+        {view === 'xc'         && <XCPanel pin={LS.agentPin() || LS.pin()}/>}
         {view === 'sites'    && <SitesPanel/>}
         {view === 'calendar' && <CalendarPanel pin={LS.agentPin() || LS.pin()}/>}
         {view === 'history'  && <HistoryPanel convos={convos} onOpen={id => { setActiveId(id); setView('chat'); }}/>}
@@ -1878,6 +3002,7 @@ function App() {
                 />
                 <input id="file-input" type="file" accept="image/*,*/*" style={{ display:'none' }} onChange={handleFileInput}/>
                 <button className="icon-btn" onClick={() => document.getElementById('file-input').click()} title="Attach">📎</button>
+                <button className={'icon-btn'+(alwaysOn?' active pulsing':'')} style={{ fontSize:'15px' }} onClick={() => setAlwaysOn(v => !v)} title={alwaysOn?'Always-On: tap to stop':'Always-On Falkor'}>🫦</button>
                 <button className={'icon-btn'+(voiceEnabled?' active':'')} style={{ fontSize:'15px' }} onClick={() => setShowVoice(true)} title="Voice">🎤</button>
                 <button className="send-btn" onClick={doSend}
                   disabled={(!input.trim() && !attachment) || wsState !== 'connected'}>➤</button>
@@ -1894,7 +3019,32 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+// ─── Error Boundary ───────────────────────────────────────────────────────────
+class ErrorBoundary extends React.Component {
+  constructor(p) { super(p); this.state = { err: null }; }
+  static getDerivedStateFromError(e) { return { err: e }; }
+  componentDidCatch(e, i) { console.error('[Falkor]', e, i); }
+  render() {
+    if (this.state.err) {
+      const s = { padding:'32px 20px', textAlign:'center', fontFamily:'system-ui,sans-serif', color:'#e8e8ea' };
+      const msg = (this.state.err && this.state.err.message) || String(this.state.err);
+      return React.createElement('div', { style: s },
+        React.createElement('div', { style:{fontSize:36,marginBottom:12} }, '⚠️'),
+        React.createElement('div', { style:{fontWeight:700,fontSize:18,marginBottom:8} }, 'Falkor failed to load'),
+        React.createElement('div', { style:{fontSize:12,color:'#72728a',marginBottom:20,wordBreak:'break-word'} }, msg),
+        React.createElement('button', {
+          onClick: () => window.location.reload(),
+          style:{padding:'10px 24px',background:'#6c63ff',color:'#fff',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:15}
+        }, 'Reload')
+      );
+    }
+    return this.props.children;
+  }
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  React.createElement(ErrorBoundary, null, React.createElement(App))
+);
 </script>
 
 <script>
@@ -1992,4 +3142,3 @@ function installApp(){if(_deferredInstall){_deferredInstall.prompt();_deferredIn
     });
   }
 };
-
