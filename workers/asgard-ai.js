@@ -1,18 +1,19 @@
---06074e89982f2cc4b8570192d2a42a5e4dcd808ddd94a05c76b926ef9320
+--e41f706d7c9a9407432b8149f1d3bcc8dea2ac2ab9060ce1c3138bc945a8
 Content-Disposition: form-data; name="worker.js"
 
 // asgard-ai v5.8.0-stream: multi-provider (Anthropic/OpenAI/Groq) streaming SSE, normalized tokens
-const VERSION = '6.4.0';
+const VERSION = '6.5.0';
 const WORKER_NAME = "asgard-ai";
 
 // --- PIN auth helper (v1.1.0 security patch) ---
 // ─── SECURITY v24: Rate limiting + env PINs + session tokens ──────────────────
 function getValidPins(env) {
   const pins = [];
+  if (env.AGENT_PIN) pins.push(env.AGENT_PIN);  // fleet PIN (falkor workers)
   if (env.PADDY_PIN) pins.push(env.PADDY_PIN);
   if (env.JACKY_PIN) pins.push(env.JACKY_PIN);
   if (env.GEORGE_PIN) pins.push(env.GEORGE_PIN);
-  if (!pins.length) { console.warn("PADDY_PIN/JACKY_PIN/GEORGE_PIN not set"); /* fallbacks removed for security */; }
+  if (!pins.length) { console.warn("No PINs configured"); }
   return pins;
 }
 async function getRateLimit(env, ip) {
@@ -164,15 +165,21 @@ function resolveModel(input) {
 function quickRoute(message) {
   if (!message) return DEFAULT_MODEL;
   const m = message.toLowerCase();
-  // Hard tasks → Sonnet (paid but best)
-  const hardTriggers = ["strategy","architect","design","plan ","refactor","debug","why does","explain why","tradeoff","pros and cons","compare","write code","generate code","fix the","review","audit","analyse","analyze"];
+  // Hard tasks → Sonnet (paid, best quality)
+  const hardTriggers = ["strategy","architect","design","plan ","refactor","debug","why does","explain why","tradeoff","pros and cons","compare","write code","generate code","fix the","review","audit","analyse","analyze","build me","implement","create a function","create an api"];
   if (hardTriggers.some(t => m.includes(t))) return "sonnet";
-  // Reasoning tasks → Groq think (free)
-  const thinkTriggers = ["step by step","reason","logic","math","calculate","proof","theorem"];
+  // Creative writing → GPT-4o (outstanding prose, stories, scripts)
+  const creativeTriggers = ["write a story","write me a story","write a poem","poem about","write a song","lyrics","screenplay","script","fiction","write an essay","write a blog","write a letter","write a speech","creative writing","tell me a story"];
+  if (creativeTriggers.some(t => m.includes(t))) return "gpt-4o";
+  // Reasoning/maths → Groq think (free deep reasoning)
+  const thinkTriggers = ["step by step","reason through","logic","math","calculate","proof","theorem","deduce","infer"];
   if (thinkTriggers.some(t => m.includes(t))) return "groq-think";
-  // Medium tasks → Groq versatile (free, smart)
+  // Structured tasks → Gemini Flash (fast, great at lists/tables/translation)
+  const structuredTriggers = ["list all","summarise","summarize","make a table","translate","convert","format this","extract","classify","categorize","give me a list","bullet point","schedule","itinerary","compare these","rank"];
+  if (structuredTriggers.some(t => m.includes(t))) return "gemini-2.5-flash";
+  // Longer messages → Groq versatile (free, handles context well)
   if (m.length > 400) return "groq";
-  // Simple/quick → Groq fast (free, instant)
+  // Default: instant free response
   return "groq-fast";
 }
 
@@ -1704,7 +1711,7 @@ function googleConsentUrl(env, request, account) {
     client_id: env.GOOGLE_CLIENT_ID,
     redirect_uri: callback,
     response_type: "code",
-    scope: "https://www.googleapis.com/auth/drive.file",
+    scope: "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/calendar.readonly",
     access_type: "offline",
     prompt: isLD ? "select_account consent" : "consent",
     include_granted_scopes: "true",
@@ -1776,6 +1783,72 @@ async function handleOauthCallback(request, env) {
     "You can close this tab.";
   return new Response(msg, { status: 200, headers: { "Content-Type": "text/plain" } });
 }
+
+// ---------- Google Calendar API (uses LD OAuth credentials) ----------
+async function handleGoogleCalendarEvents(request, env) {
+  if (!env.LD_GOOGLE_REFRESH_TOKEN) return err("LD_GOOGLE_REFRESH_TOKEN missing", 400);
+  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) return err("GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET missing", 400);
+
+  // Refresh the LD Google access token
+  const _tr = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET,
+      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN, grant_type: "refresh_token" }).toString(),
+  });
+  if (!_tr.ok) { const te = await _tr.text(); return err("LD token refresh failed: " + te.slice(0,200), 502); }
+  const { access_token } = await _tr.json();
+  if (!access_token) return err("token refresh returned no access_token", 502);
+
+  const url = new URL(request.url);
+  const calendarId = url.searchParams.get("calendarId") || "primary";
+  const days = parseInt(url.searchParams.get("days") || "7", 10);
+  const AEST_OFFSET = 10 * 60 * 60 * 1000; // AEST = UTC+10
+  const now = new Date();
+  const timeMin = new Date(now.getTime()).toISOString();
+  const timeMax = new Date(now.getTime() + days * 86400 * 1000).toISOString();
+
+  const calUrl = "https://www.googleapis.com/calendar/v3/calendars/" +
+    encodeURIComponent(calendarId) +
+    "/events?timeMin=" + encodeURIComponent(timeMin) +
+    "&timeMax=" + encodeURIComponent(timeMax) +
+    "&singleEvents=true&orderBy=startTime&maxResults=50&fields=items(id,summary,start,end,location,description,status)";
+
+  const calResp = await fetch(calUrl, {
+    headers: { "Authorization": "Bearer " + access_token },
+  });
+  if (!calResp.ok) {
+    const ce = await calResp.text();
+    return err("Calendar API error " + calResp.status + ": " + ce.slice(0,300), calResp.status);
+  }
+  const { items = [] } = await calResp.json();
+
+  const events = items
+    .filter(e => e.status !== "cancelled")
+    .map(e => {
+      const startRaw = e.start.dateTime || e.start.date;
+      const endRaw = e.end ? (e.end.dateTime || e.end.date) : null;
+      const allDay = !!e.start.date && !e.start.dateTime;
+      const startTs = new Date(startRaw).getTime();
+      const aestDate = new Date(startTs + AEST_OFFSET).toISOString().substring(0,10);
+      const aestTime = allDay ? null : new Date(startTs + AEST_OFFSET).toISOString().substring(11,16);
+      const aestTimeEnd = (endRaw && !allDay)
+        ? new Date(new Date(endRaw).getTime() + AEST_OFFSET).toISOString().substring(11,16)
+        : null;
+      return {
+        id: e.id,
+        title: e.summary || "Untitled",
+        allDay,
+        date: aestDate,
+        time: aestTime,
+        timeEnd: aestTimeEnd,
+        location: e.location || null,
+        description: e.description ? e.description.substring(0,200) : null,
+      };
+    });
+
+  return json({ ok: true, count: events.length, calendarId, events });
+}
+
 
 // ---------- Confirmation gate helpers ----------
 // A "proposal" flow: dashboard asks /chat/agent?dry_run=1 → gets plan; user confirms → re-call with execute=true
@@ -2833,7 +2906,7 @@ export default {
       if (path === "/health") {
         return json({
           ok: true, worker: WORKER_NAME, version: VERSION,
-          routes: ["/health","/chat/smart","/chat/stream","/chat/agent","/chat/agentic","/sync/state","/admin/errors","/bridge/enqueue","/bridge/poll","/bridge/result","/chat/vision","/image/generate","/speak","/tts","/stt","/weather","/feature-request","/conversations","/history","/memory","/memory/clear","/slack/post","/telegram/send","/telegram/setup","/discord/send","/discord/interactions","/discord/register-commands","/discord/invite","/prefs","/ranking","/presence","/github/*","/vercel/*","/drive/upload","/drive/search","/drive/delete","/drive/ld-mkdir","/drive/ld-search","/drive/ld-copy","/google/oauth-start","/google/oauth-callback","/agent/propose"],
+          routes: ["/health","/chat/smart","/chat/stream","/chat/agent","/chat/agentic","/sync/state","/admin/errors","/bridge/enqueue","/bridge/poll","/bridge/result","/chat/vision","/image/generate","/speak","/tts","/stt","/weather","/feature-request","/conversations","/history","/memory","/memory/clear","/slack/post","/telegram/send","/telegram/setup","/discord/send","/discord/interactions","/discord/register-commands","/discord/invite","/prefs","/ranking","/presence","/github/*","/vercel/*","/drive/upload","/drive/search","/drive/delete","/drive/ld-mkdir","/drive/ld-search","/drive/ld-copy","/google/oauth-start","/google/oauth-callback","/google/calendar/events","/agent/propose"],
           models: Object.keys(MODELS),
           providers: {
             groq: !!env.GROQ_API_KEY,
@@ -2967,6 +3040,7 @@ export default {
       if (path === "/drive/search"        && method === "GET")  { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleDriveSearch(request, env); }
       if (path === "/google/oauth-start"  && method === "GET")  { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleOauthStart(request, env); }
       if (path === "/google/oauth-callback" && method === "GET") return handleOauthCallback(request, env);
+      if (path === "/google/calendar/events" && method === "GET") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleGoogleCalendarEvents(request, env); }
       if (path === "/agent/propose"       && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleAgentPropose(request, env); }
       if (path === "/memory/save"     && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); const _pu=await identifyPin(request,env)||'paddy'; return handleMemorySave(request, env, _pu); }
       if (path === "/memory/list"     && method === "GET")  { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); const _pu=await identifyPin(request,env)||'paddy'; return handleMemoryList(request, env, _pu); }
@@ -2982,4 +3056,4 @@ export default {
     }
   },
 };
---06074e89982f2cc4b8570192d2a42a5e4dcd808ddd94a05c76b926ef9320--
+--e41f706d7c9a9407432b8149f1d3bcc8dea2ac2ab9060ce1c3138bc945a8--
