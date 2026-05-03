@@ -402,3 +402,34 @@ End of handover. **PIN is `<ASK MONA — PIN provided out-of-band, not stored in
 curl -s https://superleague.streamlinewebapps.com | grep -o 'fundOutstanding\|OUTSTANDING\|_slyFixturesCache={};'
 # returns: OUTSTANDING, fundOutstanding, _slyFixturesCache={};
 ```
+
+## SSP Navigation Fix + Full QA (2026-05-04)
+
+### School Sport Portal — williamstowndistrict page fully fixed
+
+**Site:** schoolsportportal.com.au/williamstowndistrict
+**Repo:** `LuckDragonAsgard/schoolsportportal` (main branch → CF Worker → raw.githubusercontent.com CDN)
+
+**Bug fixed: Nav tabs highlighting but content not switching**
+
+Root cause: Multiple rounds of prior patching had accidentally nested the following functions *inside* `renderHome`'s function body instead of global scope:
+`goTo`, `renderAll`, `renderFixtures`, `getCurrentRound`, `toast`, `renderVenues`, `renderGuidelines`, `renderCoachList`, `loadCoachList`, `createCoach`, `deleteCoach`, `exportData`, `resetSeason`, `var pendingPage`
+
+The nav IIFE (at EOF) called `goTo(p)` from outside `renderHome` — reference error, silent fail. CSS active class updated (pure DOM) but content never switched.
+
+**Fix — two commits to `LuckDragonAsgard/schoolsportportal`:**
+- `d76121b` — first pass, moved `renderHome` closing `}` to after `toast`; fixed `goTo` but left `getCurrentRound` still trapped
+- `3ec2136` — correct fix: moved `renderHome` closing `}` to line 883 (just after `if(currentUser)` block). All helper functions now global.
+
+Key diagnostic: string-aware Python brace parser (handles template literals/strings with `{`/`}`) to locate the true extent of `renderHome` — naive counting gave wrong boundary.
+
+**Full QA — all green:**
+- All 10 pages navigate correctly (Home, Fixtures, Ladder, Venues, Contacts, Guidelines, Scoresheets, Notices, Enter Scores, Admin)
+- Winter Sport 2026 badge live; 7 fixture rounds, 8-team ladder, 9 contacts, 8 venues, 8 guidelines
+- 10 scoresheet cards with Google Drive download links (AFL, Soccer, Netball, Hockey, Softball, Basketball, Volleyball, Hot Shots, Tee Ball, Cricket T20)
+- Notices board present; form hidden for logged-out users ✓
+- Login modal opens/closes, both fields present; Enter Scores tab requires auth ✓
+
+**Not tested (require coach credentials):** notice posting, scoresheet upload, welcome email.
+
+**Pending:** Parent self-registration + push notifications (scores/carnival results per student) — discussed, not yet built.
