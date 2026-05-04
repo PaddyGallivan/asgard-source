@@ -1,5 +1,12 @@
 # Session Handover — 2026-05-04 (Session 4)
 
+> **Engineering rules apply across all products** —
+> read [`docs/ENGINEERING-RULES.md`](ENGINEERING-RULES.md) at session start.
+> Every product has a `checks.py` that runs post-deploy. Template:
+> [`docs/checks.py.template`](checks.py.template). Sample implementation:
+> [`superleague-yeah-v4/sly-checks.py`](https://github.com/LuckDragonAsgard/superleague-yeah-v4/blob/main/sly-checks.py).
+
+
 ## What we did this session
 
 ### 1. sportcarnival.com.au — Draw & Results Page
