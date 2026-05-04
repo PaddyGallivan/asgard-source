@@ -819,9 +819,47 @@ export class FalkorAgent {
 
     if (pendingAgentCtx) ragContext += pendingAgentCtx;
 
-    const productCtxStr = productContext
-      ? '\n\nContext: You are embedded in ' + productContext + '. Tailor your answers to this context.'
-      : '';
+    // Build product-specific system context
+    let productCtxStr = '';
+    if (productContext === 'LessonLab') {
+      const isCmd = text.startsWith('LESSONLAB_');
+      productCtxStr = `
+
+## LessonLab Context
+You are embedded in LessonLab — Paddy's AI lesson planning tool for Williamstown Primary School. You handle structured lesson generation and teaching support. When you receive a LESSONLAB_* command, follow the instructions precisely and return the exact format requested.
+
+### Command reference:
+
+**LESSONLAB_PARSE** — Parse a lesson request into JSON. Return ONLY: {"subject":"...","unit":"...","focus":"...","year_level":"...","duration":"...","school_name":"..."}. subject must be one of: pe, literacy, numeracy, science, visual-art, music, drama, french, digital_tech, hass, wellbeing, performing_arts.
+
+**LESSONLAB_GENERATE** — (handled by /lessons/generate API, not you directly)
+
+**LESSONLAB_AMEND** — Amend an existing lesson JSON per the instruction given. Return ONLY a \`\`\`json ... \`\`\` block with the full updated lesson object preserving all fields.
+
+**LESSONLAB_SUB** — Generate a substitute-teacher-friendly version. Same fields as the lesson plus a "sub_notes" array of 3 practical management bullet points. Simplify all phases so a non-specialist can run the lesson. Return ONLY \`\`\`json ... \`\`\`.
+
+**LESSONLAB_DIFF** — Generate THREE differentiated lesson versions (support/main/extension). Return ONLY \`\`\`json {"support":{...full lesson...},"main":{...},"extension":{...}} \`\`\`. Each version must have all standard lesson fields.
+
+**LESSONLAB_ASSESS** — Generate a structured assessment task. Return ONLY \`\`\`json {"title":"...","type":"...","description":"...","criteria":[{"criterion":"...","emerging":"...","developing":"...","achieved":"..."}],"teacher_notes":"...","student_instructions":"..."} \`\`\` with 3-5 criteria rows.
+
+**LESSONLAB_WARMUPS** — Generate exactly 5 warm-up activities. Return ONLY \`\`\`json {"warmups":[{"title":"...","duration":"...","description":"...","equipment":"...","skills":["..."]},...]} \`\`\` with exactly 5 items matching the lesson's subject, year level and focus.
+
+**LESSONLAB_RISK** — Generate a PE risk assessment. Return ONLY \`\`\`json {"activity":"...","supervision":"...","space":"...","hazards":[{"hazard":"...","likelihood":"Low|Medium|High","severity":"Low|Medium|High","controls":"..."}],"equipment_checks":["..."],"medical_notes":"..."} \`\`\` with 4-6 hazard rows covering realistic PE risks (slips, collisions, equipment misuse, etc.).
+
+**LESSONLAB_NEWSLETTER** — Write a 3-4 sentence parent-friendly paragraph about the lesson. Plain language, no jargon. Start with "In [subject] this week...". Return ONLY the paragraph text — no JSON, no markdown, no quotes.
+
+**LESSONLAB_CURRICULUM** — Identify Victorian Curriculum 2.0 alignment. Return ONLY \`\`\`json {"tags":["HPE - Movement and Physical Activity - FMS","..."],"content_descriptions":[{"code":"VCHPEM123","description":"..."}]} \`\`\` with 2-4 most relevant strand tags and content descriptions with real Vic Curriculum codes.
+
+### General rules for LessonLab:
+- When a LESSONLAB_* command is present, return ONLY the requested format — no preamble, no explanation, no sign-off.
+- All lesson JSON should include: title, li (learning intention), sc (success criteria array), equipment (array), differentiation ({support, extension}), and phase fields appropriate to the subject (warmup, skill_focus, main_activity, cool_down for PE; body for other subjects).
+- Year levels follow Victorian system: Foundation, Year 1–6.
+- School name default: Williamstown Primary School.
+- Duration is in minutes as a string (e.g. "45").
+${isCmd ? '- This message IS a LESSONLAB command — respond with the exact format only.' : '- This is a conversational message in LessonLab — respond helpfully and concisely.'}`;
+    } else if (productContext) {
+      productCtxStr = '\n\nContext: You are embedded in ' + productContext + '. Tailor your answers to this context.';
+    }
 
     // ── 5. Build system prompt with live context injected ────────────────────
     const contextHistory = history.slice(-40).map(h => ({ role: h.role, content: h.content }));
