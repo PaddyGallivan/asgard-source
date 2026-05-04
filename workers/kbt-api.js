@@ -725,15 +725,30 @@ async function handleUploadMorph(request) {
     return json({ error: 'Empty or tiny request body' }, 400);
   }
   const filename = request.headers.get('X-Filename') || ('morph-' + Date.now() + '.png');
+  // Try 0x0.st first (no auth, ~365 day retention), fall back to tmpfiles
   const fd = new FormData();
-  fd.append('reqtype', 'fileupload');
-  fd.append('fileToUpload', new Blob([buf], { type: 'image/png' }), filename);
-  const r = await fetch('https://catbox.moe/user/api.php', { method: 'POST', body: fd });
-  const txt = (await r.text()).trim();
-  if (!r.ok || !txt.startsWith('http')) {
-    return json({ error: 'Upload failed', status: r.status, body: txt.slice(0, 200) }, 502);
+  fd.append('file', new Blob([buf], { type: 'image/png' }), filename);
+  let r = await fetch('https://0x0.st', {
+    method: 'POST',
+    body: fd,
+    headers: { 'User-Agent': 'kbt-api/1.0 (paddy@luckdragon.io)' }
+  });
+  let txt = (await r.text()).trim();
+  if (r.ok && txt.startsWith('http')) {
+    return json({ url: txt, host: '0x0.st' });
   }
-  return json({ url: txt });
+  // Fallback: tmpfiles.org (returns JSON with .data.url)
+  const fd2 = new FormData();
+  fd2.append('file', new Blob([buf], { type: 'image/png' }), filename);
+  const r2 = await fetch('https://tmpfiles.org/api/v1/upload', { method: 'POST', body: fd2 });
+  if (r2.ok) {
+    const j = await r2.json();
+    let u = j?.data?.url || '';
+    // tmpfiles returns viewer URL — convert to direct download
+    if (u.includes('tmpfiles.org/')) u = u.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
+    if (u) return json({ url: u, host: 'tmpfiles.org' });
+  }
+  return json({ error: 'All upload hosts failed', host1_status: r.status, host1_body: txt.slice(0,200), host2_status: r2.status }, 502);
 }
 
 // ─── Router ──────────────────────────────────────────────────────────────────
