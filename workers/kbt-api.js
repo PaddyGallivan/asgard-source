@@ -746,6 +746,7 @@ async function handleUploadMorph(request) {
     let u = j?.data?.url || '';
     // tmpfiles returns viewer URL — convert to direct download
     if (u.includes('tmpfiles.org/')) u = u.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
+    if (u.startsWith('http://')) u = 'https://' + u.slice(7);
     if (u) return json({ url: u, host: 'tmpfiles.org' });
   }
   return json({ error: 'All upload hosts failed', host1_status: r.status, host1_body: txt.slice(0,200), host2_status: r2.status }, 502);
