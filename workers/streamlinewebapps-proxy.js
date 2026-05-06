@@ -1,4 +1,4 @@
-// streamlinewebapps-proxy v33 — honesty pass: de-seeded marketplace, hero stats reframed, fake testimonials replaced, /chat local handler, /status customer page, /analytics rate-limited
+// streamlinewebapps-proxy v36 — sender = hello@streamlinewebapps.com (verified in Resend), Stripe webhook handler at /stripe/webhook with sig verification + payment-confirmation emails (admin + customer), 2026-05-06
 const SUPABASE = "https://huvfgenbcaiicatvtxak.supabase.co/functions/v1/streamline";
 const SUPA_REST = "https://huvfgenbcaiicatvtxak.supabase.co/rest/v1";
 const SUPA_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh1dmZnZW5iY2FpaWNhdHZ0eGFrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2MTczNjIsImV4cCI6MjA5MTE5MzM2Mn0.uTgzTKYjJnkFlRUIhGfW4ODKyV24xOdKaX7lxpDuMfc";
@@ -141,9 +141,9 @@ async function handleSubmit(request, env) {
       method: "POST",
       headers: {"Authorization": "Bearer "+env.RESEND_KEY, "Content-Type": "application/json"},
       body: JSON.stringify({
-        from: "Streamline <noreply@luckdragon.io>",
-        reply_to: "hello@streamlinewebapps.com",
-        to: ["pgallivan@outlook.com"],
+        from: "Streamline <hello@streamlinewebapps.com>",
+        to: ["paddy@luckdragon.io"],
+        cc: ["hello@streamlinewebapps.com"],
         subject: "New submission: \""+title+"\" ("+tier+")",
         html: "<div style='font-family:Inter,sans-serif;max-width:560px;padding:32px 24px'>"+
           "<h2 style='color:#1e1b4b;margin:0 0 16px'>New idea submitted</h2>"+
@@ -165,8 +165,7 @@ async function handleSubmit(request, env) {
       method: "POST",
       headers: {"Authorization": "Bearer "+env.RESEND_KEY, "Content-Type": "application/json"},
       body: JSON.stringify({
-        from: "Streamline <noreply@luckdragon.io>",
-        reply_to: "hello@streamlinewebapps.com",
+        from: "Streamline <hello@streamlinewebapps.com>",
         to: [email],
         subject: "Complete your submission: \""+title+"\"",
         html: "<div style='font-family:Inter,sans-serif;max-width:560px;margin:0 auto;padding:40px 24px'>"+
@@ -211,6 +210,102 @@ async function handleAdminData(request, env) {
     fetch(SUPA_REST+"/streamline_ideas?order=created_at.desc&limit=100", {headers: SUPA_H}).then(r=>r.json()).catch(()=>[])
   ]);
   return new Response(JSON.stringify({subs, ideas}), {headers:{...CORS,"Content-Type":"application/json"}});
+}
+
+// Verify Stripe webhook signature (HMAC-SHA256)
+async function verifyStripeSig(rawBody, sigHeader, secret) {
+  if (!sigHeader || !secret) return false;
+  const parts = sigHeader.split(",").map(p => p.split("="));
+  const tEntry = parts.find(p => p[0]==="t");
+  const v1Entries = parts.filter(p => p[0]==="v1");
+  if (!tEntry || v1Entries.length===0) return false;
+  const t = tEntry[1];
+  const payload = t + "." + rawBody;
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), {name:"HMAC", hash:"SHA-256"}, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+  const sigHex = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2,"0")).join("");
+  return v1Entries.some(p => p[1] === sigHex);
+}
+
+async function handleStripeWebhook(request, env) {
+  const rawBody = await request.text();
+  const sig = request.headers.get("Stripe-Signature");
+  const secret = env.STRIPE_WEBHOOK_SECRET;
+  if (!secret) return new Response(JSON.stringify({error:"webhook secret not configured"}), {status:503, headers:{"Content-Type":"application/json"}});
+  const ok = await verifyStripeSig(rawBody, sig, secret);
+  if (!ok) return new Response(JSON.stringify({error:"Invalid signature"}), {status:400, headers:{"Content-Type":"application/json"}});
+  let evt;
+  try { evt = JSON.parse(rawBody); } catch(e) { return new Response(JSON.stringify({error:"bad json"}), {status:400, headers:{"Content-Type":"application/json"}}); }
+  if (evt.type === "checkout.session.completed") {
+    const session = evt.data.object;
+    const submissionId = (session.metadata||{}).submission_id;
+    const email = session.customer_email || (session.metadata||{}).email || "";
+    const title = (session.metadata||{}).title || "";
+    const tier = (session.metadata||{}).tier || "";
+    const name = (session.metadata||{}).name || "";
+    const amount = (session.amount_total||0)/100;
+    const currency = (session.currency||"aud").toUpperCase();
+    // Update submission status to paid
+    if (submissionId) {
+      try {
+        await fetch(SUPA_REST+"/streamline_submissions?id=eq."+encodeURIComponent(submissionId), {
+          method:"PATCH", headers: SUPA_H,
+          body: JSON.stringify({status:"paid", paid_at: new Date().toISOString()})
+        });
+      } catch(e) {}
+    }
+    // Send admin payment notification
+    if (env.RESEND_KEY) {
+      fetch("https://api.resend.com/emails", {
+        method:"POST",
+        headers:{"Authorization":"Bearer "+env.RESEND_KEY, "Content-Type":"application/json"},
+        body: JSON.stringify({
+          from: "Streamline <hello@streamlinewebapps.com>",
+          to: ["paddy@luckdragon.io"],
+          cc: ["hello@streamlinewebapps.com"],
+          subject: "💰 Payment received: \""+title+"\" ("+tier+", $"+amount+" "+currency+")",
+          html: "<div style='font-family:Inter,sans-serif;max-width:560px;padding:32px 24px'>"+
+            "<h2 style='color:#1e1b4b;margin:0 0 16px'>Payment received</h2>"+
+            "<table style='font-size:14px;color:#4c4885;border-collapse:collapse;width:100%'>"+
+            "<tr><td style='padding:6px 0;font-weight:600;width:120px'>Title</td><td>"+htmlEscape(title)+"</td></tr>"+
+            "<tr><td style='padding:6px 0;font-weight:600'>Tier</td><td>"+htmlEscape(tier)+"</td></tr>"+
+            "<tr><td style='padding:6px 0;font-weight:600'>Amount</td><td>$"+amount+" "+currency+"</td></tr>"+
+            "<tr><td style='padding:6px 0;font-weight:600'>Customer</td><td>"+htmlEscape(name)+" &lt;"+htmlEscape(email)+"&gt;</td></tr>"+
+            "<tr><td style='padding:6px 0;font-weight:600'>Submission ID</td><td>#"+htmlEscape(submissionId)+"</td></tr>"+
+            "<tr><td style='padding:6px 0;font-weight:600'>Stripe session</td><td>"+htmlEscape(session.id)+"</td></tr>"+
+            "</table>"+
+            "<p style='margin:20px 0 0;font-size:13px;color:#9490c0'>Time to start the build. Run <code>POST /admin/scaffold/"+htmlEscape(submissionId)+"?pin=&lt;ADMIN_PIN&gt;</code> for an AI scaffold.</p>"+
+            "</div>"
+        })
+      }).catch(()=>{});
+    }
+    // Send customer payment confirmation with status link
+    if (env.RESEND_KEY && email && submissionId) {
+      const tok = await statusToken(env, submissionId, email);
+      const statusUrl = "https://www.streamlinewebapps.com/status?t=" + tok;
+      const firstName = (name.split(" ")[0]||"there");
+      fetch("https://api.resend.com/emails", {
+        method:"POST",
+        headers:{"Authorization":"Bearer "+env.RESEND_KEY, "Content-Type":"application/json"},
+        body: JSON.stringify({
+          from: "Streamline <hello@streamlinewebapps.com>",
+          to: [email],
+          subject: "Payment received — your build starts within 48 hours",
+          html: "<div style='font-family:Inter,sans-serif;max-width:560px;margin:0 auto;padding:40px 24px'>"+
+            "<div style='width:40px;height:40px;background:linear-gradient(135deg,#6d28d9,#7c3aed);border-radius:10px;display:flex;align-items:center;justify-content:center;margin-bottom:24px'>"+
+            "<span style='color:#fff;font-weight:800;font-size:18px'>S</span></div>"+
+            "<h1 style='font-size:24px;font-weight:800;color:#1e1b4b;margin:0 0 8px'>Payment received, "+htmlEscape(firstName)+"</h1>"+
+            "<p style='color:#4c4885;font-size:15px;line-height:1.6;margin:0 0 24px'>Thanks &mdash; we&rsquo;ve got your "+amount+" "+currency+" for <strong>"+htmlEscape(title)+"</strong> and the build queue is now active. We&rsquo;ll start within 48 hours.</p>"+
+            "<a href='"+statusUrl+"' style='display:inline-block;background:#6d28d9;color:#fff;padding:14px 28px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px;margin-bottom:24px'>Check status →</a>"+
+            "<p style='color:#9490c0;font-size:13px;margin:0'>Bookmark the status link &mdash; it stays valid through the build. Reply to this email if anything is unclear.</p>"+
+            "<hr style='border:none;border-top:1px solid #e0ddf5;margin:28px 0'>"+
+            "<p style='color:#9490c0;font-size:12px;margin:0'>Streamline &middot; Melbourne, Australia &middot; <a href='https://streamlinewebapps.com' style='color:#6d28d9'>streamlinewebapps.com</a></p>"+
+            "</div>"
+        })
+      }).catch(()=>{});
+    }
+  }
+  return new Response(JSON.stringify({received:true, type: evt.type, id: evt.id}), {status:200, headers:{"Content-Type":"application/json"}});
 }
 
 async function handleScaffold(request, env, id) {
@@ -272,7 +367,7 @@ export default {
 
     const cors = corsFor(request);
     if (request.method === "OPTIONS") return new Response(null, {status:204, headers:cors});
-    if (path === "/health") return new Response(JSON.stringify({ok:true,version:34,sha:"scaffold-mvp-2026-05-06"}), {headers:{...cors,...SEC_HEADERS,"Content-Type":"application/json"}});
+    if (path === "/health") return new Response(JSON.stringify({ok:true,version:36,sha:"hello-sender-stripe-webhook-2026-05-06"}), {headers:{...cors,...SEC_HEADERS,"Content-Type":"application/json"}});
     if (path === "/robots.txt") return new Response("User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /admin/\nDisallow: /analytics\nSitemap: https://streamlinewebapps.com/sitemap.xml\n", {headers:{"Content-Type":"text/plain;charset=utf-8","Cache-Control":"public,max-age=3600",...SEC_HEADERS}});
     if (path === "/favicon.ico") return new Response('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#6d28d9"/><text x="16" y="22" text-anchor="middle" font-family="Arial,sans-serif" font-size="20" font-weight="800" fill="#fff">S</text></svg>', {headers:{"Content-Type":"image/svg+xml","Cache-Control":"public,max-age=86400",...SEC_HEADERS}});
     if (path === "/status") {
@@ -334,6 +429,7 @@ export default {
     if (path === "/refunds") return new Response(REFUNDS_HTML, {headers:{...SEC_HEADERS,"Content-Type":"text/html;charset=utf-8","Cache-Control":"public,max-age=86400"}});
     if (path === "/admin") return new Response(ADMIN_HTML, {headers:{...SEC_HEADERS,"Content-Type":"text/html;charset=utf-8","X-Robots-Tag":"noindex,nofollow"}});
     if (path === "/admin/data") return handleAdminData(request, env);
+    if (path === "/stripe/webhook" && request.method === "POST") return handleStripeWebhook(request, env);
     if (path.startsWith("/admin/scaffold/") && request.method === "POST") return handleScaffold(request, env, path.replace("/admin/scaffold/",""));
     if (path === "/analytics" && request.method === "POST") {
       const ip = request.headers.get("CF-Connecting-IP")||"";
