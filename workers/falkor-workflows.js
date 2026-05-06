@@ -400,7 +400,7 @@ async function sendTelegram(env, text) {
     });
     if (!r.ok) return false;
     const d = await r.json().catch(() => ({}));
-    return !!d.message_id;
+    return !!(d.message_id || (d.result && d.result.message_id));
   } catch { return false; }
 }
 
