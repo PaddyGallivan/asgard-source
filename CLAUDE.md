@@ -11,7 +11,7 @@
 ## Identity
 - User: Paddy Gallivan
 - Accounts: paddy@luckdragon.io (primary), pgallivan@outlook.com (Microsoft/backup)
-- Vault PIN: 535554
+- Vault PIN: <VAULT_PIN>
 - Vault: https://asgard-vault.pgallivan.workers.dev
 - D1 (asgard-brain): b6275cb4-9c0f-4649-ae6a-f1c2e70e940f
 - CF Account: a6f47c17811ee2f8b6caeb8f38768c20
@@ -115,7 +115,7 @@ Never declare a task complete without running the full checklist.
 - CF_API_TOKEN / CF_FULLOPS_TOKEN / CF_TOKEN_LD Ã¢ÂÂ Cloudflare (may lack Zone.DNS:Edit)
 - CF_PAGES_TOKEN Ã¢ÂÂ CF Pages deployments
 - RESEND_API_KEY Ã¢ÂÂ transactional email
-- Get any: `curl -s -H "X-Pin: 535554" https://asgard-vault.pgallivan.workers.dev/secret/NAME`
+- Get any: `curl -s -H "X-Pin: <VAULT_PIN>" https://asgard-vault.pgallivan.workers.dev/secret/NAME`
 
 ## Storage routing
 - Code, configs, docs, markdown Ã¢ÂÂ GitHub (LuckDragonAsgard org)
@@ -130,7 +130,7 @@ Never declare a task complete without running the full checklist.
 4. Update HANDOVER.md on GitHub (LuckDragonAsgard/asgard-source)
 5. Update this CLAUDE.md with any new traps or decisions discovered
 6. Commit all session work to product repo on GitHub
-7. Update product row in asgard-brain via POST to https://asgard-tools.pgallivan.workers.dev/admin/* with X-Pin: 535554
+7. Update product row in asgard-brain via POST to https://asgard-tools.pgallivan.workers.dev/admin/* with X-Pin: <VAULT_PIN>
 
 ## Missing checks (commonly skipped Ã¢ÂÂ don't skip these)
 - Stripe webhooks: always validate signature before processing Ã¢ÂÂ never trust raw payload
@@ -158,7 +158,7 @@ Key Falkor-specific additions:
 When Falkor encounters a new error pattern or workaround, it calls:
 
 POST https://asgard-tools.pgallivan.workers.dev/admin/log-trap
-Headers: X-Pin: 535554
+Headers: X-Pin: <VAULT_PIN>
 Body: { "trap": "description of what went wrong and how to fix it", "product": "product name" }
 
 This endpoint (to be built) should:
