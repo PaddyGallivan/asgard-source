@@ -1105,7 +1105,7 @@ footer{background:var(--ink);color:rgba(255,255,255,.55);padding:56px 40px 36px;
       <div class="step-icon">⚡</div>
       <div class="step-num">02</div>
       <h3>We build with AI</h3>
-      <p>Our team uses the latest AI tools to rapidly build your app. Standard turnaround is 1–4 weeks. Priority submissions jump the queue.</p>
+      <p>Personally reviewed within 48 hours, then built with AI by our team. Standard turnaround is 1–4 weeks. Priority submissions jump the queue.</p>
       <span class="step-tag">1–4 week build</span>
     </div>
     <div class="step-arrow">→</div>
@@ -1125,7 +1125,7 @@ footer{background:var(--ink);color:rgba(255,255,255,.55);padding:56px 40px 36px;
     <div class="feat-card main">
       <span class="feat-tag live">● LIVE</span>
       <h3>AI-powered builds</h3>
-      <p>Every app is built using the latest AI models and frameworks. Fast, production-grade, and ready to sell from day one.</p>
+      <p>Every app is reviewed by our team and built using the latest AI models and frameworks. Fast, production-grade, and ready to sell from day one.</p>
       <div class="feat-chips">
         <span class="feat-chip">Claude</span><span class="feat-chip">GPT-4o</span><span class="feat-chip">Supabase</span><span class="feat-chip">Stripe</span><span class="feat-chip">Cloudflare</span>
       </div>
