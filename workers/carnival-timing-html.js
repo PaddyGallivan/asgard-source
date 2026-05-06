@@ -4584,7 +4584,7 @@ async function xcStartRecording() {
       const mm = String(Math.floor(secs / 60)).padStart(2, '0');
       const ss = String(secs % 60).padStart(2, '0');
       const el = document.getElementById('xc-rec-status');
-      if (el) el.textContent = `● REC ${mm}:${ss}`;
+      if (el) el.textContent = '● REC ' + mm + ':' + ss;
     }, 1000);
 
     toast('📹 Recording started');
@@ -4612,12 +4612,12 @@ function xcSaveRecording() {
   const ext  = mimeType.includes('mp4') ? 'mp4' : 'webm';
   const blob = new Blob(_xcRecChunks, { type: mimeType });
   const ts   = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const name = `ct-recording-${ts}.${ext}`;
+  const name = 'ct-recording-' + ts + '.' + ext;
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href = url; a.download = name; a.click();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
-  toast(`✅ Saved: ${name}`);
+  toast('✅ Saved: ' + name);
   _xcRecChunks = []; _xcMediaRecorder = null;
 }
 
