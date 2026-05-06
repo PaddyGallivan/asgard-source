@@ -13,7 +13,7 @@
 - **Vercel team:** `team_qXLAiOqq0EztMXKK8CXX6JhT` (pgallivan@outlook.com — migration pending to luckdragon.io)
 - **Drive account:** `paddy@luckdragon.io` (legacy content only — see storage routing)
 - **Supabase:** `huvfgenbcaiicatvtxak` (shared DB for Save My Seat + KBT test)
-- **Vault PIN:** `535554`
+- **Vault PIN:** `<VAULT_PIN>`
 - **Asgard dashboard:** https://asgard.pgallivan.workers.dev (fan PIN: `luckdragon`)
 
 ---
@@ -25,14 +25,14 @@
 | Code, configs, docs, handovers, markdown | **GitHub** (`LuckDragonAsgard` org) |
 | Workers / API routes | Cloudflare Workers |
 | Static sites | Cloudflare Pages (Git-connected, NOT direct upload) |
-| Secrets / tokens | `asgard-vault.pgallivan.workers.dev` (X-Pin: 535554) |
+| Secrets / tokens | `asgard-vault.pgallivan.workers.dev` (X-Pin: <VAULT_PIN>) |
 | Office files for live editing | Google Drive (paddy@luckdragon.io) — residual only |
 
 **Nothing new ever goes to Drive or local scratch folders.**
 
 ---
 
-## Key Credentials (all in vault — fetch with X-Pin: 535554)
+## Key Credentials (all in vault — fetch with X-Pin: <VAULT_PIN>)
 
 - `CF_API_TOKEN` — full-ops Cloudflare token (asgard-fullops)
 - `GITHUB_TOKEN` — raw string, NOT JSON. Use `curl | cat`, never `| python3 -c json.load`
