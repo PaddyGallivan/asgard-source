@@ -1,4 +1,4 @@
-// falkor-ui worker v1.0.0
+// falkor-ui worker v1.0.1
 // React SPA served as a Worker (falkor.luckdragon.io)
 
 const HTML = `<!DOCTYPE html>
@@ -405,7 +405,7 @@ function App() {
         if (msg.type === 'assistant_reply') {
           setTyping(false);
           const replyMsg = { id: uid(), role: 'assistant', content: msg.text, ts: Date.now() };
-          setConvos(prev => prev.map(c => c.id === activeId
+          setConvos(prev => prev.map(c => c.id === activeIdRef.current
             ? { ...c, messages: [...(c.messages||[]), replyMsg] }
             : c
           ));
@@ -420,7 +420,7 @@ function App() {
     };
 
     ws.onerror = () => ws.close();
-  }, [user, activeId]);
+  }, [user]);
 
   useEffect(() => {
     if (user) connectWS();
@@ -428,11 +428,16 @@ function App() {
       clearTimeout(reconnectTimer.current);
       wsRef.current?.close();
     };
-  }, [user]);
+  }, [user, connectWS]);
 
-  // Re-send activeId to WS context when switching convos
+  // Keep activeIdRef in sync and persist to LS
   useEffect(() => {
+    activeIdRef.current = activeId;
     localStorage.setItem('falkor.activeId', activeId);
+    // Notify agent of convo switch via WS
+    if (wsRef.current && wsRef.current.readyState === 1 && activeId) {
+      wsRef.current.send(JSON.stringify({ type: 'switch_convo', conversation_id: activeId }));
+    }
   }, [activeId]);
 
   function handleLogin(userData) {
@@ -502,7 +507,7 @@ function App() {
 
     // Send via WebSocket if connected, else REST
     if (wsRef.current && wsRef.current.readyState === 1) {
-      wsRef.current.send(JSON.stringify({ type: 'chat', text: fullText, model }));
+      wsRef.current.send(JSON.stringify({ type: 'chat', text: fullText, model, conversation_id: cid }));
     } else {
       // Fallback to REST
       try {
@@ -555,7 +560,7 @@ function App() {
     if (file.size > 10 * 1024 * 1024) { alert('File too large (>10MB)'); return; }
     const reader = new FileReader();
     if (file.type.startsWith('image/')) {
-      reader.onload = e => setAttachment({ name: file.name, type: 'image', dataUrl: e.target.result, prefix: '' });
+      reader.onload = e => setAttachment({ name: file.name, type: 'image', dataUrl: e.target.result, prefix: \`📎 [Image: \${file.name}]\\n\` });
       reader.readAsDataURL(file);
     } else {
       reader.onload = e => {
@@ -683,6 +688,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 </script>
 </body>
 </html>
+
 `;
 
 export default {
