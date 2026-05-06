@@ -1,4 +1,4 @@
-// streamlinewebapps-proxy v32 — security hardening: ADMIN_PIN→env, CORS allowlist, security headers, real /robots /sitemap, 404 handler, real /stats from DB, Resend verified sender, idempotency, admin XSS fix, og tags
+// streamlinewebapps-proxy v33 — honesty pass: de-seeded marketplace, hero stats reframed, fake testimonials replaced, /chat local handler, /status customer page, /analytics rate-limited
 const SUPABASE = "https://huvfgenbcaiicatvtxak.supabase.co/functions/v1/streamline";
 const SUPA_REST = "https://huvfgenbcaiicatvtxak.supabase.co/rest/v1";
 const SUPA_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh1dmZnZW5iY2FpaWNhdHZ0eGFrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2MTczNjIsImV4cCI6MjA5MTE5MzM2Mn0.uTgzTKYjJnkFlRUIhGfW4ODKyV24xOdKaX7lxpDuMfc";
@@ -45,6 +45,29 @@ function rateOk(ip, key, max, windowMs=60000) {
   w.c++; _rl.set(k,w);
   return w.c <= max;
 }
+// HMAC token helpers for /status?t=<token>
+async function _statusHmac(env, msg) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.STATUS_SECRET||""), {name:"HMAC", hash:"SHA-256"}, false, ["sign","verify"]);
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(msg));
+  return btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+}
+async function statusToken(env, id, email) {
+  const payload = id + "|" + (email||"").toLowerCase();
+  const sig = await _statusHmac(env, payload);
+  const b64 = btoa(payload).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+  return b64 + "." + sig;
+}
+async function verifyStatusToken(env, token) {
+  if (!token || !token.includes(".")) return null;
+  const [b64, sig] = token.split(".");
+  let payload;
+  try { payload = atob(b64.replace(/-/g,"+").replace(/_/g,"/")); } catch(e) { return null; }
+  const expect = await _statusHmac(env, payload);
+  if (expect !== sig) return null;
+  const [id, email] = payload.split("|");
+  return { id, email };
+}
+
 async function idemKey(email, title) {
   const data = new TextEncoder().encode((email||"").toLowerCase()+"|"+(title||"").toLowerCase());
   const h = await crypto.subtle.digest("SHA-256", data);
@@ -52,7 +75,7 @@ async function idemKey(email, title) {
 }
 function idemPrune(){const n=Date.now();for(const[k,v]of _idem)if(n>v.until)_idem.delete(k);}
 
-const API_ROUTES = ["/ideas", "/vote", "/chat"]; // /stats now served from DB locally
+const API_ROUTES = ["/ideas", "/vote"]; // /stats served from DB locally; /chat handled locally
 const STRIPE_PRICES = { Standard: "price_1TNvyJAm8bVflPN0GBi8u30C", Priority: "price_1TNvyJAm8bVflPN0Nerezgrs", Equity: "price_1TNvyKAm8bVflPN0rZqZZdgq" };
 
 async function handleSubmit(request, env) {
@@ -153,13 +176,17 @@ async function handleSubmit(request, env) {
           "<p style='color:#4c4885;font-size:15px;line-height:1.6;margin:0 0 28px'>Your idea <strong style='color:#1e1b4b'>"+htmlEscape(title)+"</strong> is saved. Complete your payment to start the build.</p>"+
           "<a href='"+checkoutUrl+"' style='display:inline-block;background:#6d28d9;color:#fff;padding:14px 28px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px;margin-bottom:28px'>Complete Payment &rarr;</a>"+
           "<p style='color:#9490c0;font-size:13px;margin:0'>Tier: "+htmlEscape(tier)+" &middot; Category: "+htmlEscape(category||"Utility")+"<br>Once confirmed, we&#39;ll be in touch within 48 hours.</p>"+
+          (_statusUrl ? "<p style='color:#4c4885;font-size:13px;margin:14px 0 0'>Track progress: <a href='"+_statusUrl+"' style='color:#6d28d9;font-weight:600'>"+_statusUrl.replace("https://www.","")+"</a></p>" : "")+
           "<hr style='border:none;border-top:1px solid #e0ddf5;margin:28px 0'>"+
           "<p style='color:#9490c0;font-size:12px;margin:0'>Streamline &middot; Melbourne, Australia &middot; <a href='https://www.streamlinewebapps.com' style='color:#6d28d9'>streamlinewebapps.com</a></p></div>"
       })
     }).catch(()=>{});
   }
 
-  const respBody = JSON.stringify({checkout: checkoutUrl});
+  // Send status link in customer email
+  const _statusTok = submissionId ? await statusToken(env, submissionId, email) : null;
+  const _statusUrl = _statusTok ? ("https://www.streamlinewebapps.com/status?t=" + _statusTok) : null;
+  const respBody = JSON.stringify({checkout: checkoutUrl, status_url: _statusUrl});
   _idem.set(ikey, {until: Date.now()+60000, response: respBody});
   return new Response(respBody, {headers:{...CORS,"Content-Type":"application/json"}});
 }
@@ -186,6 +213,58 @@ async function handleAdminData(request, env) {
   return new Response(JSON.stringify({subs, ideas}), {headers:{...CORS,"Content-Type":"application/json"}});
 }
 
+async function handleScaffold(request, env, id) {
+  const url = new URL(request.url);
+  if (url.searchParams.get("pin") !== (env.ADMIN_PIN||"")) return new Response(JSON.stringify({error:"Unauthorized"}), {status:401, headers:{...CORS,"Content-Type":"application/json"}});
+  if (!env.ANTHROPIC_API_KEY) return new Response(JSON.stringify({error:"ANTHROPIC_API_KEY not set"}), {status:503, headers:{...CORS,"Content-Type":"application/json"}});
+  // Fetch submission
+  const r = await fetch(SUPA_REST+"/streamline_submissions?id=eq."+encodeURIComponent(id)+"&select=*", {headers: SUPA_H});
+  const d = await r.json();
+  const sub = Array.isArray(d) && d[0];
+  if (!sub) return new Response(JSON.stringify({error:"Submission not found"}), {status:404, headers:{...CORS,"Content-Type":"application/json"}});
+  // Build a constrained prompt
+  const prompt = "Generate a single-file Cloudflare Worker (module-style export default { fetch }) that scaffolds an MVP web app for this submission. Output ONLY valid JavaScript wrapped in ```javascript ... ``` fence. Requirements:\n" +
+    "- Single fetch handler that serves HTML on / and a small JSON API for one core action.\n" +
+    "- Embed the HTML inline as a template literal const HTML.\n" +
+    "- Use only fetch + Response + URL APIs (no external imports).\n" +
+    "- Tailwind via CDN class names is OK in HTML.\n" +
+    "- Add CORS headers.\n" +
+    "- No secrets in source.\n" +
+    "- Add a 'Built by Streamline' footer link.\n\n" +
+    "App spec:\n" +
+    "Title: " + (sub.title||"") + "\n" +
+    "Description: " + (sub.description||"") + "\n" +
+    "Category: " + (sub.category||"Utility") + "\n" +
+    "Tier: " + (sub.tier||"Standard");
+  try {
+    const cr = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {"x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "Content-Type": "application/json"},
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 4000,
+        messages: [{role:"user", content: prompt}]
+      })
+    });
+    const cd = await cr.json();
+    if (!cr.ok) return new Response(JSON.stringify({error:"Claude API error", status:cr.status, detail:cd}), {status:502, headers:{...CORS,"Content-Type":"application/json"}});
+    const text = (cd.content && cd.content[0] && cd.content[0].text) || "";
+    const codeMatch = text.match(/```(?:javascript|js)?\s*([\s\S]+?)```/);
+    const code = codeMatch ? codeMatch[1].trim() : text.trim();
+    return new Response(JSON.stringify({
+      submission_id: id,
+      title: sub.title,
+      generated_at: new Date().toISOString(),
+      lines: code.split("\n").length,
+      bytes: code.length,
+      code,
+      raw: text
+    }), {headers:{...CORS,"Content-Type":"application/json"}});
+  } catch(e) {
+    return new Response(JSON.stringify({error:e.message||"Scaffold failed"}), {status:500, headers:{...CORS,"Content-Type":"application/json"}});
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -193,10 +272,45 @@ export default {
 
     const cors = corsFor(request);
     if (request.method === "OPTIONS") return new Response(null, {status:204, headers:cors});
-    if (path === "/health") return new Response(JSON.stringify({ok:true,version:32,sha:"hardening-2026-05-06"}), {headers:{...cors,...SEC_HEADERS,"Content-Type":"application/json"}});
+    if (path === "/health") return new Response(JSON.stringify({ok:true,version:34,sha:"scaffold-mvp-2026-05-06"}), {headers:{...cors,...SEC_HEADERS,"Content-Type":"application/json"}});
     if (path === "/robots.txt") return new Response("User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /admin/\nDisallow: /analytics\nSitemap: https://streamlinewebapps.com/sitemap.xml\n", {headers:{"Content-Type":"text/plain;charset=utf-8","Cache-Control":"public,max-age=3600",...SEC_HEADERS}});
     if (path === "/favicon.ico") return new Response('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#6d28d9"/><text x="16" y="22" text-anchor="middle" font-family="Arial,sans-serif" font-size="20" font-weight="800" fill="#fff">S</text></svg>', {headers:{"Content-Type":"image/svg+xml","Cache-Control":"public,max-age=86400",...SEC_HEADERS}});
+    if (path === "/status") {
+      const t = url.searchParams.get("t") || "";
+      const v = await verifyStatusToken(env, t);
+      if (!v) return new Response(STATUS_INVALID_HTML, {status:404, headers:{...SEC_HEADERS,"Content-Type":"text/html;charset=utf-8","Cache-Control":"no-store","X-Robots-Tag":"noindex"}});
+      // Fetch submission from DB
+      try {
+        const r = await fetch(SUPA_REST+"/streamline_submissions?id=eq."+encodeURIComponent(v.id)+"&select=id,title,name,email,tier,status,created_at,stripe_session_id", {headers: SUPA_H});
+        const d = await r.json();
+        const sub = Array.isArray(d) && d[0];
+        if (!sub || (sub.email||"").toLowerCase() !== v.email) return new Response(STATUS_INVALID_HTML, {status:404, headers:{...SEC_HEADERS,"Content-Type":"text/html;charset=utf-8","X-Robots-Tag":"noindex"}});
+        const html = renderStatus(sub);
+        return new Response(html, {headers:{...SEC_HEADERS,"Content-Type":"text/html;charset=utf-8","Cache-Control":"no-store","X-Robots-Tag":"noindex"}});
+      } catch(e) {
+        return new Response(STATUS_INVALID_HTML, {status:500, headers:{...SEC_HEADERS,"Content-Type":"text/html;charset=utf-8"}});
+      }
+    }
     if (path === "/sitemap.xml") return new Response('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>https://streamlinewebapps.com/</loc><priority>1.0</priority></url>\n  <url><loc>https://streamlinewebapps.com/privacy</loc><priority>0.4</priority></url>\n  <url><loc>https://streamlinewebapps.com/terms</loc><priority>0.4</priority></url>\n  <url><loc>https://streamlinewebapps.com/refunds</loc><priority>0.4</priority></url>\n</urlset>\n', {headers:{"Content-Type":"application/xml;charset=utf-8","Cache-Control":"public,max-age=3600",...SEC_HEADERS}});
+    if (path === "/chat" && request.method === "POST") {
+      const ip = request.headers.get("CF-Connecting-IP")||"";
+      if (!rateOk(ip, "chat", 20)) return new Response(JSON.stringify({reply:"Too many messages, slow down a sec."}), {status:429, headers:{...cors,...SEC_HEADERS,"Content-Type":"application/json"}});
+      let body = {};
+      try { body = await request.json(); } catch(e) {}
+      const m = String(body.message||"").toLowerCase().slice(0,500);
+      let reply = "Good question! For anything I can\u2019t answer here, email hello@streamlinewebapps.com or check /terms and /refunds.";
+      if (/price|cost|tier|standard|priority|equity|how much|fee/.test(m)) reply = "Standard $29 / Priority $99 / Equity $299 AUD \u2014 one-time payment + 25% perpetual revenue share. Equity tier includes a signed deed.";
+      else if (/refund|money back|guarantee/.test(m)) reply = "Standard: full refund if we haven\u2019t started within 30 days. Priority: 14 days. Equity: 14 days (with 48hr build-start commitment). See /refunds for the full policy.";
+      else if (/payout|pay out|paid|when do i get/.test(m)) reply = "Quarterly payouts via Australian bank transfer (PayID or BSB/Account), within 30 days of quarter-end. Minimum threshold $50 \u2014 below that the balance rolls.";
+      else if (/own|ip|intellectual|copyright/.test(m)) reply = "We (Streamline) own the IP in the built app. You receive a perpetual 25% revenue-share licence via signed deed (Equity tier).";
+      else if (/time|delivery|build|long|fast|when/.test(m)) reply = "Standard: 1\u20134 weeks. Priority: jumps the queue. Equity: dedicated team, custom domain. We also send a preview within 48 hours of payment so you can review before we lock it in.";
+      else if (/where|location|country|austral/.test(m)) reply = "We\u2019re based in Melbourne, Australia. Currently AU-focused but we accept submissions from anywhere via Stripe.";
+      else if (/marketplace|other apps|examples|portfolio/.test(m)) reply = "Scroll down to \u201CWhat we\u2019ve built\u201D \u2014 it\u2019s our founder\u2019s pre-Streamline portfolio (proof we ship). Customer marketplace launches with the first paid customer.";
+      else if (/insurance|liabili/.test(m)) reply = "Professional Indemnity and Cyber Liability cover are being arranged with BizCover/Aon. We\u2019ll display proof of cover here once bound.";
+      else if (/contact|email|reach/.test(m)) reply = "Email us at hello@streamlinewebapps.com \u2014 replies typically within 24 hours.";
+      else if (/hi|hello|hey|g\u2019day/.test(m)) reply = "G\u2019day! Ask about pricing, refunds, build time, IP, payouts, or how the marketplace works. Or just submit your idea above.";
+      return new Response(JSON.stringify({reply}), {headers:{...cors,...SEC_HEADERS,"Content-Type":"application/json"}});
+    }
     if (path === "/stats" && request.method === "GET") {
       // Real stats from DB, replaces the upstream proxy
       try {
@@ -220,7 +334,12 @@ export default {
     if (path === "/refunds") return new Response(REFUNDS_HTML, {headers:{...SEC_HEADERS,"Content-Type":"text/html;charset=utf-8","Cache-Control":"public,max-age=86400"}});
     if (path === "/admin") return new Response(ADMIN_HTML, {headers:{...SEC_HEADERS,"Content-Type":"text/html;charset=utf-8","X-Robots-Tag":"noindex,nofollow"}});
     if (path === "/admin/data") return handleAdminData(request, env);
-    if (path === "/analytics" && request.method === "POST") return handleAnalytics(request);
+    if (path.startsWith("/admin/scaffold/") && request.method === "POST") return handleScaffold(request, env, path.replace("/admin/scaffold/",""));
+    if (path === "/analytics" && request.method === "POST") {
+      const ip = request.headers.get("CF-Connecting-IP")||"";
+      if (!rateOk(ip, "an", 60)) return new Response("ok", {headers: cors});
+      return handleAnalytics(request);
+    }
 
     if (path === "/submit" && request.method === "POST") {
       const ip = request.headers.get("CF-Connecting-IP")||"";
@@ -250,6 +369,76 @@ export default {
     return new Response(NOT_FOUND_HTML, {status:404, headers:{...SEC_HEADERS,"Content-Type":"text/html;charset=utf-8","Cache-Control":"no-store"}});
   }
 };
+
+function renderStatus(sub) {
+  const stages = [
+    {key:"awaiting_payment", label:"Awaiting payment"},
+    {key:"paid",              label:"Payment received"},
+    {key:"reviewing",         label:"Reviewing your idea"},
+    {key:"building",          label:"Building"},
+    {key:"preview",           label:"Preview ready"},
+    {key:"live",              label:"Live"}
+  ];
+  const cur = stages.findIndex(x => x.key === sub.status);
+  function esc(v){return String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+  const stepsHtml = stages.map((st, i) => {
+    const done = i <= cur;
+    const active = i === cur;
+    return `<div class="ss-step ${done?"done":""} ${active?"active":""}"><div class="ss-dot">${done?"✓":i+1}</div><div class="ss-lbl">${esc(st.label)}</div></div>`;
+  }).join("");
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Submission status &mdash; Streamline</title>
+<meta name="robots" content="noindex"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',sans-serif;background:#f8f7ff;color:#1e1b4b;min-height:100vh}
+nav{background:rgba(248,247,255,.93);backdrop-filter:blur(20px);border-bottom:1px solid #ddd8f5;padding:0 40px;position:sticky;top:0;z-index:90}
+.nav-inner{max-width:880px;margin:0 auto;display:flex;align-items:center;height:60px}
+.logo{font-family:'Syne',sans-serif;font-weight:800;font-size:19px;letter-spacing:-.03em;display:flex;align-items:center;gap:9px}
+.logo-mark{width:30px;height:30px;background:linear-gradient(135deg,#6d28d9,#7c3aed);border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;font-weight:800}
+main{max-width:680px;margin:0 auto;padding:48px 24px}
+.card{background:#fff;border:1px solid #ddd8f5;border-radius:16px;padding:36px;box-shadow:0 4px 24px rgba(109,40,217,.06)}
+h1{font-family:'Syne',sans-serif;font-size:32px;font-weight:800;letter-spacing:-.02em;margin-bottom:6px}
+.muted{color:#6b6896;font-size:14px;margin-bottom:24px}
+.row{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #f0eeff;font-size:14px}
+.row:last-of-type{border-bottom:none}
+.row span:first-child{color:#6b6896}
+.row span:last-child{font-weight:600;color:#1e1b4b}
+.steps{margin-top:32px}
+.ss-step{display:flex;align-items:center;gap:14px;padding:10px 0;color:#9490c0;font-size:14px}
+.ss-step.done{color:#1e1b4b}
+.ss-step.active{color:#6d28d9;font-weight:600}
+.ss-dot{width:28px;height:28px;border-radius:50%;background:#f0eeff;border:1px solid #ddd8f5;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#9490c0;flex-shrink:0}
+.ss-step.done .ss-dot{background:#6d28d9;border-color:#6d28d9;color:#fff}
+.ss-step.active .ss-dot{background:#fff;border-color:#6d28d9;color:#6d28d9}
+.cta{display:inline-block;margin-top:24px;background:linear-gradient(135deg,#6d28d9,#7c3aed);color:#fff;padding:12px 22px;border-radius:10px;font-weight:600;font-size:14px;text-decoration:none}
+.note{background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:14px 16px;font-size:13px;color:#92400e;margin-top:24px;line-height:1.6}
+</style></head>
+<body><nav><div class="nav-inner"><a href="/" class="logo"><div class="logo-mark">S</div>Streamline</a></div></nav>
+<main><div class="card">
+  <h1>${esc(sub.title)}</h1>
+  <p class="muted">Submitted ${esc((sub.created_at||"").slice(0,10))} &middot; ${esc(sub.tier)} tier &middot; <a href="mailto:hello@streamlinewebapps.com" style="color:#6d28d9">Email us</a></p>
+  <div class="row"><span>Submission ID</span><span>#${esc(sub.id)}</span></div>
+  <div class="row"><span>Status</span><span>${esc(sub.status)}</span></div>
+  <div class="row"><span>Tier</span><span>${esc(sub.tier)}</span></div>
+  <div class="row"><span>Submitter</span><span>${esc(sub.name)}</span></div>
+  <div class="steps">${stepsHtml}</div>
+  <div class="note">Bookmark this page to check progress. The link is yours alone &mdash; don&rsquo;t share it. We&rsquo;ll email you when the status changes.</div>
+  <a href="mailto:hello@streamlinewebapps.com?subject=About my submission #${esc(sub.id)}" class="cta">Reply to us</a>
+</div></main></body></html>`;
+}
+
+const STATUS_INVALID_HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Status link not valid &mdash; Streamline</title>
+<meta name="robots" content="noindex"/>
+<style>body{font-family:Inter,sans-serif;background:#f8f7ff;color:#1e1b4b;min-height:100vh;display:flex;align-items:center;justify-content:center;text-align:center;padding:20px}
+.box{max-width:440px}
+h1{font-family:Syne,sans-serif;font-size:32px;margin-bottom:12px}
+p{color:#4c4885;line-height:1.6;margin-bottom:24px}
+a{display:inline-block;background:linear-gradient(135deg,#6d28d9,#7c3aed);color:#fff;padding:14px 28px;border-radius:10px;text-decoration:none;font-weight:700}</style></head>
+<body><div class="box"><h1>Status link not valid</h1><p>This status link has expired, was changed, or never existed. Email us if you need help finding your submission.</p><a href="mailto:hello@streamlinewebapps.com">Email Streamline</a></div></body></html>`;
 
 const NOT_FOUND_HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>404 — Streamline</title>
@@ -1041,11 +1230,9 @@ footer{background:var(--ink);color:rgba(255,255,255,.55);padding:56px 40px 36px;
 
 <!-- TOPBAR -->
 <div class="topbar">
-  <span id="tb-live"><span class="dot"></span>Loading...</span>
+  <span><span class="dot"></span><b>Marketplace launching</b> &mdash; be one of the first paid customers</span>
   <span class="sep">|</span>
-  <span id="tb-mrr">—</span>
-  <span class="sep">|</span>
-  <span id="tb-paid">—</span>
+  <span id="tb-live">Founder portfolio loading…</span>
   <span class="sep">|</span>
   <span>🇦🇺 Melbourne, Australia</span>
 </div>
@@ -1071,18 +1258,18 @@ footer{background:var(--ink);color:rgba(255,255,255,.55);padding:56px 40px 36px;
 <section class="hero">
   <div class="hero-pill"><div class="hero-pill-dot">✦</div><span id="hero-pill-txt">Join makers turning ideas into income</span></div>
   <h1>Your idea.<br>Built with AI.<br><span class="grad">Earning forever.</span></h1>
-  <p class="hero-sub">No coding required. Describe your app, pay once, and collect 25% of every sale on our marketplace — with no time limits or caps.</p>
+  <p class="hero-sub">No coding required. Describe your app, pay once, and collect 25% of every sale your app generates &mdash; for as long as we run it. Marketplace launches with the first customer apps in 2026.</p>
   <div class="hero-btns">
     <a href="#tiers" class="btn-primary">Submit your idea →</a>
     <a href="#how" class="btn-ghost">How it works</a>
   </div>
   <div class="hero-stats">
-    <div class="stat"><div class="stat-val" id="hs-live">—</div><div class="stat-lbl">Apps live</div></div>
-    <div class="stat"><div class="stat-val" id="hs-mrr">—</div><div class="stat-lbl">Monthly revenue</div></div>
-    <div class="stat"><div class="stat-val" id="hs-paid">—</div><div class="stat-lbl">Paid to makers</div></div>
-    <div class="stat"><div class="stat-val" id="hs-sub">—</div><div class="stat-lbl">Ideas submitted</div></div>
+    <div class="stat"><div class="stat-val" id="hs-live">—</div><div class="stat-lbl">Founder portfolio</div></div>
+    <div class="stat"><div class="stat-val" id="hs-customer">0</div><div class="stat-lbl">Customer apps live</div></div>
+    <div class="stat"><div class="stat-val" id="hs-paid">$0</div><div class="stat-lbl">Paid to makers</div></div>
+    <div class="stat"><div class="stat-val" id="hs-sub">—</div><div class="stat-lbl">Ideas in queue</div></div>
   </div>
-  <p class="earnings-disclaimer">Revenue figures reflect actual results to date. Individual earnings are not guaranteed and will vary by idea, market demand, and timing.</p>
+  <p class="earnings-disclaimer">Marketplace launching 2026. Stats above show our founder&rsquo;s pre-Streamline portfolio and current submission queue. Customer earnings are not guaranteed and depend entirely on whether your app finds buyers.</p>
 </section>
 
 <!-- HOW IT WORKS -->
@@ -1141,27 +1328,25 @@ footer{background:var(--ink);color:rgba(255,255,255,.55);padding:56px 40px 36px;
   </div>
 </section>
 
-<!-- TESTIMONIALS -->
+<!-- WHY TRUST US — replaces premature testimonials -->
 <div class="testi-section">
   <div style="text-align:center">
-    <div class="section-label">Beta makers</div>
-    <h2>Early makers are already earning</h2>
+    <div class="section-label">Why trust us</div>
+    <h2>Built apps people actually use, before Streamline existed</h2>
+    <p style="font-size:15px;color:var(--ink-2);font-weight:300;max-width:540px;margin:8px auto 0">No customer testimonials yet &mdash; the marketplace is launching. Below: real apps shipped by our founder before Streamline. The same person and AI stack will build yours.</p>
   </div>
   <div class="testi-grid">
     <div class="testi">
-      <div class="testi-stars">★★★★★</div>
-      <p class="testi-quote">"I described my roster scheduling idea for small cafés in plain English. Six weeks later it was live and I had already made back my investment."</p>
-      <div class="testi-author"><div class="testi-av">M</div><div><div class="testi-name">Marcus T.</div><div class="testi-loc">Melbourne, VIC</div></div></div>
+      <div style="font-family:Syne,sans-serif;font-size:30px;font-weight:800;color:var(--accent);margin-bottom:8px">26+</div>
+      <p class="testi-quote" style="font-style:normal">Apps shipped by the founder &mdash; education, sport, finance, trivia, family tools. Same stack you&rsquo;ll get: Cloudflare Workers + Supabase + Stripe + Anthropic AI.</p>
     </div>
     <div class="testi">
-      <div class="testi-stars">★★★★★</div>
-      <p class="testi-quote">"I have been trying to find a developer to build my practice management idea for two years. Streamline did it in three weeks and it is exactly what I imagined."</p>
-      <div class="testi-author"><div class="testi-av">S</div><div><div class="testi-name">Sarah K.</div><div class="testi-loc">Brisbane, QLD</div></div></div>
+      <div style="font-family:Syne,sans-serif;font-size:30px;font-weight:800;color:var(--accent);margin-bottom:8px">2026</div>
+      <p class="testi-quote" style="font-style:normal">Launched. We&rsquo;re actively building the customer marketplace. First five Standard-tier customers receive priority queue and a personal post-launch review.</p>
     </div>
     <div class="testi">
-      <div class="testi-stars">★★★★★</div>
-      <p class="testi-quote">"The Priority tier was worth every cent. My invoicing tool for tradies launched in 12 days and it is already getting sales without me lifting a finger."</p>
-      <div class="testi-author"><div class="testi-av">J</div><div><div class="testi-name">James W.</div><div class="testi-loc">Sydney, NSW</div></div></div>
+      <div style="font-family:Syne,sans-serif;font-size:30px;font-weight:800;color:var(--accent);margin-bottom:8px">25%</div>
+      <p class="testi-quote" style="font-style:normal">Of every sale your app generates &mdash; signed deed, no expiry while we run the app, no caps. Quarterly payouts via Australian bank transfer. <a href="/refunds" style="color:var(--accent);font-weight:600">See our refund policy.</a></p>
     </div>
   </div>
 </div>
@@ -1169,9 +1354,9 @@ footer{background:var(--ink);color:rgba(255,255,255,.55);padding:56px 40px 36px;
 <!-- IDEAS BOARD -->
 <section class="section" id="ideas">
   <div class="section-header">
-    <div class="section-label">Community ideas</div>
-    <h2>Browse the idea board</h2>
-    <p style="font-size:16px;color:var(--ink-2);font-weight:300">Vote on ideas you want built. Submit your own and start earning.</p>
+    <div class="section-label">Founder portfolio + idea queue</div>
+    <h2>What we&rsquo;ve built &mdash; and what&rsquo;s next</h2>
+    <p style="font-size:16px;color:var(--ink-2);font-weight:300;max-width:560px;margin:0 auto">Below is a mix of the founder&rsquo;s pre-Streamline portfolio (proof we ship) plus customer-submitted ideas waiting to be built. Customer marketplace apps launch with the first paying customer.</p>
   </div>
   <div class="filters">
     <button class="chip active" data-cat="all">All</button>
@@ -1203,7 +1388,7 @@ footer{background:var(--ink);color:rgba(255,255,255,.55);padding:56px 40px 36px;
       <div class="tier-comm">+ 25% revenue share forever</div>
       <div class="tier-feat">Fully functional web app</div>
       <div class="tier-feat">1–4 week delivery</div>
-      <div class="tier-feat">Listed on marketplace</div>
+      <div class="tier-feat">Listed on marketplace (when launched)</div>
       <div class="tier-feat">Quarterly payouts</div>
       <div class="tier-btn">Select Standard</div>
     </div>
@@ -1223,7 +1408,7 @@ footer{background:var(--ink);color:rgba(255,255,255,.55);padding:56px 40px 36px;
       <div class="tier-price"><sup>$</sup>299</div>
       <div class="tier-comm" style="color:var(--gold)">+ 25% revenue share + co-ownership</div>
       <div class="tier-feat">Everything in Priority</div>
-      <div class="tier-feat">Co-own the IP</div>
+      <div class="tier-feat">Equity-tier signed deed (25% perpetual)</div>
       <div class="tier-feat">Dedicated build team</div>
       <div class="tier-feat">Custom domain + branding</div>
       <div class="tier-btn">Select Equity</div>
@@ -1400,13 +1585,12 @@ async function loadStats(){
     if(!d||d.error)return;
     var live=d.live||0,mrr=d.monthly||0,paid=d.paid_out||3677,building=d.building||0;
     var total=d.total_ideas||0;
-    document.getElementById("tb-live").innerHTML="<span class=\"dot\"></span><b>"+live+"</b> apps live";
-    document.getElementById("tb-mrr").innerHTML="<b>$"+fmt(mrr)+"</b> MRR";
-    document.getElementById("tb-paid").innerHTML="<b>$"+paid.toLocaleString("en-AU",{maximumFractionDigits:0})+"</b> paid to makers";
+    var tbEl = document.getElementById("tb-live");
+    if (tbEl) tbEl.innerHTML = "<b>"+live+"</b> founder apps shipped";
     animCount(document.getElementById("hs-live"), live, "", "");
-    animCount(document.getElementById("hs-mrr"), mrr, "$", "");
-    animCount(document.getElementById("hs-paid"), paid, "$", "");
-    animCount(document.getElementById("hs-sub"), total||42, "", "+");
+    var hsCust = document.getElementById("hs-customer"); if (hsCust) hsCust.textContent = "0";
+    var hsPaid = document.getElementById("hs-paid"); if (hsPaid) hsPaid.textContent = "$0";
+    animCount(document.getElementById("hs-sub"), total||0, "", "");
     if(live>0) document.getElementById("hero-pill-txt").textContent=live+" apps live and earning";
   }catch(e){}
 }
