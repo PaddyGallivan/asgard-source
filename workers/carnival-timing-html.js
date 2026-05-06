@@ -1,4 +1,4 @@
-// Carnival Timing v8.7.0 — slit camera video finish Falkor auto-AI (race summaries + flag times on publish)
+// Carnival Timing v8.8.0 — slit camera video finish Falkor auto-AI (race summaries + flag times on publish)
 const HTML = `<!DOCTYPE html>
 <html lang="en-AU">
 <head>
@@ -538,7 +538,11 @@ const HTML = `<!DOCTYPE html>
       display:flex;align-items:center;gap:10px;
       padding:8px 14px;background:var(--surface-2);border-bottom:1px solid var(--border);
     }
-    .xc-detect-pulse {
+    @keyframes xc-rec-pulse {
+  0%, 100% { opacity:1; transform:scale(1); }
+  50%       { opacity:.3; transform:scale(.7); }
+}
+.xc-detect-pulse {
       width:12px;height:12px;border-radius:50%;background:#ef4444;flex-shrink:0;
       animation:xcpulse 1s infinite;
     }
@@ -1106,7 +1110,7 @@ const HTML = `<!DOCTYPE html>
   <div class="header">
     <div class="conn-dot" id="marshal-dot"></div><span id="marshal-dot-lbl" style="font-size:0.65rem;font-weight:700;letter-spacing:.05em;color:var(--muted)"></span>
     <div class="header-title">Finish Marshal</div>
-    <div class="header-right"><span id="marshal-event-lbl" class="text-xs text-muted"></span></div>
+    <div class="header-right" style="display:flex;align-items:center;gap:6px"><span id="marshal-event-lbl" class="text-xs text-muted"></span><button id="xc-rec-btn" onclick="xcToggleRecord()" title="Record video" style="background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.75rem;padding:3px 7px;cursor:pointer;line-height:1">📹</button></div>
   </div>
   <div class="content" style="padding:0">
     <!-- WAITING -->
@@ -1132,6 +1136,12 @@ const HTML = `<!DOCTYPE html>
       <button id="xc-auto-mode-btn" class="btn btn-secondary btn-sm"
         style="width:100%;border-radius:0;border-left:none;border-right:none;border-top:none;padding:8px;font-size:.8rem"
         onclick="xcStartAutoMode()">🎯 Switch to Auto-Detect (no tapping)</button>
+      <!-- Recording status bar — visible only when recording -->
+      <div id="xc-rec-bar" style="display:none;align-items:center;gap:8px;padding:6px 12px;background:#1c0000;border-bottom:2px solid #ef4444;flex-shrink:0">
+        <div style="width:10px;height:10px;border-radius:50%;background:#ef4444;animation:xc-rec-pulse 1s ease-in-out infinite;flex-shrink:0"></div>
+        <div style="flex:1;font-size:.82rem;font-weight:700;color:#ef4444;letter-spacing:.04em" id="xc-rec-status">● REC 00:00</div>
+        <button onclick="xcStopRecording()" style="background:#ef4444;border:none;border-radius:5px;color:#fff;font-size:.72rem;font-weight:700;padding:4px 9px;cursor:pointer">⏹ Stop &amp; Save</button>
+      </div>
       <!-- Finisher list -->
       <div style="flex:1;overflow-y:auto;padding:10px 16px" id="marshal-finishes-wrap">
         <div id="marshal-finishes-list"></div>
@@ -4530,12 +4540,94 @@ function xcDetectBeep() {
   } catch(e) {}
 }
 
+// ════════════════════════════════════════════════════════
+//  CT v8.8 — Option B: In-App Video Recorder
+// ════════════════════════════════════════════════════════
+let _xcMediaRecorder    = null;
+let _xcRecChunks        = [];
+let _xcRecStartTime     = 0;
+let _xcRecTimerInterval = null;
+
+function xcToggleRecord() {
+  if (_xcMediaRecorder && _xcMediaRecorder.state === 'recording') {
+    xcStopRecording();
+  } else {
+    xcStartRecording();
+  }
+}
+
+async function xcStartRecording() {
+  // Ensure camera is running
+  if (!xcCamStream) {
+    await xcInitCamera();
+    if (!xcCamStream) { toast('Camera not available — grant permission first'); return; }
+  }
+  if (typeof MediaRecorder === 'undefined') { toast('Video recording not supported on this browser'); return; }
+  try {
+    const mimeType = ['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm','video/mp4']
+      .find(t => MediaRecorder.isTypeSupported(t)) || '';
+    _xcRecChunks = [];
+    _xcMediaRecorder = new MediaRecorder(xcCamStream, mimeType ? { mimeType } : {});
+    _xcMediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) _xcRecChunks.push(e.data); };
+    _xcMediaRecorder.onstop = xcSaveRecording;
+    _xcMediaRecorder.start(1000); // flush chunk every 1 s so data isn't lost if tab closes
+    _xcRecStartTime = Date.now();
+
+    // Update UI
+    const btn = document.getElementById('xc-rec-btn');
+    if (btn) { btn.textContent = '🔴'; btn.style.borderColor = '#ef4444'; btn.style.color = '#ef4444'; }
+    const bar = document.getElementById('xc-rec-bar');
+    if (bar) bar.style.display = 'flex';
+
+    _xcRecTimerInterval = setInterval(() => {
+      const secs = Math.floor((Date.now() - _xcRecStartTime) / 1000);
+      const mm = String(Math.floor(secs / 60)).padStart(2, '0');
+      const ss = String(secs % 60).padStart(2, '0');
+      const el = document.getElementById('xc-rec-status');
+      if (el) el.textContent = `● REC ${mm}:${ss}`;
+    }, 1000);
+
+    toast('📹 Recording started');
+  } catch(e) {
+    toast('Recording failed: ' + (e.message || e));
+    _xcMediaRecorder = null;
+  }
+}
+
+function xcStopRecording() {
+  if (!_xcMediaRecorder || _xcMediaRecorder.state === 'inactive') return;
+  try { _xcMediaRecorder.stop(); } catch(e) {}
+  clearInterval(_xcRecTimerInterval);
+  _xcRecTimerInterval = null;
+  const btn = document.getElementById('xc-rec-btn');
+  if (btn) { btn.textContent = '📹'; btn.style.borderColor = ''; btn.style.color = ''; }
+  const bar = document.getElementById('xc-rec-bar');
+  if (bar) bar.style.display = 'none';
+  toast('Saving video…');
+}
+
+function xcSaveRecording() {
+  if (!_xcRecChunks.length) { toast('No video captured'); return; }
+  const mimeType = (_xcMediaRecorder && _xcMediaRecorder.mimeType) || 'video/webm';
+  const ext  = mimeType.includes('mp4') ? 'mp4' : 'webm';
+  const blob = new Blob(_xcRecChunks, { type: mimeType });
+  const ts   = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const name = `ct-recording-${ts}.${ext}`;
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  toast(`✅ Saved: ${name}`);
+  _xcRecChunks = []; _xcMediaRecorder = null;
+}
+
+
 </script>
 `;
 const HEADERS = {
   'Content-Type': 'text/html; charset=utf-8',
   'Cache-Control': 'public, max-age=300, stale-while-revalidate=60',
-  'X-CT-Version': 'v8.7.0',
+  'X-CT-Version': 'v8.8.0',
   'X-Frame-Options': 'SAMEORIGIN',
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
@@ -4554,7 +4646,7 @@ export default {
     return new Response(HTML, { headers: {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'public, max-age=300, stale-while-revalidate=60',
-      'X-CT-Version': 'v8.7.0',
+      'X-CT-Version': 'v8.8.0',
       'X-Frame-Options': 'SAMEORIGIN',
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'strict-origin-when-cross-origin',
