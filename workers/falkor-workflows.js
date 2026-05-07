@@ -1,4 +1,4 @@
-// falkor-workflows v3.11.0 — Scheduled workflows + Jarvis-level autonomy + narrative brief
+// falkor-workflows v3.13.0 — Scheduled workflows + Jarvis-level autonomy + narrative brief
 // Cron: 0 21 * * * (7am AEST), 30 21 * * * (7:30am AEST), * * * * * (every 1min — reactive alerts)
 //
 // Scheduled jobs:
@@ -15,7 +15,7 @@
 //
 // Bindings: DB (asgard-prod), PROJECTS_DB (project-hub-db), RESEND_API_KEY, AGENT_PIN, WEB_SERVICE (falkor-web)
 
-const VERSION = '3.12.0';
+const VERSION = '3.13.0';
 
 // AI_WORKER_PIN getter — asgard-ai uses a separate PIN from AGENT_PIN
 function getAiPin(env) {
@@ -140,7 +140,7 @@ async function runPEWeatherAlert(env) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Pin': env.AGENT_PIN || '' },
     body: JSON.stringify({
-      text: 'PE Weather check ' + new Date().toLocaleDateString('en-AU') + ': ' + c.temp + '°C, ' + c.condition + ', UV ' + c.uv + ', wind ' + c.wind_kmh + 'km/h. ' + (suitable ? 'Suitable for outdoor PE.' : 'Issues: ' + issues.join('; ')),
+      text: 'PE Weather check ' + new Date().toLocaleDateString('en-AU') + ': ' + (c.temp ?? "?") + '°C, ' + (c.condition || "unknown") + ', UV ' + (c.uv ?? "?") + ', wind ' + (c.wind_kmh ?? "?") + 'km/h. ' + (suitable ? 'Suitable for outdoor PE.' : 'Issues: ' + issues.join('; ')),
       category: 'weather', tags: ['pe', 'weather', 'wps'],
     }),
   }).catch(() => {});
@@ -149,11 +149,11 @@ async function runPEWeatherAlert(env) {
     const html = '<h2>PE Weather Alert — Williamstown Primary</h2>' +
       '<p><strong>Date:</strong> ' + new Date().toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Australia/Melbourne' }) + '</p>' +
       '<h3>Current Conditions</h3><ul>' +
-      '<li>Temperature: ' + c.temp + '°C (feels like ' + c.feels_like + '°C)</li>' +
-      '<li>Conditions: ' + c.condition + '</li>' +
-      '<li>UV Index: ' + c.uv + '</li>' +
-      '<li>Wind: ' + c.wind_kmh + ' km/h</li>' +
-      '<li>Rain chance: ' + c.rain_chance + '%</li>' +
+      '<li>Temperature: ' + (c.temp ?? "?") + '°C (feels like ' + (c.feels_like ?? "?") + '°C)</li>' +
+      '<li>Conditions: ' + (c.condition || "unknown") + '</li>' +
+      '<li>UV Index: ' + (c.uv ?? "?") + '</li>' +
+      '<li>Wind: ' + (c.wind_kmh ?? "?") + ' km/h</li>' +
+      '<li>Rain chance: ' + (c.rain_chance ?? "?") + '%</li>' +
       '</ul><h3>Issues Detected</h3><ul>' +
       issues.map(function(i) { return '<li>' + i + '</li>'; }).join('') +
       '</ul><p><em>Falkor Workflows — falkor-workflows.luckdragon.io</em></p>';
@@ -200,7 +200,7 @@ async function runDailySummary(env) {
     const peNote = w.pe_note || (c.uv >= 9 ? 'High UV — hats mandatory.' : c.temp > 30 ? 'Hot one — consider indoor PE.' : c.rain_chance > 60 ? 'Rain likely today.' : 'All clear for outdoor PE.');
     sections.push(
       '<h3>Weather — Williamstown</h3>' +
-      '<p>' + c.condition + ', <strong>' + c.temp + '°C</strong> (feels ' + c.feels_like + '°C) · UV <strong>' + c.uv + '</strong> · Wind ' + c.wind_kmh + 'km/h · Rain ' + c.rain_chance + '%</p>' +
+      '<p>' + (c.condition || "unknown") + ', <strong>' + (c.temp ?? "?") + '°C</strong> (feels ' + (c.feels_like ?? "?") + '°C) · UV <strong>' + (c.uv ?? "?") + '</strong> · Wind ' + (c.wind_kmh ?? "?") + 'km/h · Rain ' + (c.rain_chance ?? "?") + '%</p>' +
       '<p><em>' + peNote + '</em></p>'
     );
   }
@@ -274,7 +274,7 @@ async function runDailySummary(env) {
   var opener = '';
   try {
     var briefFacts = 'Date: ' + date +
-      (w ? '. Weather: ' + w.current.temp + '°C, ' + w.current.condition + ', UV ' + w.current.uv : '') +
+      (w ? '. Weather: ' + (w.current.temp ?? "?") + '°C, ' + (w.current.condition || "unknown") + ', UV ' + (w.current.uv ?? "?") : '') +
       (todayEvents.length > 0 ? '. Calendar today: ' + todayEvents.map(function(e){return e.summary||e.title||'';}).join(', ') : '. Nothing on calendar today') +
       (sport && sport.ok && sport.round_description ? '. AFL: ' + sport.round_description : '') +
       (topVentures.length > 0 ? '. Ventures: ' + topVentures.length + ' active' : '');
@@ -303,7 +303,7 @@ async function runDailySummary(env) {
     '<hr/><p><em>Falkor · <a href="https://falkor.luckdragon.io">falkor.luckdragon.io</a></em></p>';
 
   const pushParts = [];
-  if (w) pushParts.push(w.current.temp + '°C UV' + w.current.uv);
+  if (w) pushParts.push((w.current.temp ?? "?") + '°C UV' + (w.current.uv ?? "?"));
   if (todayEvents.length > 0) pushParts.push(todayEvents.length + ' event' + (todayEvents.length > 1 ? 's' : '') + ' today');
   if (sport && sport.ok && sport.todays_games && sport.todays_games.length > 0) pushParts.push('Game day');
   const pushBody = pushParts.join(' · ') || 'Morning briefing ready.';
@@ -363,7 +363,7 @@ async function runDailySummary(env) {
     // Fallback to structured brief if AI fails
     if (!tgNarrative) {
       tgNarrative = 'Good morning, Paddy. ' + date + '. ' +
-        (w ? w.current.temp + 'C, ' + w.current.condition + ', UV ' + w.current.uv + '. ' : '') +
+        (w ? (w.current.temp ?? "?") + 'C, ' + (w.current.condition || "unknown") + ', UV ' + (w.current.uv ?? "?") + '. ' : '') +
         (todayEvents.length > 0 ? todayEvents.length + ' event' + (todayEvents.length > 1 ? 's' : '') + ' today. ' : '') +
         (sport && sport.ok && sport.family_tips_due ? 'Tips due today. ' : '');
     }
