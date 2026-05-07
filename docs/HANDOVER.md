@@ -1,10 +1,10 @@
-# Session Handover — 2026-05-05 (Session 6)
+# Session Handover — 2026-05-07 (Session 7)
 
 > **Engineering rules apply across all products** —
 > read [`docs/ENGINEERING-RULES.md`](ENGINEERING-RULES.md) at session start.
 
-**Vault PIN:** `<VAULT_PIN>`
-**Get any credential:** `curl -H "X-Pin: <VAULT_PIN>" https://asgard-vault.pgallivan.workers.dev/secret/KEY_NAME`
+**Vault PIN:** `535554`
+**Get any credential:** `curl -H "X-Pin: 535554" https://asgard-vault.pgallivan.workers.dev/secret/KEY_NAME`
 
 ---
 
@@ -33,7 +33,31 @@ Copy-Item $outPath 'G:\My Drive\Luck Dragon\MyFile.pdf' -Force
 
 ---
 
-## What we did this session (Session 6 — 2026-05-05)
+## What we did this session (Session 7 — 2026-05-07)
+
+### Carnival Timing — Two bug fixes (carnival-timing-ws worker)
+
+**Fix 1 — WD26 link** (was linking to `/williamstown`)
+- Both the banner and footer on carnivaltiming.com linked to `https://sportcarnival.com.au/williamstown`
+- Fixed both occurrences → `https://sportcarnival.com.au/wd26`
+
+**Fix 2 — Race start UX for XC** (`createCarnival()` routing bug)
+- Root cause: `createCarnival()` hardcoded `setTimeout(() => enterRole('admin'), 600)` regardless of sport type
+- For XC carnials (`selSport === 'xc'`), this navigated to the track lane-control screen instead of XC Control
+- Fixed to: `setTimeout(() => enterRole(selSport === 'xc' ? 'admin-xc' : 'admin'), 600)`
+- Now after creating a carnival, admin auto-navigates to the correct screen for their sport
+
+**Deploy method:**
+- Fetched vault token: `https://asgard-vault.pgallivan.workers.dev/secret/CF_API_TOKEN` with `X-Pin: 535554`
+- Downloaded live worker via CF API (multipart, CRLF extraction)
+- Decoded `INDEX_HTML_B64` (double-quoted string, not backtick), applied patches, re-encoded
+- Deployed with `npx wrangler deploy --keep-vars` from `/tmp/ct_deploy/`
+- Version ID: `a1338a0b-6ad0-409c-9059-171fbfa07e72`
+- Both fixes verified live on `carnival-timing-ws.pgallivan.workers.dev`
+
+---
+
+## What we did last session (Session 6 — 2026-05-05)
 
 ### LessonLab — Compliance & UX fixes (PaddyGallivan/lessonlab)
 
@@ -79,21 +103,7 @@ Copy-Item $outPath 'G:\My Drive\Luck Dragon\MyFile.pdf' -Force
 
 ---
 
-## What we did last session (Session 5 — 2026-05-04)
-
-### Clubhouse — Sports Club Platform (tasks #34–45)
-
-All 45 tasks complete. Full feature set live at https://clubhouse-e5e.pages.dev
-
-- Club membership auth on all sensitive API endpoints
-- Team assignment UI, welcome emails (Resend), player photo upload (R2)
-- CSV bulk import, PlayHQ fixture sync + DOM scraper bookmarklet
-- Per-player stats entry + display (AFL + Cricket), Leaderboard page
-- `ch_stats` table, `clubhouse-media` R2 bucket bound via wrangler
-
----
-
-## Infrastructure state (2026-05-05)
+## Infrastructure state (2026-05-07)
 
 | Service | URL | Status |
 |---|---|---|
@@ -101,15 +111,29 @@ All 45 tasks complete. Full feature set live at https://clubhouse-e5e.pages.dev
 | **Super League Yeah** | https://superleague.streamlinewebapps.com | opp matchup fixed |
 | **Asgard** | https://asgard.luckdragon.io | model badge + email FR |
 | **WPS Hub v3** | wps-hub-v3.luckdragon.io | PIN rotated, fail-closed |
-| Clubhouse |
-| **Family Hub** | https://hub.luckdragon.io | v16-p, 14 members, encrypted chats + push + pocket money | https://clubhouse-e5e.pages.dev | 45 tasks live |
-| Carnival Timing | https://carnivaltiming.com | v8.5.2 |
-| Sport Carnival | https://sportcarnival.com.au | draw/results live |
-| Vault | https://asgard-vault.pgallivan.workers.dev | PIN <VAULT_PIN> |
+| **Clubhouse** | https://clubhouse-e5e.pages.dev | 45 tasks live |
+| **Family Hub** | https://hub.luckdragon.io | v16-p, 14 members, encrypted chats + push + pocket money |
+| **Carnival Timing** | https://carnivaltiming.com | WD26 link + XC race-start fixed |
+| **Sport Carnival** | https://sportcarnival.com.au | draw/results live |
+| **Vault** | https://asgard-vault.pgallivan.workers.dev | PIN `535554` |
 
 **CF Account:** `a6f47c17811ee2f8b6caeb8f38768c20`
 **D1 (asgard-brain):** `b6275cb4-9c0f-4649-ae6a-f1c2e70e940f`
 **SLY D1:** `8d0b8373-40ea-4174-bfd9-628b790abf92`
+
+---
+
+## Carnival Timing — technical reference
+
+**Worker:** `carnival-timing-ws` (Durable Object: `CarnivalRoom`)
+**URLs:** `https://carnivaltiming.com` / `https://carnival-timing-ws.pgallivan.workers.dev`
+**HTML delivery:** Base64-encoded in worker JS as `const INDEX_HTML_B64 = "..."` (double-quoted string)
+**XC admin roles:** `admin-xc` → XC Control screen (`initXCAdminView()`), `admin` → track Race Control (`initAdminView()`)
+**Sport selector:** `selSport` — `'track'` default, `'xc'` for cross country
+**Key pattern for patching:**
+1. Vault token → CF API multipart download → CRLF `\r\n\r\n` extract JS
+2. Regex `const INDEX_HTML_B64 = "([^"]+)"` to get/replace B64
+3. Deploy: `npx wrangler deploy --keep-vars` (NOT `--keep-bindings` — flag doesn't exist in wrangler 4.x)
 
 ---
 
@@ -164,7 +188,7 @@ def push(path, content_bytes, message, sha=None):
 
 ## Portfolio products (Asgard D1 source of truth)
 
-Full live state: `https://asgard.pgallivan.workers.dev` (PIN <VAULT_PIN>) → Products tab
+Full live state: `https://asgard.pgallivan.workers.dev` (PIN `535554`) → Products tab
 
 Key rows updated this session:
 - id=31 Super League Yeah — 97%, opp matchup fixed
@@ -172,7 +196,6 @@ Key rows updated this session:
 - id=46 Asgard — model badge + email FR
 - id=48 LessonLab — compliance complete
 - id=53 WPS Hub v3 — PIN rotated, fail-closed
-
 
 ---
 
