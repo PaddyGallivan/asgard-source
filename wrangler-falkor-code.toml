@@ -1,0 +1,16 @@
+name = "falkor-code"
+main = "workers/falkor-code.js"
+compatibility_date = "2024-09-23"
+account_id = "a6f47c17811ee2f8b6caeb8f38768c20"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "asgard-prod"
+database_id = "b6275cb4-9c0f-4649-ae6a-f1c2e70e940f"
+
+[vars]
+VAULT_URL = "https://asgard-vault.luckdragon.io"
+AGENT_PIN = ""
+
+[env.production]
+vars = { AGENT_PIN = "" }
