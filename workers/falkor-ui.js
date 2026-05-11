@@ -1,4 +1,4 @@
-hconst PUSH_URL = 'https://falkor-push.luckdragon.io';
+const PUSH_URL = 'https://falkor-push.luckdragon.io';
 
 const JSON_MANIFEST = JSON.stringify({
   name: 'Falkor',
