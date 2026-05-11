@@ -260,7 +260,7 @@ async function callSubAgent(agentKey, action, text, pin, aiPin, intentCtx) {
               method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pin': aiPin },
               body: JSON.stringify({
                 image_base64: sData.image_b64,
-                image_mime: sData.image_mime || 'image/jpeg',
+                image_mime: sData.image_mime || 'image/png',
                 message: text,
                 model: 'haiku',
               })
@@ -1134,7 +1134,7 @@ export default {
           body: JSON.stringify({
             image_base64: body.image_b64 || body.image_base64,
             image_url: body.image_url,
-            image_mime: body.mime_type || body.image_mime || 'image/jpeg',
+            image_mime: body.mime_type || body.image_mime || 'image/png',
             message: body.prompt || body.message || 'Describe this image clearly and concisely.',
             model: body.model || 'haiku',
             uid: body.userId || 'paddy',
