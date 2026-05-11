@@ -107,6 +107,20 @@ const TOOLS = [
       },
       required: ['key']
     }
+  },
+  {
+    name: 'patch_worker',
+    description: 'Find and replace a string in a Cloudflare Worker source code, then redeploy. The find string must match exactly once. Use this to make surgical edits to worker code.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        worker_name: { type: 'string', description: 'CF Worker script name to patch, e.g. "falkor-ui", "asgard", "falkor-tools"' },
+        find: { type: 'string', description: 'Exact string to find in the worker code. Must match exactly once.' },
+        replace: { type: 'string', description: 'String to replace it with. Can be longer or shorter than find.' },
+        main_module: { type: 'string', description: 'Main module filename. Use "asgard.js" for asgard worker, "worker.js" for others. Default: worker.js' }
+      },
+      required: ['worker_name', 'find', 'replace']
+    }
   }
 ];
 
@@ -263,6 +277,36 @@ async function executeTool(toolName, toolInput, env) {
         if (!r.ok) return { error: `Vault ${r.status} for ${key}; not in env either` };
         const val = await r.text();
         return { value: val, source: 'vault' };
+      }
+
+      case 'patch_worker': {
+        const { worker_name, find, replace, main_module = 'worker.js' } = toolInput;
+        if (!worker_name || typeof find !== 'string' || typeof replace !== 'string') {
+          return { error: 'worker_name, find, replace (all strings) required' };
+        }
+        // Get current worker code
+        const cur = await executeTool('get_worker_code', { worker_name }, env);
+        if (cur.error) return { error: `get_worker_code failed: ${cur.error}` };
+        const code = cur.code;
+        // Count occurrences of find string
+        const occurrences = code.split(find).length - 1;
+        if (occurrences === 0) {
+          return { error: `find string not found in worker code`, find_preview: find.substring(0, 100) };
+        }
+        if (occurrences > 1) {
+          return { error: `find string matches ${occurrences} times — must be unique. Refine your search.`, occurrences };
+        }
+        // Patch and deploy
+        const patched = code.replace(find, replace);
+        const deployResult = await executeTool('deploy_worker', { worker_name, code: patched, main_module }, env);
+        return {
+          patched: deployResult.ok === true,
+          worker: worker_name,
+          occurrences,
+          before_len: code.length,
+          after_len: patched.length,
+          ...deployResult
+        };
       }
 
       default:
@@ -496,42 +540,4 @@ export default {
       const pin = qpin || request.headers.get('X-Pin');
       const validPins = [env.VAULT_PIN || '535554', env.AGENT_PIN].filter(Boolean);
       if (!validPins.includes(pin)) {
-        return Response.json({ error: 'Forbidden' }, { status: 403, headers: cors });
-      }
-      try {
-        const AGENT_PIN = env.AGENT_PIN;      // all /brief sub-calls use AGENT_PIN
-        const [agentRes, wfRes, toolsRes] = await Promise.allSettled([
-          fetch('https://falkor-agent.luckdragon.io/health', { headers: { 'X-Pin': AGENT_PIN } }).then(r => r.json()),
-          fetch('https://falkor-workflows.luckdragon.io/health', { headers: { 'X-Pin': AGENT_PIN } }).then(r => r.json()),
-          fetch('https://falkor-brain.luckdragon.io/health', { headers: { 'X-Pin': AGENT_PIN } }).then(r => r.json())
-        ]);
-        const agentHealth = agentRes.status === 'fulfilled' ? agentRes.value : { error: 'unreachable' };
-        const wfHealth = wfRes.status === 'fulfilled' ? wfRes.value : { error: 'unreachable' };
-        const brainHealth = toolsRes.status === 'fulfilled' ? toolsRes.value : { error: 'unreachable' };
-
-        // Route through asgard-ai (holds ANTHROPIC_API_KEY binding + CF AI Gateway)
-        const briefPrompt = 'Give a concise Falkor status brief (4-6 bullets). Flag anything wrong. Today: ' +
-          new Date().toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) +
-          '\n\nAgent: ' + JSON.stringify(agentHealth) +
-          '\nWorkflows: ' + JSON.stringify(wfHealth) +
-          '\nBrain: ' + JSON.stringify(brainHealth);
-        const llmRes = await fetch('https://asgard-ai.luckdragon.io/chat/smart', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Pin': AGENT_PIN },
-          body: JSON.stringify({ model: 'haiku', message: briefPrompt, use_tools: false })
-        });
-        const llmData = await llmRes.json();
-        const brief = llmData.reply || llmData.response || llmData.text || llmData.content || llmData.message || 'LLM unavailable.';
-        return Response.json({
-          brief,
-          raw: { agent: agentHealth, workflows: wfHealth, brain: brainHealth },
-          generated_at: new Date().toISOString()
-        }, { headers: cors });
-      } catch (e) {
-        return Response.json({ error: 'Brief failed', detail: e.message }, { status: 500, headers: cors });
-      }
-    }
-
-    return new Response('Not found', { status: 404, headers: cors });
-  }
-};
+        return Response.json({ error: 'Forbidden' }, { status: 403, headers: cors 
