@@ -1,0 +1,104 @@
+{
+  "sites": [
+    {
+      "name": "Carnival Timing",
+      "domain": "carnivaltiming.com",
+      "repo": "sport-carnival",
+      "type": "cf-pages-worker",
+      "deploy": "CF Pages + CF Worker",
+      "source_path": "public/",
+      "worker_file": "worker.js",
+      "key_files": ["public/index.html", "worker.js", "wrangler.toml"]
+    },
+    {
+      "name": "School Sport Portal",
+      "domain": "schoolsportportal.com.au",
+      "repo": "schoolsportportal",
+      "type": "github-pages",
+      "deploy": "GitHub Pages (proxy)",
+      "source_path": "docs/",
+      "key_files": ["docs/index.html"]
+    },
+    {
+      "name": "SportCarnival",
+      "domain": "sportcarnival.com.au",
+      "repo": "sportcarnival-hub",
+      "type": "cf-pages",
+      "deploy": "CF Pages",
+      "source_path": "public/",
+      "key_files": ["public/index.html", "wrangler.toml"]
+    },
+    {
+      "name": "LessonLab",
+      "domain": "lessonlab.com.au",
+      "repo": "lessonlab",
+      "type": "cf-workers-d1",
+      "deploy": "CF Workers + D1",
+      "worker_file": "workers/index.js",
+      "key_files": ["workers/index.js", "wrangler.toml"]
+    },
+    {
+      "name": "Bomber Boat",
+      "domain": "bomberboat.com.au",
+      "repo": "bomber-boat",
+      "type": "cf-pages",
+      "deploy": "CF Pages",
+      "source_path": "public/",
+      "key_files": ["public/index.html"]
+    },
+    {
+      "name": "Superleague Yeah",
+      "domain": "superleague.streamlinewebapps.com",
+      "repo": "superleague-yeah-v4",
+      "type": "github-pages",
+      "deploy": "GitHub Pages",
+      "source_path": "dist/",
+      "key_files": ["src/", "dist/index.html"]
+    },
+    {
+      "name": "Mascot Generator",
+      "domain": "mascot-gen.pages.dev",
+      "repo": "kbt-mascot-generator",
+      "type": "cf-pages",
+      "deploy": "CF Pages",
+      "source_path": "public/",
+      "key_files": ["public/index.html"]
+    },
+    {
+      "name": "Long Range Tipping",
+      "domain": "longrangetipping.com",
+      "repo": "longrangetipping",
+      "type": "cf-workers",
+      "deploy": "CF Workers",
+      "worker_file": "worker.js",
+      "key_files": ["worker.js", "wrangler.toml"]
+    },
+    {
+      "name": "School Staff Hub",
+      "domain": "schoolstaffhub.com.au",
+      "repo": "wps-staff-hub",
+      "type": "cf-pages",
+      "deploy": "CF Pages",
+      "source_path": "public/",
+      "key_files": ["public/index.html"]
+    },
+    {
+      "name": "KBT Trivia Tools",
+      "domain": "kbt.luckdragon.io",
+      "repo": "kbt-trivia-tools",
+      "type": "cf-workers",
+      "deploy": "CF Workers",
+      "worker_file": "src/index.js",
+      "key_files": ["src/", "wrangler.toml"]
+    },
+    {
+      "name": "Falkor Widget",
+      "domain": "falkor-widget.luckdragon.io",
+      "repo": "asgard-workers",
+      "type": "cf-workers",
+      "deploy": "CF Workers",
+      "worker_file": "workers/falkor-widget.js",
+      "key_files": ["workers/falkor-widget.js"]
+    }
+  ]
+}
