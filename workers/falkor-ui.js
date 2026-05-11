@@ -2448,7 +2448,7 @@ function ProjectsPanel({ pin }) {
         setLoading(true);
         const url = 'https://asgard-tools.pgallivan.workers.dev/admin/projects';
         const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);        if (!res.ok) throw new Error('HTTP ' + res.status);
+             if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         // Map workers to projects
         const proj = data.workers || [];
