@@ -2436,6 +2436,63 @@ function TipsPanel({ pin }) {
   );
 }
 
+// ─── ProjectsPanel ────────────────────────────────────────────────────────────
+function ProjectsPanel({ pin }) {
+  const [projects, setProjects] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState('');
+
+  React.useEffect(() => {
+    async function loadProjects() {
+      try {
+        setLoading(true);
+        const url = 'https://asgard-tools.pgallivan.workers.dev/admin/projects';
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        // Map workers to projects
+        const proj = data.workers || [];
+        setProjects(proj.slice(0, 50)); // Limit to 50
+      } catch(e) {
+        setError(e.message);
+        console.error('Failed to load projects:', e);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadProjects();
+  }, []);
+
+  return (
+    <div style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
+      <div style={{ fontSize: '18px', fontWeight: 700, marginBottom: '16px', color: 'var(--text)' }}>
+        📋 Projects
+      </div>
+      {error && (
+        <div style={{ padding: '12px', background: 'rgba(239,68,68,.1)', color: '#ef4444', borderRadius: '8px', marginBottom: '12px', fontSize: '13px' }}>
+          ⚠️ {error}
+        </div>
+      )}
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--muted)' }}>⏳ Loading projects...</div>
+      ) : projects.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--muted)' }}>📭 No projects found</div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '12px' }}>
+          {projects.map(proj => (
+            <div key={proj} style={{
+              padding: '12px', borderRadius: '8px', background: 'var(--surface)', border: '1px solid var(--border)',
+              fontSize: '13px', fontWeight: 500, color: 'var(--text)', wordBreak: 'break-word', cursor: 'default'
+            }}>
+              {proj}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 function App() {
   const [user, setUser] = useState(() => {
@@ -2921,6 +2978,7 @@ function App() {
           {[
             {id:'chat',     icon:'💬', label:'Chat'},
             {id:'home',     icon:'🏠', label:'Home'},
+            {id:'projects', icon:'📋', label:'Projects'},
             {id:'sport',    icon:'🏈', label:'Sport'},
             {id:'kbt',      icon:'🎯', label:'KBT Trivia'},
             {id:'pe',       icon:'🏫', label:'School PE'},
@@ -2970,6 +3028,7 @@ function App() {
         </div>
 
         {view === 'home'     && <HomePanel pin={LS.agentPin() || LS.pin()} userName={user && user.name || 'Paddy'} onNavigate={(v,q) => { setView(v); if (q) setTimeout(() => sendMessage(q, null), 400); }}/>}
+        {view === 'projects' && <ProjectsPanel pin={LS.agentPin() || LS.pin()}/>}
         {view === 'sport'    && <SportPanel pin={LS.agentPin() || LS.pin()}/>}
         {view === 'tips'     && <TipsPanel pin={LS.agentPin() || LS.pin()}/>}
         {view === 'racing'   && <RacingPanel pin={LS.agentPin() || LS.pin()}/>}
@@ -3136,55 +3195,4 @@ async function togglePush() {
   if (permission !== 'granted') { alert('Please allow notifications to enable push alerts.'); return; }
   try {
     const sub = await swRegistration.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:urlB64ToUint8(VAPID_PUB) });
-    const p256dh = btoa(String.fromCharCode(...new Uint8Array(sub.getKey('p256dh')))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
-    const auth   = btoa(String.fromCharCode(...new Uint8Array(sub.getKey('auth')))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
-    let deviceId = localStorage.getItem('falkor-device-id');
-    if (!deviceId) { deviceId = crypto.randomUUID(); localStorage.setItem('falkor-device-id', deviceId); }
-    await fetch(PUSH_URL_SW + '/subscribe', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ endpoint:sub.endpoint, keys:{ p256dh, auth }, deviceId })
-    });
-    if (btn) { btn.style.color = 'var(--accent2)'; btn.title = 'Notifications ON (tap to disable)'; }
-    new Notification('Falkor notifications enabled!', { body:"You'll get alerts for briefings and updates." });
-  } catch(e) { alert('Push subscription failed: ' + e.message); }
-}
-
-async function checkPushState() {
-  if (!swRegistration) return;
-  const sub = await swRegistration.pushManager.getSubscription().catch(() => null);
-  const btn = document.getElementById('bell-btn');
-  if (sub && btn) { btn.style.color = 'var(--accent2)'; btn.title = 'Notifications ON (tap to disable)'; }
-}
-
-window.addEventListener('load', async () => {
-  if (!('serviceWorker' in navigator)) return;
-  try {
-    swRegistration = await navigator.serviceWorker.register('/sw.js');
-    window._swReg = swRegistration;
-    await checkPushState();
-    navigator.serviceWorker.addEventListener('message', e => {
-      if (e.data && e.data.type === 'sync_complete') {
-        window.dispatchEvent(new CustomEvent('falkor-sync-complete'));
-      }
-    });
-  } catch(e) { console.warn('SW failed:', e); }
-});
-
-// PWA install prompt
-let _deferredInstall=null;
-window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();_deferredInstall=e;const btn=document.getElementById('install-btn');if(btn){btn.style.display='flex';}});
-window.addEventListener('appinstalled',()=>{const btn=document.getElementById('install-btn');if(btn)btn.style.display='none';_deferredInstall=null;});
-function installApp(){if(_deferredInstall){_deferredInstall.prompt();_deferredInstall.userChoice.then(()=>{_deferredInstall=null;const btn=document.getElementById('install-btn');if(btn)btn.style.display='none';});}}
-</script>
-</body>
-</html>
-`;
-    return new Response(HTML, {
-      headers: {
-        'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'no-cache',
-        'X-Content-Type-Options': 'nosniff',
-      }
-    });
-  }
-};
+    const p256dh = btoa(String.fromCharCode(...new Uint8Array(sub.getKey('p256dh')))).replace(/\+/g,'-').replace(
