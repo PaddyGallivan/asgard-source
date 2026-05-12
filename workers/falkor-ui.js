@@ -3195,6 +3195,6 @@ async function togglePush() {
   if (permission !== 'granted') { alert('Please allow notifications to enable push alerts.'); return; }
   try {
     const sub = await swRegistration.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:urlB64ToUint8(VAPID_PUB) });
-    const p256dh = btoa(String.fromCharCode(...new Uint8Array(sub.getKey('p256dh')))).replace(/\+/g,'-').replace(
+    const p256dh = btoa(String.fromCharCode(...new Uint8Array(sub.getKey('p256dh')))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
 
 };
