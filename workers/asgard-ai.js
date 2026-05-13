@@ -636,8 +636,10 @@ async function handleMemoryForget(request, env, pinUser) {
   if (!key) return json({ ok: false, error: 'key required' }, 400);
   if (project) {
     await env.DB.prepare("DELETE FROM memory WHERE pin_user = ? AND key = ? AND project = ?").bind(pinUser, key, project).run();
+    await env.DB.prepare("UPDATE memory_v2 SET is_current = 0, superseded_at = ? WHERE pin_user = ? AND project = ? AND key = ? AND is_current = 1").bind(Date.now(), pinUser, project, key).run();
   } else {
-    await env.DB.prepare("DELETE FROM memory WHERE pin_user = ? AND key = ?").bind(pinUser, key).run();
+    // Cross-project delete blocked — was destroying data across projects
+    return { error: 'project required for forget_memory — cross-project forget is no longer allowed' };
   }
   return json({ ok: true, deleted: key });
 }
@@ -2265,18 +2267,18 @@ const AGENTIC_TOOLS_OPENAI = [
       webhook_url: { type: "string", description: "Full Power Automate HTTP webhook URL (from the flow's trigger config)" },
       payload: { type: "object", description: "JSON payload to send to the flow", additionalProperties: true }
     }, required: ["webhook_url"] } } },
-  { type: "function", function: { name: "save_memory", description: "Save a memory fact for future chats. shared=true = all users (Paddy/Jacky/George) see it; shared=false = only you. project = which project this belongs to (e.g. 'kbt','asgard','global').",
+  { type: "function", function: { name: "save_memory", description: "Save a versioned memory fact. project is REQUIRED — choose a project slug (e.g. 'kbt','asgard-final-build','wps-curriculum'). Every save creates a new VERSION; old versions preserved in memory_v2 and queryable. Audit log fires automatically. shared=true = all users see it.",
     parameters: { type: "object", properties: {
-      key: { type: "string", description: "Short label, e.g. 'kbt_prod_url' or 'deploy_warning'" },
+      key: { type: "string", description: "Short project-prefixed label, e.g. 'kbt_prod_url' or 'asgard_deploy_warning'. NEVER use generic keys like 'state'/'current'/'latest' — they collide across projects." },
       value: { type: "string", description: "The fact to remember" },
-      project: { type: "string", description: "Project name or 'global'" },
+      project: { type: "string", description: "REQUIRED. Project slug from project_hub. No default. No 'global' fallback." },
       shared: { type: "boolean", description: "true = visible to all users" }
-    }, required: ["key", "value"] } } },
-  { type: "function", function: { name: "forget_memory", description: "Delete a remembered fact by key.",
+    }, required: ["key", "value", "project"] } } },
+  { type: "function", function: { name: "forget_memory", description: "Soft-delete a memory fact (flips is_current=0 in memory_v2, history preserved). project is REQUIRED — cross-project deletes are blocked.",
     parameters: { type: "object", properties: {
       key: { type: "string" },
-      project: { type: "string" }
-    }, required: ["key"] } } },
+      project: { type: "string", description: "REQUIRED. Project slug — no default, no cross-project delete." }
+    }, required: ["key", "project"] } } },
   { type: "function", function: { name: "send_message", description: "Send a message to a team group (Paddy, Jacky, George). Auto-creates the group if it doesn't exist. Use names like 'all', 'paddy-jacky', 'kbt-team'.",
     parameters: { type: "object", properties: {
       group: { type: "string", description: "Group name or ID" },
@@ -2866,27 +2868,35 @@ async function agenticExecuteTool(name, input, env) {
       return { ok: true, count: (j.files||[]).length, folders: j.files || [] };
     }
     if (name === "save_memory") {
-      const { key, value, project = 'global', shared = false } = input || {};
+      const { key, value, project, shared = false } = input || {};
       if (!key || value === undefined) return { error: 'key and value required' };
+      if (!project) return { error: 'project is REQUIRED — no default. Pick a slug from project_hub (e.g. kbt, asgard-final-build, wps-curriculum). Cross-project writes were causing data loss; this is now enforced.' };
       if (!env.DB) return { error: 'D1 not bound' };
       await _ensureMemoryTables(env);
       const pinUser = env._pinUser || 'shared';
       const now = Date.now();
+      // VERSIONED write to memory_v2 — append-only, full history preserved, audit_log fires automatically
+      const prev = await env.DB.prepare("SELECT MAX(version) AS v FROM memory_v2 WHERE pin_user=? AND project=? AND key=?").bind(pinUser, project, String(key)).first();
+      const nextVersion = (prev && prev.v ? prev.v : 0) + 1;
+      await env.DB.prepare("INSERT INTO memory_v2 (pin_user, project, key, value, version, is_current, is_shared, actor, created_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)")
+        .bind(pinUser, project, String(key), String(value), nextVersion, shared ? 1 : 0, 'asgard-ai', now).run();
+      // Legacy mirror to memory — destructive, but harmless because memory_v2 preserves history
       await env.DB.prepare("INSERT INTO memory (pin_user, project, key, value, is_shared, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(pin_user, project, key) DO UPDATE SET value=excluded.value, is_shared=excluded.is_shared, updated_at=excluded.updated_at")
         .bind(pinUser, project, String(key), String(value), shared ? 1 : 0, now).run();
-      return { ok: true, saved: key, project, shared, user: pinUser };
+      return { ok: true, saved: key, project, version: nextVersion, shared, user: pinUser };
     }
     if (name === "forget_memory") {
       const { key, project } = input || {};
       if (!key) return { error: 'key required' };
+      if (!project) return { error: 'project is REQUIRED — cross-project forget is not allowed. The previous behavior deleted the key from EVERY project at once and caused data loss.' };
       if (!env.DB) return { error: 'D1 not bound' };
       const pinUser = env._pinUser || 'shared';
-      if (project) {
-        await env.DB.prepare("DELETE FROM memory WHERE pin_user = ? AND key = ? AND project = ?").bind(pinUser, key, project).run();
-      } else {
-        await env.DB.prepare("DELETE FROM memory WHERE pin_user = ? AND key = ?").bind(pinUser, key).run();
-      }
-      return { ok: true, deleted: key };
+      const now = Date.now();
+      // SOFT delete in memory_v2 (preserves history via is_current=0)
+      await env.DB.prepare("UPDATE memory_v2 SET is_current = 0, superseded_at = ? WHERE pin_user = ? AND project = ? AND key = ? AND is_current = 1").bind(now, pinUser, project, key).run();
+      // Hard delete in legacy memory (scoped to project)
+      await env.DB.prepare("DELETE FROM memory WHERE pin_user = ? AND key = ? AND project = ?").bind(pinUser, key, project).run();
+      return { ok: true, soft_deleted: key, project };
     }
     if (name === "send_message") {
       const { group, message } = input || {};
