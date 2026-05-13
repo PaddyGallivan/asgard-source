@@ -1,5 +1,5 @@
 // asgard-ai v5.8.0-stream: multi-provider (Anthropic/OpenAI/Groq) streaming SSE, normalized tokens
-const VERSION = '6.6.0';
+const VERSION = '6.6.1';
 const WORKER_NAME = "asgard-ai";
 
 // --- PIN auth helper (v1.1.0 security patch) ---
@@ -3037,13 +3037,21 @@ async function agenticExecuteTool(name, input, env) {
       };
       const mime = MIMES[type] || MIMES.doc;
       const access = await _agentFullAccessToken(env);
-      const parentId = parent || ASGARD_DRIVE_FOLDER;
-      const meta = { name: fname, mimeType: mime, parents: [parentId] };
-      const r = await fetch("https://www.googleapis.com/drive/v3/files?supportsAllDrives=true&fields=id,name,mimeType,webViewLink", {
-        method: "POST",
-        headers: { "Authorization": "Bearer " + access, "Content-Type": "application/json" },
-        body: JSON.stringify(meta)
-      });
+      const tryCreate = async (parentId) => {
+        const meta = parentId ? { name: fname, mimeType: mime, parents: [parentId] } : { name: fname, mimeType: mime };
+        const r = await fetch("https://www.googleapis.com/drive/v3/files?supportsAllDrives=true&fields=id,name,mimeType,webViewLink", {
+          method: "POST",
+          headers: { "Authorization": "Bearer " + access, "Content-Type": "application/json" },
+          body: JSON.stringify(meta)
+        });
+        return r;
+      };
+      const desiredParent = parent || ASGARD_DRIVE_FOLDER;
+      let r = await tryCreate(desiredParent);
+      // Auto-fallback to Drive root if the desired parent is missing or inaccessible
+      if (!r.ok && (r.status === 404 || r.status === 403)) {
+        r = await tryCreate(null);
+      }
       if (!r.ok) return { error: "drive_create_file " + r.status, detail: (await r.text()).slice(0,400) };
       const data = await r.json();
       // Optionally append initial text for Docs
