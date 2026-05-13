@@ -1,5 +1,5 @@
 const SW_CODE = `
-const CACHE = 'falkor-v9.35.0';
+const CACHE = 'falkor-v9.36.0';
 const CACHE_URLS = ['/'];
 
 self.addEventListener('install', e => {
@@ -95,7 +95,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === '/health') {
-      return new Response(JSON.stringify({status:'ok',version:'9.35.0',worker:'falkor-ui'}), {
+      return new Response(JSON.stringify({status:'ok',version:'9.36.0',worker:'falkor-ui'}), {
         headers: {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}
       });
     }
@@ -279,11 +279,11 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .chip:hover{border-color:var(--accent);background:rgba(108,99,255,.1);transform:translateY(-1px)}
 
 /* ── Composer ── */
-.composer{padding:10px 14px 12px;border-top:1px solid var(--border);background:var(--panel);flex-shrink:0}
+.composer{padding:10px 14px calc(72px + env(safe-area-inset-bottom, 0));border-top:1px solid var(--border);background:var(--panel);flex-shrink:0}
 .composer-inner{display:flex;align-items:flex-end;gap:6px;background:var(--input-bg);border:1px solid var(--border);border-radius:12px;padding:8px 10px;transition:border-color .15s}
 .composer-inner:focus-within{border-color:var(--accent)}
 .composer-inner.drag-over{border-color:var(--accent2);background:rgba(167,139,250,.08)}
-.composer-inner textarea{flex:1;background:none;border:none;outline:none;color:var(--text);font-size:14px;resize:none;max-height:180px;line-height:1.5;min-height:22px;font-family:inherit}
+.composer-inner textarea{flex:1;background:none;border:none;outline:none;color:var(--text);font-size:14px;resize:none;max-height:180px;line-height:1.5;min-height:36px;font-family:inherit;padding:6px 0}
 .composer-inner textarea::placeholder{color:var(--muted)}
 .attach-row{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin-bottom:6px;padding:5px 10px;background:var(--panel2);border-radius:7px;border:1px solid var(--border)}
 .attach-remove{margin-left:auto;cursor:pointer;color:var(--danger);font-size:13px;padding:1px 4px;border-radius:3px}
@@ -566,7 +566,7 @@ function installApp(){if(_deferredInstall){_deferredInstall.prompt();_deferredIn
 
 // ── Version polling — auto-reload when a new deploy is detected ──────────────
 (function() {
-  const CURRENT_VERSION = '9.35.0';
+  const CURRENT_VERSION = '9.36.0';
   let _lastKnownVersion = CURRENT_VERSION;
   let _checking = false;
 
@@ -611,4 +611,3 @@ function installApp(){if(_deferredInstall){_deferredInstall.prompt();_deferredIn
     });
   }
 };
-
