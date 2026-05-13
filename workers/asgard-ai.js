@@ -1,6 +1,3 @@
---e41f706d7c9a9407432b8149f1d3bcc8dea2ac2ab9060ce1c3138bc945a8
-Content-Disposition: form-data; name="worker.js"
-
 // asgard-ai v5.8.0-stream: multi-provider (Anthropic/OpenAI/Groq) streaming SSE, normalized tokens
 const VERSION = '6.5.0';
 const WORKER_NAME = "asgard-ai";
@@ -42,7 +39,10 @@ async function validateSession(env, tok) {
   return (env.SESSIONS_KV && tok) ? await env.SESSIONS_KV.get('sess:'+tok) : null;
 }
 async function pinOk(request, env) {
-  const pin  = request.headers.get('X-Pin')||request.headers.get('X-PIN')||'';
+  // 2026-05-10: also accept ?pin= query param so browser-initiated GETs (OAuth flow, etc.) work
+  let qpin = '';
+  try { qpin = new URL(request.url).searchParams.get('pin') || ''; } catch {}
+  const pin  = request.headers.get('X-Pin')||request.headers.get('X-PIN')||qpin||'';
   const stok = request.headers.get('X-Session-Token')||'';
   const ip   = request.headers.get('CF-Connecting-IP')||'unknown';
   if (stok) { const sp=await validateSession(env,stok); return (sp && getValidPins(env).includes(sp)); }
@@ -107,7 +107,7 @@ const MODELS = {
   // ── Free tier first (Groq — 1000 req/day, OpenAI-compatible) ──────────────
   "groq-fast":  { provider: "groq", id: "llama-3.1-8b-instant" },       // ~200 tok/s, near-instant
   "groq":       { provider: "groq", id: "llama-3.3-70b-versatile" },    // best free quality
-  "groq-think": { provider: "groq", id: "qwen-qwq-32b" },               // free reasoning model
+  "groq-think": { provider: "groq", id: "deepseek-r1-distill-llama-70b" }, // reasoning (distilled)
   // ── Anthropic (via AI Gateway) ────────────────────────────────────────────
   haiku:  { provider: "anthropic", id: "claude-haiku-4-5-20251001" },
   sonnet: { provider: "anthropic", id: "claude-sonnet-4-6" },
@@ -810,7 +810,7 @@ async function handleChatSmart(request, env) {
   const result = await generate(env, {
     provider: resolved.provider, model: resolved.id,
     messages, system: systemText,
-    max_tokens: body.max_tokens || 1024,
+    max_tokens: body.max_tokens || 4096,
   });
   if (!result.ok) return err(result.error, 502);
   const reply = result.reply;
@@ -974,7 +974,15 @@ async function handleChatVision(request, env) {
   const message = (body.message || "Describe this image").toString();
   const imageUrl = body.image_url;
   const imageBase64 = body.image_base64;
-  const imageMime = body.image_mime || "image/jpeg";
+  const imageMime = body.image_mime || (function(){
+    if (!body.image_base64) return "image/jpeg";
+    const b = body.image_base64.slice(0, 16);
+    if (b.startsWith("iVBORw0K")) return "image/png";
+    if (b.startsWith("R0lGOD")) return "image/gif";
+    if (b.startsWith("UklGR")) return "image/webp";
+    if (b.startsWith("/9j/")) return "image/jpeg";
+    return "image/jpeg";
+  })();
   const modelKey = body.model || "sonnet";
   const resolved = resolveModel(modelKey);
   const uid = body.uid || request.headers.get("X-User-Id") || "paddy";
@@ -1371,11 +1379,11 @@ async function handleGithubCreateIssue(request, env) {
 }
 
 async function handleDriveDelete(request, env) {
-  if (!env.LD_GOOGLE_REFRESH_TOKEN) return err("LD_GOOGLE_REFRESH_TOKEN missing", 400);
+  if (!env.LD_GOOGLE_REFRESH_TOKEN && !env.GOOGLE_REFRESH_TOKEN) return err("Neither LD_GOOGLE_REFRESH_TOKEN nor GOOGLE_REFRESH_TOKEN set — run /connect-drive", 400);
   const _tr = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET,
-      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN, grant_type: "refresh_token" }).toString(),
+      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN || env.GOOGLE_REFRESH_TOKEN, grant_type: "refresh_token" }).toString(),
   });
   if (!_tr.ok) { const te = await _tr.text(); return err("LD token refresh failed: " + te.slice(0,200), 502); }
   const { access_token: ldAccess } = await _tr.json();
@@ -1465,22 +1473,22 @@ async function driveFetch(env, tokenBox, url, init = {}, retried = false) {
 }
 
 async function handleDriveUpload(request, env) {
-  if (!env.LD_GOOGLE_REFRESH_TOKEN) return err("LD_GOOGLE_REFRESH_TOKEN missing", 400);
+  if (!env.LD_GOOGLE_REFRESH_TOKEN && !env.GOOGLE_REFRESH_TOKEN) return err("Neither LD_GOOGLE_REFRESH_TOKEN nor GOOGLE_REFRESH_TOKEN set — run /connect-drive", 400);
   const _tr = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET,
-      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN, grant_type: "refresh_token" }).toString(),
+      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN || env.GOOGLE_REFRESH_TOKEN, grant_type: "refresh_token" }).toString(),
   });
   if (!_tr.ok) { const te = await _tr.text(); return err("LD token refresh failed: " + te.slice(0,200), 502); }
   const { access_token: ldAccess } = await _tr.json();
   const url = new URL(request.url);
   const filename = url.searchParams.get("filename") || "upload.bin";
-  const parent = url.searchParams.get("parent") || "1aB7mY3ZwW2ZnDrkyjEKGQIbpO46X06MV";
+  const parent = url.searchParams.get("parent") || null;
   const mime = url.searchParams.get("mime") || request.headers.get("x-file-type") || "application/octet-stream";
   const buf = await request.arrayBuffer();
   if (!buf.byteLength) return err("empty body", 400);
   const boundary = "----asgard-" + Math.random().toString(36).slice(2);
-  const metadata = { name: filename, parents: [parent] };
+  const metadata = parent ? { name: filename, parents: [parent] } : { name: filename };
   const enc = new TextEncoder();
   const head = enc.encode(
     "--" + boundary + "\r\n" +
@@ -1505,7 +1513,7 @@ async function handleDriveUpload(request, env) {
 }
 
 async function handleDriveLdMkdir(request, env) {
-  if (!env.LD_GOOGLE_REFRESH_TOKEN) return err("LD_GOOGLE_REFRESH_TOKEN missing \u2014 run /google/oauth-start?account=luckdragon first", 400);
+  if (!env.LD_GOOGLE_REFRESH_TOKEN && !env.GOOGLE_REFRESH_TOKEN) return err("Neither LD_GOOGLE_REFRESH_TOKEN nor GOOGLE_REFRESH_TOKEN set — run /connect-drive", 400);
   const body = await request.json().catch(() => ({}));
   const { name, parent } = body;
   if (!name) return err("name required", 400);
@@ -1515,7 +1523,7 @@ async function handleDriveLdMkdir(request, env) {
     body: new URLSearchParams({
       client_id: env.GOOGLE_CLIENT_ID,
       client_secret: env.GOOGLE_CLIENT_SECRET,
-      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN,
+      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN || env.GOOGLE_REFRESH_TOKEN,
       grant_type: "refresh_token",
     }).toString(),
   });
@@ -1537,7 +1545,7 @@ async function handleDriveLdMkdir(request, env) {
 
 
 async function handleDriveLdShare(request, env) {
-  if (!env.LD_GOOGLE_REFRESH_TOKEN) return err("LD_GOOGLE_REFRESH_TOKEN missing", 400);
+  if (!env.LD_GOOGLE_REFRESH_TOKEN && !env.GOOGLE_REFRESH_TOKEN) return err("Neither LD_GOOGLE_REFRESH_TOKEN nor GOOGLE_REFRESH_TOKEN set — run /connect-drive", 400);
   const body = await request.json().catch(() => ({}));
   const { file_id, email, role = "reader", sendNotificationEmail = false } = body;
   if (!file_id || !email) return err("file_id and email required", 400);
@@ -1555,7 +1563,7 @@ async function handleDriveLdShare(request, env) {
 }
 
 async function handleDriveLdListRoots(request, env) {
-  if (!env.LD_GOOGLE_REFRESH_TOKEN) return err("LD_GOOGLE_REFRESH_TOKEN missing", 400);
+  if (!env.LD_GOOGLE_REFRESH_TOKEN && !env.GOOGLE_REFRESH_TOKEN) return err("Neither LD_GOOGLE_REFRESH_TOKEN nor GOOGLE_REFRESH_TOKEN set — run /connect-drive", 400);
   const access = await _agentLdAccessToken(env);
   const q = "'root' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder'";
   const r = await fetch(
@@ -1569,16 +1577,21 @@ async function handleDriveLdListRoots(request, env) {
 }
 
 async function handleDriveLdSearch(request, env) {
-  if (!env.LD_GOOGLE_REFRESH_TOKEN) return err("LD_GOOGLE_REFRESH_TOKEN missing", 400);
+  if (!env.LD_GOOGLE_REFRESH_TOKEN && !env.GOOGLE_REFRESH_TOKEN) return err("Neither LD_GOOGLE_REFRESH_TOKEN nor GOOGLE_REFRESH_TOKEN set — run /connect-drive", 400);
   const url = new URL(request.url);
-  const q = url.searchParams.get("q") || "trashed = false";
+  let q = url.searchParams.get("q") || "trashed = false";
+  // PATCH 2026-05-13: bare keywords like q=Asgard fail Drive's API; wrap them.
+  if (q && !/\s(=|!=|<|>|<=|>=|contains|in)\s|\sand\s|\sor\s|^(trashed|starred|mimeType|name|fullText|parents|owners|sharedWithMe)\s*[=:]/i.test(q)) {
+    const _safe = q.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    q = `name contains '${_safe}' and trashed = false`;
+  }
   const tr = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       client_id: env.GOOGLE_CLIENT_ID,
       client_secret: env.GOOGLE_CLIENT_SECRET,
-      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN,
+      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN || env.GOOGLE_REFRESH_TOKEN,
       grant_type: "refresh_token",
     }).toString(),
   });
@@ -1587,7 +1600,9 @@ async function handleDriveLdSearch(request, env) {
   const access = tj.access_token;
   const fields = "files(id,name,mimeType,parents,webViewLink,size)";
   const pageSize = Math.min(1000, parseInt(url.searchParams.get("pageSize") || "50"));
-  const r = await fetch("https://www.googleapis.com/drive/v3/files?q=" + encodeURIComponent(q) + "&fields=" + encodeURIComponent(fields) + "&pageSize=" + pageSize, {
+  const orderBy = url.searchParams.get("orderBy") || "";
+  const orderParam = orderBy ? "&orderBy=" + encodeURIComponent(orderBy) : "";
+  const r = await fetch("https://www.googleapis.com/drive/v3/files?q=" + encodeURIComponent(q) + "&fields=" + encodeURIComponent(fields) + "&pageSize=" + pageSize + orderParam, {
     headers: { "Authorization": "Bearer " + access },
   });
   const text = await r.text();
@@ -1597,7 +1612,7 @@ async function handleDriveLdSearch(request, env) {
 }
 
 async function handleDriveLdCopy(request, env) {
-  if (!env.LD_GOOGLE_REFRESH_TOKEN) return err("LD_GOOGLE_REFRESH_TOKEN missing", 400);
+  if (!env.LD_GOOGLE_REFRESH_TOKEN && !env.GOOGLE_REFRESH_TOKEN) return err("Neither LD_GOOGLE_REFRESH_TOKEN nor GOOGLE_REFRESH_TOKEN set — run /connect-drive", 400);
   if (!env.GOOGLE_REFRESH_TOKEN) return err("GOOGLE_REFRESH_TOKEN missing", 400);
   const url = new URL(request.url);
   const srcId = url.searchParams.get("src_id");
@@ -1645,7 +1660,7 @@ async function handleDriveLdCopy(request, env) {
     body: new URLSearchParams({
       client_id: env.GOOGLE_CLIENT_ID,
       client_secret: env.GOOGLE_CLIENT_SECRET,
-      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN,
+      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN || env.GOOGLE_REFRESH_TOKEN,
       grant_type: "refresh_token",
     }).toString(),
   });
@@ -1681,16 +1696,21 @@ async function handleDriveLdCopy(request, env) {
 }
 
 async function handleDriveSearch(request, env) {
-  if (!env.LD_GOOGLE_REFRESH_TOKEN) return err("LD_GOOGLE_REFRESH_TOKEN missing", 400);
+  if (!env.LD_GOOGLE_REFRESH_TOKEN && !env.GOOGLE_REFRESH_TOKEN) return err("Neither LD_GOOGLE_REFRESH_TOKEN nor GOOGLE_REFRESH_TOKEN set — run /connect-drive", 400);
   const _tr = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET,
-      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN, grant_type: "refresh_token" }).toString(),
+      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN || env.GOOGLE_REFRESH_TOKEN, grant_type: "refresh_token" }).toString(),
   });
   if (!_tr.ok) { const te = await _tr.text(); return err("LD token refresh failed: " + te.slice(0,200), 502); }
   const { access_token: ldAccess } = await _tr.json();
   const url = new URL(request.url);
-  const q = url.searchParams.get("q") || "trashed = false";
+  let q = url.searchParams.get("q") || "trashed = false";
+  // PATCH 2026-05-13: bare keywords like q=Asgard fail Drive's API; wrap them.
+  if (q && !/\s(=|!=|<|>|<=|>=|contains|in)\s|\sand\s|\sor\s|^(trashed|starred|mimeType|name|fullText|parents|owners|sharedWithMe)\s*[=:]/i.test(q)) {
+    const _safe = q.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    q = `name contains '${_safe}' and trashed = false`;
+  }
   const pageSize = Math.min(1000, parseInt(url.searchParams.get("pageSize") || "20"));
   const fields = "files(id,name,mimeType,modifiedTime,webViewLink,parents,size),nextPageToken";
   const apiUrl = "https://www.googleapis.com/drive/v3/files?q=" + encodeURIComponent(q) +
@@ -1711,7 +1731,7 @@ function googleConsentUrl(env, request, account) {
     client_id: env.GOOGLE_CLIENT_ID,
     redirect_uri: callback,
     response_type: "code",
-    scope: "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/calendar.readonly",
+    scope: "https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/calendar.readonly",
     access_type: "offline",
     prompt: isLD ? "select_account consent" : "consent",
     include_granted_scopes: "true",
@@ -1786,14 +1806,14 @@ async function handleOauthCallback(request, env) {
 
 // ---------- Google Calendar API (uses LD OAuth credentials) ----------
 async function handleGoogleCalendarEvents(request, env) {
-  if (!env.LD_GOOGLE_REFRESH_TOKEN) return err("LD_GOOGLE_REFRESH_TOKEN missing", 400);
+  if (!env.LD_GOOGLE_REFRESH_TOKEN && !env.GOOGLE_REFRESH_TOKEN) return err("Neither LD_GOOGLE_REFRESH_TOKEN nor GOOGLE_REFRESH_TOKEN set — run /connect-drive", 400);
   if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) return err("GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET missing", 400);
 
   // Refresh the LD Google access token
   const _tr = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET,
-      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN, grant_type: "refresh_token" }).toString(),
+      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN || env.GOOGLE_REFRESH_TOKEN, grant_type: "refresh_token" }).toString(),
   });
   if (!_tr.ok) { const te = await _tr.text(); return err("LD token refresh failed: " + te.slice(0,200), 502); }
   const { access_token } = await _tr.json();
@@ -1860,7 +1880,7 @@ async function handleAgentPropose(request, env) {
   const result = await generate(env, {
     provider: "anthropic", model: MODELS.sonnet.id,
     messages: [{ role: "user", content: message }],
-    system, max_tokens: 1024,
+    system, max_tokens: 2048,
   });
   if (!result.ok) return err(result.error, 502);
   let plan;
@@ -1873,7 +1893,7 @@ async function handleAgentPropose(request, env) {
 
 
 async function handleDriveLdMove(request, env) {
-  if (!env.LD_GOOGLE_REFRESH_TOKEN) return err("LD_GOOGLE_REFRESH_TOKEN missing", 400);
+  if (!env.LD_GOOGLE_REFRESH_TOKEN && !env.GOOGLE_REFRESH_TOKEN) return err("Neither LD_GOOGLE_REFRESH_TOKEN nor GOOGLE_REFRESH_TOKEN set — run /connect-drive", 400);
   const body = await request.json().catch(() => ({}));
   const { fileId, targetFolderId, sourceFolderId } = body;
   if (!fileId || !targetFolderId) return err("fileId and targetFolderId required", 400);
@@ -1883,7 +1903,7 @@ async function handleDriveLdMove(request, env) {
     body: new URLSearchParams({
       client_id: env.GOOGLE_CLIENT_ID,
       client_secret: env.GOOGLE_CLIENT_SECRET,
-      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN,
+      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN || env.GOOGLE_REFRESH_TOKEN,
       grant_type: "refresh_token",
     }).toString(),
   });
@@ -1981,13 +2001,33 @@ async function handleAdminSpend(request, env) {
   if (!env.DB) return json({ ok: false, error: 'D1 not bound' }, 500);
   const url = new URL(request.url);
   const days = parseInt(url.searchParams.get('days') || '30', 10);
-  const since = Date.now() - (days * 86400000);
+  const sinceDate = new Date(Date.now() - (days * 86400000)).toISOString().slice(0,10);
   try {
-    const rows = await env.DB.prepare(
-      "SELECT model, uid, SUM(cost_usd) as total_cost, COUNT(*) as calls, SUM(prompt_tokens) as prompt_tokens, SUM(completion_tokens) as completion_tokens FROM spend_log WHERE created_at > ? GROUP BY model, uid ORDER BY total_cost DESC LIMIT 100"
-    ).bind(since).all();
-    const total = (rows.results||[]).reduce((s,r) => s+(r.total_cost||0), 0);
-    return json({ ok: true, days, since, total_usd: total, rows: rows.results||[] });
+    const [byProvider, byModel, byDay, totals] = await Promise.all([
+      env.DB.prepare(
+        "SELECT provider, COUNT(*) as calls, SUM(prompt_tokens) as prompt_tokens, SUM(completion_tokens) as completion_tokens, ROUND(SUM(cost_usd),6) as total_usd FROM spend_log WHERE ts >= ? GROUP BY provider ORDER BY total_usd DESC"
+      ).bind(sinceDate).all(),
+      env.DB.prepare(
+        "SELECT provider, model, COUNT(*) as calls, SUM(prompt_tokens) as prompt_tokens, SUM(completion_tokens) as completion_tokens, ROUND(SUM(cost_usd),6) as total_usd FROM spend_log WHERE ts >= ? GROUP BY provider, model ORDER BY total_usd DESC LIMIT 30"
+      ).bind(sinceDate).all(),
+      env.DB.prepare(
+        "SELECT substr(ts,1,10) as day, ROUND(SUM(cost_usd),6) as total_usd, COUNT(*) as calls FROM spend_log WHERE ts >= ? GROUP BY day ORDER BY day DESC LIMIT " + days
+      ).bind(sinceDate).all(),
+      env.DB.prepare(
+        "SELECT ROUND(SUM(cost_usd),6) as all_time_usd, COUNT(*) as all_time_calls FROM spend_log"
+      ).all(),
+    ]);
+    const total = (byProvider.results||[]).reduce((s,r) => s+(r.total_usd||0), 0);
+    const allTime = (totals.results||[])[0] || {};
+    return json({
+      ok: true, days, since: sinceDate,
+      period_usd: Math.round(total * 1000000) / 1000000,
+      all_time_usd: allTime.all_time_usd || 0,
+      all_time_calls: allTime.all_time_calls || 0,
+      by_provider: byProvider.results || [],
+      by_model: byModel.results || [],
+      by_day: byDay.results || [],
+    });
   } catch (e) {
     return json({ ok: false, error: e.message }, 500);
   }
@@ -2203,7 +2243,7 @@ async function _agentLdAccessToken(env) {
     method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET,
-      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN, grant_type: "refresh_token"
+      refresh_token: env.LD_GOOGLE_REFRESH_TOKEN || env.GOOGLE_REFRESH_TOKEN, grant_type: "refresh_token"
     }).toString()
   });
   if (!r.ok) throw new Error("LD token refresh failed: " + (await r.text()).slice(0, 200));
@@ -2254,66 +2294,116 @@ async function agenticExecuteTool(name, input, env) {
       }
     }
     if (name === "get_worker_code") {
-      const { worker_name, main_module } = input || {};
-      const cfToken = env.CF_API_TOKEN || (await agenticGetSecret("CF_API_TOKEN", env));
-      if (!cfToken) return { error: "CF_API_TOKEN missing" };
-      const r = await fetch(
-        "https://api.cloudflare.com/client/v4/accounts/" + AGENTIC_ACCT + "/workers/scripts/" + worker_name,
+      const { worker_name } = input || {};
+      if (!worker_name) return { error: "worker_name required" };
+      const cfToken = env.CF_API_TOKEN_FULLOPS;
+      const acct = env.CF_ACCOUNT_ID;
+      if (!cfToken || !acct) return { error: "CF_API_TOKEN_FULLOPS or CF_ACCOUNT_ID not bound" };
+      const resp = await fetch(
+        "https://api.cloudflare.com/client/v4/accounts/" + acct + "/workers/scripts/" + worker_name,
         { headers: { "Authorization": "Bearer " + cfToken } }
       );
-      if (!r.ok) return { error: "CF " + r.status, detail: (await r.text()).substring(0, 500) };
-      const ct = r.headers.get("Content-Type") || "";
-      const text = await r.text();
-      if (ct.startsWith("application/javascript") && !ct.includes("multipart")) {
-        return { code: text.substring(0, 60000), length: text.length, format: "classic" };
+      if (!resp.ok) return { error: "CF API failed: " + resp.status, worker: worker_name };
+      const text = await resp.text();
+      const firstNL = text.indexOf("\r\n");
+      const bnd = text.slice(0, firstNL).replace(/^--/, "");
+      let codeBlock = null, foundModule = null;
+      for (const mn of ["index.js", "worker.js"]) {
+        const mk = 'name="' + mn + '"\r\n\r\n';
+        const si = text.indexOf(mk);
+        if (si !== -1) {
+          const cs = si + mk.length;
+          const ei = text.indexOf("\r\n--" + bnd, cs);
+          codeBlock = text.slice(cs, ei === -1 ? undefined : ei);
+          foundModule = mn;
+          break;
+        }
       }
-      const bm = ct.match(/boundary=([^;]+)/);
-      if (!bm) return { error: "No boundary", ct };
-      const boundary = bm[1].trim().replace(/^"|"$/g, "");
-      const parts = text.split("--" + boundary).slice(1, -1);
-      const cands = [];
-      for (const raw of parts) {
-        let p = raw.replace(/^\r?\n/, "");
-        let si = p.indexOf("\r\n\r\n"); let sl = 4;
-        if (si === -1) { si = p.indexOf("\n\n"); sl = 2; }
-        if (si === -1) continue;
-        const headers = p.substring(0, si);
-        let body = p.substring(si + sl).replace(/\r?\n$/, "");
-        const fnm = headers.match(/filename="([^"]+)"/);
-        const nm  = headers.match(/name="([^"]+)"/);
-        const filename = fnm ? fnm[1] : (nm ? nm[1] : "");
-        cands.push({ filename, body });
+      // fallback: first .js part
+      if (!codeBlock) {
+        const m = text.match(/name="([^"]+\.js)"\r\n\r\n/);
+        if (m) {
+          const si = text.indexOf(m[0]) + m[0].length;
+          const ei = text.indexOf("\r\n--" + bnd, si);
+          codeBlock = text.slice(si, ei === -1 ? undefined : ei);
+          foundModule = m[1];
+        }
       }
-      const want = main_module || "worker.js";
-      const pick = cands.find(c => c.filename === want)
-                || cands.find(c => /\.m?js$/i.test(c.filename))
-                || cands.find(c => c.filename && c.filename !== "metadata");
-      if (!pick) return { error: "No JS part", filenames: cands.map(c => c.filename) };
-      return { code: pick.body.substring(0, 60000), length: pick.body.length, format: "module", part_name: pick.filename };
+      if (!codeBlock) return { error: "could not find JS module in worker multipart", worker: worker_name };
+      return { worker: worker_name, module: foundModule, code: codeBlock, code_length: codeBlock.length };
     }
+
     if (name === "deploy_worker") {
-      const { worker_name, code, main_module = "worker.js" } = input || {};
-      const cfToken = env.CF_API_TOKEN || (await agenticGetSecret("CF_API_TOKEN", env));
-      if (!cfToken) return { error: "CF_API_TOKEN missing" };
-      const meta = JSON.stringify({ main_module, keep_bindings: ["secret_text","plain_text","kv_namespace","d1","service"] });
-      const CRLF = String.fromCharCode(13, 10);
-      const boundary = "AgenticBoundary" + Date.now();
-      const bodyStr = "--" + boundary + CRLF +
-        "Content-Disposition: form-data; name=\"metadata\"" + CRLF +
-        "Content-Type: application/json" + CRLF + CRLF +
-        meta + CRLF +
-        "--" + boundary + CRLF +
-        "Content-Disposition: form-data; name=\"" + main_module + "\"; filename=\"" + main_module + "\"" + CRLF +
-        "Content-Type: application/javascript+module" + CRLF + CRLF +
-        code + CRLF +
-        "--" + boundary + "--";
-      const r = await fetch(
-        "https://api.cloudflare.com/client/v4/accounts/" + AGENTIC_ACCT + "/workers/scripts/" + worker_name,
-        { method: "PUT", headers: { "Authorization": "Bearer " + cfToken, "Content-Type": "multipart/form-data; boundary=" + boundary }, body: bodyStr }
+      const { worker_name, code: newCode, main_module: _mm } = input || {};
+      if (!worker_name || !newCode) return { error: "worker_name and code required" };
+      if (worker_name === "asgard-ai") return { error: "refusing to self-deploy asgard-ai via tool call" };
+      const cfToken = env.CF_API_TOKEN_FULLOPS;
+      const acct = env.CF_ACCOUNT_ID;
+      if (!cfToken || !acct) return { error: "CF_API_TOKEN_FULLOPS or CF_ACCOUNT_ID not bound" };
+      // Step 1: get current bindings from /versions/{latest}
+      const verList = await fetch(
+        "https://api.cloudflare.com/client/v4/accounts/" + acct + "/workers/scripts/" + worker_name + "/versions",
+        { headers: { "Authorization": "Bearer " + cfToken } }
       );
-      const j = await r.json();
-      return { ok: !!j.success, errors: j.errors || [], worker: j.result && j.result.id };
+      if (!verList.ok) return { error: "versions list failed: " + verList.status, worker: worker_name };
+      const vl = await verList.json();
+      const latestId = vl.result && vl.result.items && vl.result.items[0] && vl.result.items[0].id;
+      let existingBindings = [];
+      let compatDate = "2025-04-01";
+      let mainModule = _mm || "index.js";
+      if (latestId) {
+        const vd = await fetch(
+          "https://api.cloudflare.com/client/v4/accounts/" + acct + "/workers/scripts/" + worker_name + "/versions/" + latestId,
+          { headers: { "Authorization": "Bearer " + cfToken } }
+        );
+        if (vd.ok) {
+          const vj = await vd.json();
+          existingBindings = vj.result && vj.result.resources && vj.result.resources.bindings || [];
+          compatDate = (vj.result && vj.result.metadata && vj.result.metadata.compatibility_date) || compatDate;
+          mainModule = (vj.result && vj.result.metadata && vj.result.metadata.main_module) || mainModule;
+        }
+      }
+      // Step 2: convert to inherit-style metadata
+      const bindingsMd = existingBindings.map(b => {
+        if (b.type === "secret_text") return { name: b.name, type: "inherit", old_name: b.name };
+        if (b.type === "d1") return { name: b.name, type: "d1", id: b.database_id || b.id };
+        if (b.type === "kv_namespace") return { name: b.name, type: "kv_namespace", namespace_id: b.namespace_id };
+        if (b.type === "vectorize") return { name: b.name, type: "vectorize", index_name: b.index_name };
+        if (b.type === "ai") return { name: b.name, type: "ai" };
+        if (b.type === "r2_bucket") return { name: b.name, type: "r2_bucket", bucket_name: b.bucket_name };
+        return { name: b.name, type: "inherit", old_name: b.name };
+      });
+      const metadata = JSON.stringify({ main_module: mainModule, compatibility_date: compatDate, bindings: bindingsMd });
+      // Step 3: multipart PUT
+      const enc = new TextEncoder();
+      const bnd = "----asgardtool" + Math.random().toString(36).slice(2,12);
+      const CRLF = "\r\n";
+      const parts = [
+        enc.encode("--" + bnd + CRLF + 'Content-Disposition: form-data; name="metadata"; filename="metadata.json"' + CRLF + "Content-Type: application/json" + CRLF + CRLF),
+        enc.encode(metadata),
+        enc.encode(CRLF + "--" + bnd + CRLF + 'Content-Disposition: form-data; name="' + mainModule + '"; filename="' + mainModule + '"' + CRLF + "Content-Type: application/javascript+module" + CRLF + CRLF),
+        enc.encode(newCode),
+        enc.encode(CRLF + "--" + bnd + "--" + CRLF),
+      ];
+      const totalLen = parts.reduce((s, p) => s + p.byteLength, 0);
+      const buf = new Uint8Array(totalLen);
+      let off = 0; for (const p of parts) { buf.set(p, off); off += p.byteLength; }
+      const deployResp = await fetch(
+        "https://api.cloudflare.com/client/v4/accounts/" + acct + "/workers/scripts/" + worker_name,
+        { method: "PUT", headers: { "Authorization": "Bearer " + cfToken, "Content-Type": "multipart/form-data; boundary=" + bnd }, body: buf }
+      );
+      const dt = await deployResp.text();
+      let dj; try { dj = JSON.parse(dt); } catch { dj = { raw: dt.slice(0, 300) }; }
+      return {
+        ok: !!dj.success,
+        deployment_id: dj.result && dj.result.deployment_id || null,
+        bindings_count: bindingsMd.length,
+        worker: worker_name,
+        main_module: mainModule,
+        errors: dj.errors || [],
+      };
     }
+
     if (name === "get_secret") {
       const { key } = input || {};
       const v = await agenticGetSecret(key, env);
@@ -2683,7 +2773,20 @@ async function handleChatAgentic(request, env) {
   const _agProject = body.project || "global";
   const _agMemCtx = await loadMemories(env, _agPinUser, _agProject);
   const system = body.system || (_agMemCtx ? SYSTEM_PROMPT + '\n\n--- Memory context ---\n' + _agMemCtx + '\n--- End memory ---' : SYSTEM_PROMPT);
-  const provider = modelId.startsWith("claude") ? "anthropic" : (modelId.startsWith("gemini") ? "gemini" : "openai");
+  // Resolve model to provider + real model ID using MODELS map
+  const _requestedModel = modelId;
+  let _resolved = MODELS[modelId] || (
+    modelId.startsWith("claude") ? { provider: "anthropic", id: modelId } :
+    modelId.startsWith("gemini") ? { provider: "gemini", id: modelId } :
+    modelId.startsWith("groq") ? { provider: "groq", id: modelId } :
+    { provider: "openai", id: modelId }
+  );
+  // groq-fast (8B) doesn't have enough context for agentic tool loops — use groq-70B instead
+  if (_resolved.provider === "groq" && _resolved.id === "llama-3.1-8b-instant") {
+    _resolved = MODELS["groq"]; // llama-3.3-70b-versatile
+  }
+  const provider = _resolved.provider;
+  const resolvedModelId = _resolved.id;
   const messagesIn = Array.isArray(body.messages) ? body.messages : [];
   let messages = [...messagesIn, { role: "user", content: message }];
 
@@ -2699,7 +2802,7 @@ async function handleChatAgentic(request, env) {
     while (iter < MAX_ITER) {
       iter++;
       const _isNewParam = /^(gpt-5|o1|o3|o4)/.test(String(modelId));
-      const _oaiBody = { model: modelId, messages: oaiMessages, tools: AGENTIC_TOOLS_OPENAI };
+      const _oaiBody = { model: resolvedModelId, messages: oaiMessages, tools: AGENTIC_TOOLS_OPENAI };
       if (_isNewParam) _oaiBody.max_completion_tokens = 4096;
       else _oaiBody.max_tokens = 4096;
       const r = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -2735,7 +2838,7 @@ async function handleChatAgentic(request, env) {
     }));
     while (iter < MAX_ITER) {
       iter++;
-      const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(modelId) + ":generateContent?key=" + env.GEMINI_API_KEY, {
+      const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(resolvedModelId) + ":generateContent?key=" + env.GEMINI_API_KEY, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2772,7 +2875,7 @@ async function handleChatAgentic(request, env) {
     const anthropicTools = AGENTIC_TOOLS_OPENAI.map(function(t){
       return { name: t.function.name, description: t.function.description, input_schema: t.function.parameters };
     });
-    const claudeReq = { model: modelId, max_tokens: 8192, system, messages, tools: anthropicTools };
+    const claudeReq = { model: resolvedModelId, max_tokens: 8192, system, messages, tools: anthropicTools };
     while (iter < MAX_ITER) {
       iter++;
       const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -2797,16 +2900,71 @@ async function handleChatAgentic(request, env) {
       }
       claudeReq.messages = [...claudeReq.messages, { role: "assistant", content: d.content }, { role: "user", content: toolResults }];
     }
+  } else if (provider === "groq") {
+    if (!env.GROQ_API_KEY) return json({ ok: false, error: "GROQ_API_KEY missing" }, 502);
+    // Groq is OpenAI-compatible — same request format, different base URL + model IDs
+    const groqMessages = [{ role: "system", content: system }, ...messages];
+    while (iter < MAX_ITER) {
+      iter++;
+      // Groq: use a condensed tool set to fit context windows, and force tool_choice:auto
+      const GROQ_TOOLS = AGENTIC_TOOLS_OPENAI.filter(t =>
+        ["get_worker_code","deploy_worker","github_get_file","github_write_file",
+         "http_request","get_secret","drive_search","drive_read","send_email"].includes(t.function.name)
+      );
+      const _groqBody = {
+        model: resolvedModelId,
+        messages: groqMessages,
+        tools: GROQ_TOOLS,
+        tool_choice: "auto",
+        max_tokens: 2048,
+      };
+      const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + env.GROQ_API_KEY },
+        body: JSON.stringify(_groqBody)
+      });
+      if (!r.ok) return json({ ok: false, error: "groq " + r.status + ": " + (await r.text()).slice(0, 300) }, 502);
+      const d = await r.json();
+      usage = d.usage || usage;
+      const choice = d.choices && d.choices[0];
+      if (!choice) return json({ ok: false, error: "no choice in Groq response" }, 502);
+      const msg = choice.message || {};
+      if (choice.finish_reason !== "tool_calls" || !msg.tool_calls || !msg.tool_calls.length) {
+        finalText = msg.content || "";
+        break;
+      }
+      groqMessages.push({ role: "assistant", content: msg.content || null, tool_calls: msg.tool_calls });
+      for (const tc of msg.tool_calls) {
+        let args = {};
+        try { args = JSON.parse(tc.function.arguments || "{}"); } catch (e) { args = { _parse_error: e.message }; }
+        const result = await agenticExecuteTool(tc.function.name, args, env);
+        toolsExecuted.push({ tool: tc.function.name, input: args, result });
+        groqMessages.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(result).substring(0, 20000) });
+      }
+    }
   } else {
     return json({ ok: false, error: "Unknown provider for model: " + modelId }, 400);
   }
 
+  // Log agentic spend (fire-and-forget)
+  if (usage && env.DB) {
+    try {
+      const _p = ((usage.prompt_tokens||usage.input_tokens||usage.promptTokenCount||0)|0);
+      const _c = ((usage.completion_tokens||usage.output_tokens||usage.candidatesTokenCount||0)|0);
+      const _cost = typeof computeTokenCost === "function" ? computeTokenCost(resolvedModelId, _p, _c) : 0;
+      bgLog(env, {
+        provider, model: resolvedModelId, endpoint: "chat/agentic",
+        prompt_tokens: _p, completion_tokens: _c,
+        cost_usd: _cost, uid: _agUid,
+      }).catch(() => {});
+    } catch(e) { /* spend logging failure should not crash agentic */ }
+  }
   return json({
     ok: true,
     reply: finalText,
     response: finalText,
     text: finalText, content: finalText, message: finalText,
-    provider, model: modelId,
+    provider, model: resolvedModelId, model_key: modelId,
     iterations: iter,
     tools_executed: toolsExecuted.map(t => t.tool),
     tool_results: toolsExecuted,
@@ -2903,6 +3061,650 @@ export default {
     const method = request.method;
     if (method === "OPTIONS") { const reqOrigin = request.headers.get("Origin") || ""; return new Response(null, { status: 204, headers: makeCors(reqOrigin) }); }
     try {
+      if (path === "/admin/deploy" && method === "POST") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        if (!env.CF_API_TOKEN_FULLOPS) return err("CF_API_TOKEN_FULLOPS not bound", 500);
+        if (!env.CF_ACCOUNT_ID) return err("CF_ACCOUNT_ID not bound", 500);
+        const body = await request.json().catch(() => ({}));
+        const { worker_name, code, compatibility_date, dry_run } = body;
+        if (!worker_name) return err("worker_name required", 400);
+        if (!code) return err("code required (the new worker source)", 400);
+        if (worker_name === "asgard-ai") return err("refusing to self-deploy via /admin/deploy \u2014 use a separate session for asgard-ai changes", 400);
+        const accountId = env.CF_ACCOUNT_ID;
+        // Step 1: fetch current settings to get existing bindings
+        // PATCH 2026-05-13: /settings is missing newer binding types (vectorize/ai/d1 sometimes).
+        // Use /versions/{latest_id} which returns the FULL resources.bindings.
+        const versionsListResp = await fetch(
+          "https://api.cloudflare.com/client/v4/accounts/" + accountId + "/workers/scripts/" + worker_name + "/versions",
+          { headers: { "Authorization": "Bearer " + env.CF_API_TOKEN_FULLOPS } }
+        );
+        if (!versionsListResp.ok) {
+          const t = await versionsListResp.text();
+          return err("versions list failed (" + versionsListResp.status + "): " + t.slice(0, 300), 502);
+        }
+        const versionsListJson = await versionsListResp.json();
+        const items = (versionsListJson.result && versionsListJson.result.items) || [];
+        if (!items.length) return err("no versions found for " + worker_name, 502);
+        const latestVersionId = items[0].id;
+        const versionResp = await fetch(
+          "https://api.cloudflare.com/client/v4/accounts/" + accountId + "/workers/scripts/" + worker_name + "/versions/" + latestVersionId,
+          { headers: { "Authorization": "Bearer " + env.CF_API_TOKEN_FULLOPS } }
+        );
+        if (!versionResp.ok) {
+          const t = await versionResp.text();
+          return err("version detail fetch failed (" + versionResp.status + "): " + t.slice(0, 300), 502);
+        }
+        const versionJson = await versionResp.json();
+        const versionResources = (versionJson.result && versionJson.result.resources) || {};
+        const existing = versionResources.bindings || [];
+        // Also pick up compatibility settings from version metadata
+        const versionCompat = (versionJson.result && versionJson.result.metadata && versionJson.result.metadata.compatibility_date) || null;
+        const versionCompatFlags = (versionJson.result && versionJson.result.metadata && versionJson.result.metadata.compatibility_flags) || null;
+        // Step 2: convert to inherit-style metadata
+        const inheritBindings = existing.map(b => {
+          if (b.type === "secret_text") return { name: b.name, type: "inherit", old_name: b.name };
+          if (b.type === "d1") return { name: b.name, type: "d1", id: b.database_id };
+          if (b.type === "kv_namespace") return { name: b.name, type: "kv_namespace", namespace_id: b.namespace_id };
+          if (b.type === "plain_text") return { name: b.name, type: "plain_text", text: b.text };
+          if (b.type === "durable_object_namespace") return { name: b.name, type: "durable_object_namespace", class_name: b.class_name, script_name: b.script_name };
+          if (b.type === "service") return { name: b.name, type: "service", service: b.service, environment: b.environment || "production" };
+          if (b.type === "queue") return { name: b.name, type: "queue", queue_name: b.queue_name };
+          if (b.type === "r2_bucket") return { name: b.name, type: "r2_bucket", bucket_name: b.bucket_name };
+          if (b.type === "ai") return { name: b.name, type: "ai" };
+          if (b.type === "vectorize") return { name: b.name, type: "vectorize", index_name: b.index_name };
+          // Fallback \u2014 try inherit by name for anything else (mostly secrets)
+          return { name: b.name, type: "inherit", old_name: b.name };
+        });
+        const metadata = {
+          main_module: "index.js",
+          compatibility_date: compatibility_date || versionCompat || "2025-04-01",
+          compatibility_flags: versionCompatFlags || [],
+          bindings: inheritBindings,
+        };
+        if (dry_run) {
+          return json({ ok: true, dry_run: true, worker_name, bindings_count: inheritBindings.length, metadata, code_length: code.length });
+        }
+        // Step 3: build multipart body manually \u2014 the filename in the part MUST be "index.js"
+        const _hex = (n) => Array.from(crypto.getRandomValues(new Uint8Array(n))).map(b => b.toString(16).padStart(2,"0")).join("");
+        const bnd = "----asgardai" + _hex(16);
+        const enc = new TextEncoder();
+        const parts = [];
+        parts.push(enc.encode("--" + bnd + "\r\n"));
+        parts.push(enc.encode('Content-Disposition: form-data; name="metadata"; filename="metadata.json"\r\nContent-Type: application/json\r\n\r\n'));
+        parts.push(enc.encode(JSON.stringify(metadata)));
+        parts.push(enc.encode("\r\n--" + bnd + "\r\n"));
+        parts.push(enc.encode('Content-Disposition: form-data; name="index.js"; filename="index.js"\r\nContent-Type: application/javascript+module\r\n\r\n'));
+        parts.push(enc.encode(code));
+        parts.push(enc.encode("\r\n--" + bnd + "--\r\n"));
+        const totalLen = parts.reduce((s, p) => s + p.byteLength, 0);
+        const buf = new Uint8Array(totalLen);
+        let off = 0;
+        for (const p of parts) { buf.set(p, off); off += p.byteLength; }
+        const deployResp = await fetch(
+          "https://api.cloudflare.com/client/v4/accounts/" + accountId + "/workers/scripts/" + worker_name,
+          {
+            method: "PUT",
+            headers: {
+              "Authorization": "Bearer " + env.CF_API_TOKEN_FULLOPS,
+              "Content-Type": "multipart/form-data; boundary=" + bnd,
+            },
+            body: buf,
+          }
+        );
+        const respText = await deployResp.text();
+        let respJson;
+        try { respJson = JSON.parse(respText); } catch { respJson = { raw: respText.slice(0, 500) }; }
+        if (!deployResp.ok) {
+          return json({ ok: false, status: deployResp.status, worker_name, response: respJson });
+        }
+        return json({
+          ok: true,
+          worker_name,
+          bindings_count: inheritBindings.length,
+          deployment_id: respJson.result && respJson.result.deployment_id,
+          modified_on: respJson.result && respJson.result.modified_on,
+          startup_time_ms: respJson.result && respJson.result.startup_time_ms,
+        });
+      }
+      if (path === "/admin/worker-source" && method === "GET") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        if (!env.CF_API_TOKEN_FULLOPS) return err("CF_API_TOKEN_FULLOPS not bound", 500);
+        const u = new URL(request.url);
+        const worker_name = u.searchParams.get("name");
+        if (!worker_name) return err("?name= required", 400);
+        const accountId = env.CF_ACCOUNT_ID;
+        const r = await fetch(
+          "https://api.cloudflare.com/client/v4/accounts/" + accountId + "/workers/scripts/" + worker_name,
+          { headers: { "Authorization": "Bearer " + env.CF_API_TOKEN_FULLOPS } }
+        );
+        if (!r.ok) return err("fetch failed " + r.status, 502);
+        const text = await r.text();
+        // Extract JS module from multipart — try index.js then worker.js then first .js module
+        const firstNL = text.indexOf("\r\n");
+        const boundaryStr = text.slice(0, firstNL).replace(/^--/, "");
+        let codeBlock = null;
+        let foundModule = null;
+        for (const modName of ["index.js", "worker.js"]) {
+          const mk = 'name="' + modName + '"\r\n\r\n';
+          const si = text.indexOf(mk);
+          if (si !== -1) {
+            const cs = si + mk.length;
+            const ei = text.indexOf("\r\n--" + boundaryStr, cs);
+            codeBlock = text.slice(cs, ei === -1 ? undefined : ei);
+            foundModule = modName;
+            break;
+          }
+        }
+        // Fallback: first form-data part with .js extension
+        if (!codeBlock) {
+          const jsMatch = text.match(/name="([^"]+\.js)"\r\n\r\n/);
+          if (jsMatch) {
+            const mk = jsMatch[0];
+            const si = text.indexOf(mk);
+            const cs = si + mk.length;
+            const ei = text.indexOf("\r\n--" + boundaryStr, cs);
+            codeBlock = text.slice(cs, ei === -1 ? undefined : ei);
+            foundModule = jsMatch[1];
+          }
+        }
+        if (!codeBlock) return json({ ok: false, error: "could not find JS module in multipart", raw_head: text.slice(0, 300) });
+        return json({ ok: true, worker_name, module: foundModule, code_length: codeBlock.length, code: codeBlock });
+      }
+      if (path === "/admin/worker-settings" && method === "GET") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        if (!env.CF_API_TOKEN_FULLOPS) return err("CF_API_TOKEN_FULLOPS not bound", 500);
+        const u = new URL(request.url);
+        const worker_name = u.searchParams.get("name");
+        if (!worker_name) return err("?name= required", 400);
+        const accountId = env.CF_ACCOUNT_ID;
+        const r = await fetch(
+          "https://api.cloudflare.com/client/v4/accounts/" + accountId + "/workers/scripts/" + worker_name + "/settings",
+          { headers: { "Authorization": "Bearer " + env.CF_API_TOKEN_FULLOPS } }
+        );
+        const text = await r.text();
+        let data; try { data = JSON.parse(text); } catch { data = { raw: text.slice(0, 400) }; }
+        if (!r.ok) return json({ ok: false, status: r.status, data });
+        return json({ ok: true, worker_name, settings: data.result });
+      }
+
+      // ===== CF management helpers (PATCH 2026-05-13) =====
+      // cf() — minimal CF API wrapper used by /admin routes below
+      const _cf = async (url, token, opts = {}) => {
+        const headers = { "Authorization": "Bearer " + token, ...(opts.headers || {}) };
+        if (opts.body && typeof opts.body === "object" && !(opts.body instanceof Uint8Array)) {
+          headers["Content-Type"] = "application/json";
+          opts = { ...opts, body: JSON.stringify(opts.body) };
+        }
+        const r = await fetch("https://api.cloudflare.com/client/v4" + url, { ...opts, headers });
+        const text = await r.text();
+        let data; try { data = JSON.parse(text); } catch { data = { raw: text.slice(0, 400) }; }
+        return { ok: r.ok, status: r.status, data };
+      };
+      const _accountId = env.CF_ACCOUNT_ID;
+      const _fullops = env.CF_API_TOKEN_FULLOPS;
+      const _general = env.CF_API_TOKEN; // has R2 scope
+      const _ldZone = "ca610439808e918e36072fb3f66d9640"; // luckdragon.io zone
+
+      // ===== D1 management =====
+      if (path === "/admin/d1/list" && method === "GET") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        const r = await _cf("/accounts/" + _accountId + "/d1/database?per_page=100", _fullops);
+        if (!r.ok) return json({ ok: false, status: r.status, data: r.data });
+        return json({ ok: true, databases: r.data.result });
+      }
+      if (path === "/admin/d1/query" && method === "POST") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        const body = await request.json().catch(() => ({}));
+        const { database_id, sql, params } = body;
+        if (!database_id || !sql) return err("database_id and sql required", 400);
+        const r = await _cf("/accounts/" + _accountId + "/d1/database/" + database_id + "/query",
+          _fullops, { method: "POST", body: { sql, params: params || [] } });
+        return json({ ok: r.ok, status: r.status, data: r.data });
+      }
+      if (path === "/admin/d1/create" && method === "POST") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        const body = await request.json().catch(() => ({}));
+        const { name } = body;
+        if (!name) return err("name required", 400);
+        const r = await _cf("/accounts/" + _accountId + "/d1/database",
+          _fullops, { method: "POST", body: { name } });
+        return json({ ok: r.ok, status: r.status, data: r.data });
+      }
+
+      // ===== KV management =====
+      if (path === "/admin/kv/namespaces" && method === "GET") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        const r = await _cf("/accounts/" + _accountId + "/storage/kv/namespaces?per_page=100", _fullops);
+        if (!r.ok) return json({ ok: false, status: r.status, data: r.data });
+        return json({ ok: true, namespaces: r.data.result });
+      }
+      if (path === "/admin/kv/create" && method === "POST") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        const body = await request.json().catch(() => ({}));
+        const { title } = body;
+        if (!title) return err("title required", 400);
+        const r = await _cf("/accounts/" + _accountId + "/storage/kv/namespaces",
+          _fullops, { method: "POST", body: { title } });
+        return json({ ok: r.ok, status: r.status, data: r.data });
+      }
+      if (path === "/admin/kv/get" && method === "GET") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        const u = new URL(request.url);
+        const ns = u.searchParams.get("namespace_id");
+        const k = u.searchParams.get("key");
+        if (!ns || !k) return err("?namespace_id= and ?key= required", 400);
+        const r = await fetch("https://api.cloudflare.com/client/v4/accounts/" + _accountId + "/storage/kv/namespaces/" + ns + "/values/" + encodeURIComponent(k),
+          { headers: { "Authorization": "Bearer " + _fullops } });
+        const text = await r.text();
+        return json({ ok: r.ok, status: r.status, value: text });
+      }
+      if (path === "/admin/kv/put" && method === "POST") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        const body = await request.json().catch(() => ({}));
+        const { namespace_id, key, value } = body;
+        if (!namespace_id || !key || value === undefined) return err("namespace_id, key, value required", 400);
+        const r = await fetch("https://api.cloudflare.com/client/v4/accounts/" + _accountId + "/storage/kv/namespaces/" + namespace_id + "/values/" + encodeURIComponent(key),
+          { method: "PUT", headers: { "Authorization": "Bearer " + _fullops, "Content-Type": "text/plain" }, body: String(value) });
+        const text = await r.text();
+        let data; try { data = JSON.parse(text); } catch { data = { raw: text.slice(0, 200) }; }
+        return json({ ok: r.ok, status: r.status, data });
+      }
+      if (path === "/admin/kv/list-keys" && method === "GET") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        const u = new URL(request.url);
+        const ns = u.searchParams.get("namespace_id");
+        const prefix = u.searchParams.get("prefix") || "";
+        if (!ns) return err("?namespace_id= required", 400);
+        const r = await _cf("/accounts/" + _accountId + "/storage/kv/namespaces/" + ns + "/keys?prefix=" + encodeURIComponent(prefix) + "&limit=1000", _fullops);
+        return json({ ok: r.ok, status: r.status, keys: (r.data.result || []).map(k => k.name) });
+      }
+
+      // ===== Pages =====
+      if (path === "/admin/pages/projects" && method === "GET") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        const r = await _cf("/accounts/" + _accountId + "/pages/projects?per_page=100", _fullops);
+        if (!r.ok) return json({ ok: false, status: r.status, data: r.data });
+        const projects = (r.data.result || []).map(p => ({
+          name: p.name, subdomain: p.subdomain, domains: p.domains,
+          production_branch: p.production_branch,
+          latest_deployment: p.latest_deployment && {
+            id: p.latest_deployment.id,
+            url: p.latest_deployment.url,
+            created_on: p.latest_deployment.created_on,
+            stage: p.latest_deployment.latest_stage && p.latest_deployment.latest_stage.status,
+          },
+        }));
+        return json({ ok: true, projects });
+      }
+      if (path === "/admin/pages/deployments" && method === "GET") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        const u = new URL(request.url);
+        const name = u.searchParams.get("name");
+        if (!name) return err("?name= required", 400);
+        const r = await _cf("/accounts/" + _accountId + "/pages/projects/" + name + "/deployments?per_page=10", _fullops);
+        return json({ ok: r.ok, status: r.status, deployments: (r.data.result || []).map(d => ({
+          id: d.id, url: d.url, created_on: d.created_on,
+          stage: d.latest_stage && d.latest_stage.status,
+        })) });
+      }
+      if (path === "/admin/pages/retry" && method === "POST") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        const body = await request.json().catch(() => ({}));
+        const { project, deployment_id } = body;
+        if (!project || !deployment_id) return err("project and deployment_id required", 400);
+        const r = await _cf("/accounts/" + _accountId + "/pages/projects/" + project + "/deployments/" + deployment_id + "/retry",
+          _fullops, { method: "POST" });
+        return json({ ok: r.ok, status: r.status, data: r.data });
+      }
+
+      // ===== R2 (uses CF_API_TOKEN) =====
+      if (path === "/admin/r2/buckets" && method === "GET") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        if (!_general) return err("CF_API_TOKEN not bound (needed for R2)", 500);
+        const r = await _cf("/accounts/" + _accountId + "/r2/buckets", _general);
+        return json({ ok: r.ok, status: r.status, buckets: (r.data.result && r.data.result.buckets) || [] });
+      }
+      if (path === "/admin/r2/create" && method === "POST") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        if (!_general) return err("CF_API_TOKEN not bound (needed for R2)", 500);
+        const body = await request.json().catch(() => ({}));
+        const { name } = body;
+        if (!name) return err("name required", 400);
+        const r = await _cf("/accounts/" + _accountId + "/r2/buckets",
+          _general, { method: "POST", body: { name } });
+        return json({ ok: r.ok, status: r.status, data: r.data });
+      }
+
+      // ===== Queues =====
+      if (path === "/admin/queues" && method === "GET") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        const r = await _cf("/accounts/" + _accountId + "/queues?per_page=100", _fullops);
+        return json({ ok: r.ok, status: r.status, queues: r.data.result || [] });
+      }
+
+      // ===== Workers fleet =====
+      if (path === "/admin/workers/list" && method === "GET") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        const r = await _cf("/accounts/" + _accountId + "/workers/services?per_page=200", _fullops);
+        const services = (r.data.result || []).map(s => ({
+          id: s.id, default_environment: s.default_environment && s.default_environment.environment,
+          created_on: s.created_on, modified_on: s.modified_on,
+        }));
+        return json({ ok: r.ok, status: r.status, count: services.length, services });
+      }
+      if (path === "/admin/workers/health-roll-call" && method === "GET") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        // list all workers, then HEAD/GET each .workers.dev or known custom domain
+        const sub = await _cf("/accounts/" + _accountId + "/workers/subdomain", _fullops);
+        const subdomain = sub.data.result && sub.data.result.subdomain;
+        const ws = await _cf("/accounts/" + _accountId + "/workers/services?per_page=200", _fullops);
+        const services = (ws.data.result || []).map(s => s.id);
+        const results = await Promise.all(services.slice(0, 50).map(async (name) => {
+          const url = "https://" + name + "." + subdomain + ".workers.dev/health";
+          try {
+            const r = await fetch(url, { signal: AbortSignal.timeout(4000) });
+            const text = await r.text().catch(() => "");
+            let parsed = null;
+            try { parsed = JSON.parse(text); } catch {}
+            return { name, status: r.status, ok: r.ok, version: parsed && parsed.version, health: parsed };
+          } catch (e) { return { name, error: String(e).slice(0, 80) }; }
+        }));
+        return json({ ok: true, subdomain, total: services.length, sampled: results.length, results });
+      }
+
+      // ===== GitHub (uses GITHUB_TOKEN or GH_ADMIN_TOKEN) =====
+      if (path === "/admin/github/commit" && method === "POST") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        const ghTok = env.GH_ADMIN_TOKEN || env.GITHUB_TOKEN;
+        if (!ghTok) return err("no GitHub token bound", 500);
+        const body = await request.json().catch(() => ({}));
+        const { owner, repo, path: filePath, content, message, branch } = body;
+        if (!owner || !repo || !filePath || !content) return err("owner, repo, path, content required", 400);
+        const apiBase = "https://api.github.com/repos/" + owner + "/" + repo + "/contents/" + filePath;
+        const ghHeaders = { "Authorization": "Bearer " + ghTok, "Accept": "application/vnd.github+json", "User-Agent": "asgard-ai" };
+        // Get current sha if file exists
+        let sha = undefined;
+        try {
+          const cur = await fetch(apiBase + (branch ? "?ref=" + branch : ""), { headers: ghHeaders });
+          if (cur.ok) { const j = await cur.json(); sha = j.sha; }
+        } catch {}
+        // Encode content as base64
+        let b64Content;
+        try {
+          const bytes = new TextEncoder().encode(content);
+          let bin = ""; for (const b of bytes) bin += String.fromCharCode(b);
+          b64Content = btoa(bin);
+        } catch (e) { return err("base64 encode failed: " + String(e).slice(0,100), 500); }
+        const putBody = { message: message || "Update " + filePath, content: b64Content, ...(branch ? { branch } : {}), ...(sha ? { sha } : {}) };
+        const r = await fetch(apiBase, { method: "PUT", headers: { ...ghHeaders, "Content-Type": "application/json" }, body: JSON.stringify(putBody) });
+        const t = await r.text(); let d; try { d = JSON.parse(t); } catch { d = { raw: t.slice(0,400) }; }
+        return json({ ok: r.ok, status: r.status, commit: d.commit && { sha: d.commit.sha, url: d.commit.html_url }, error: !r.ok ? d.message : null });
+      }
+      if (path === "/admin/github/read" && method === "GET") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        const ghTok = env.GH_ADMIN_TOKEN || env.GITHUB_TOKEN;
+        if (!ghTok) return err("no GitHub token bound", 500);
+        const u = new URL(request.url);
+        const owner = u.searchParams.get("owner");
+        const repo = u.searchParams.get("repo");
+        const filePath = u.searchParams.get("path");
+        const branch = u.searchParams.get("branch");
+        if (!owner || !repo || !filePath) return err("?owner=&repo=&path= required", 400);
+        const r = await fetch("https://api.github.com/repos/" + owner + "/" + repo + "/contents/" + filePath + (branch ? "?ref=" + branch : ""),
+          { headers: { "Authorization": "Bearer " + ghTok, "Accept": "application/vnd.github+json", "User-Agent": "asgard-ai" } });
+        if (!r.ok) return json({ ok: false, status: r.status });
+        const j = await r.json();
+        let content = "";
+        try {
+          const bin = atob(j.content.replace(/\n/g, ""));
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          content = new TextDecoder().decode(bytes);
+        } catch (e) {}
+        return json({ ok: true, path: j.path, sha: j.sha, size: j.size, content });
+      }
+
+      // ===== Admin: capabilities map =====
+      if (path === "/admin/capabilities" && method === "GET") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        const cap = {};
+        const probes = [
+          ["d1",        "/accounts/" + _accountId + "/d1/database?per_page=1",                _fullops],
+          ["kv",        "/accounts/" + _accountId + "/storage/kv/namespaces?per_page=1",      _fullops],
+          ["queues",    "/accounts/" + _accountId + "/queues?per_page=1",                     _fullops],
+          ["pages",     "/accounts/" + _accountId + "/pages/projects?per_page=1",             _fullops],
+          ["workers",   "/accounts/" + _accountId + "/workers/services?per_page=1",           _fullops],
+          ["r2",        "/accounts/" + _accountId + "/r2/buckets",                            _general],
+          ["vectorize", "/accounts/" + _accountId + "/vectorize/v2/indexes",                  _fullops],
+          ["dns_ld",    "/zones/" + _ldZone + "/dns_records?per_page=1",                      _fullops],
+        ];
+        for (const [name, url, tok] of probes) {
+          if (!tok) { cap[name] = { available: false, reason: "no token bound" }; continue; }
+          const r = await _cf(url, tok);
+          cap[name] = { available: r.ok, status: r.status };
+        }
+        return json({ ok: true, account_id: _accountId, capabilities: cap });
+      }
+
+
+      // ===== Direct Vectorize via binding (PATCH 2026-05-13) =====
+      if (path === "/admin/vectorize/describe" && method === "GET") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        if (!env.MEMORY_VEC) return err("MEMORY_VEC binding not set (need to deploy with vectorize binding for falkor-memory)", 500);
+        const desc = await env.MEMORY_VEC.describe();
+        return json({ ok: true, index: desc });
+      }
+      if (path === "/admin/vectorize/query" && method === "POST") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        if (!env.MEMORY_VEC) return err("MEMORY_VEC binding not set", 500);
+        const body = await request.json().catch(() => ({}));
+        const { text, topK } = body;
+        if (!text) return err("text required", 400);
+        // Embed via Workers AI first
+        if (!env.AI) return err("AI binding not set", 500);
+        const embed = await env.AI.run("@cf/baai/bge-small-en-v1.5", { text: [text] });
+        const vec = embed.data && embed.data[0];
+        if (!vec) return err("embed failed", 500);
+        const results = await env.MEMORY_VEC.query(vec, { topK: topK || 5, returnMetadata: true });
+        return json({ ok: true, matches: results.matches });
+      }
+
+      // ===== Direct project-hub D1 via binding =====
+      if (path === "/admin/projects/list" && method === "GET") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        if (!env.PROJECT_HUB) return err("PROJECT_HUB D1 binding not set", 500);
+        const rs = await env.PROJECT_HUB.prepare(
+          "SELECT id, project_name, category, status, progress_pct, live_url, last_updated, next_action, tech_stack, description, notes, domains, revenue_y1, revenue_y2, revenue_y3, income_priority, key_features, cost_monthly, detail_md, github_url, cloudflare_worker, cf_zone, concept_md, revenue_actual FROM project_hub ORDER BY income_priority ASC, sort_order ASC, id"
+        ).all();
+        return json({ ok: true, count: rs.results.length, projects: rs.results });
+      }
+      if (path === "/admin/projects/get" && method === "GET") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        if (!env.PROJECT_HUB) return err("PROJECT_HUB D1 binding not set", 500);
+        const u = new URL(request.url);
+        const id = u.searchParams.get("id");
+        if (!id) return err("?id= required", 400);
+        const row = await env.PROJECT_HUB.prepare("SELECT * FROM project_hub WHERE id = ?").bind(id).first();
+        if (!row) return err("not found", 404);
+        return json({ ok: true, project: row });
+      }
+      if (path === "/admin/projects/update" && method === "POST") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        if (!env.PROJECT_HUB) return err("PROJECT_HUB D1 binding not set", 500);
+        const body = await request.json().catch(() => ({}));
+        const { id, fields } = body;
+        if (!id || !fields || typeof fields !== "object") return err("id and fields object required", 400);
+        const allowed = ["project_name","category","status","progress_pct","next_action","notes","detail_md","cost_monthly","revenue_y1","live_url","github_url","tech_stack","key_features","scale_notes","cost_notes","domains","description","income_priority","sort_order","revenue_category"];
+        const cols = []; const vals = [];
+        for (const k of Object.keys(fields)) {
+          if (allowed.includes(k)) { cols.push(k + " = ?"); vals.push(fields[k]); }
+        }
+        if (!cols.length) return err("no valid fields to update", 400);
+        cols.push("last_updated = date('now')");
+        vals.push(id);
+        const r = await env.PROJECT_HUB.prepare("UPDATE project_hub SET " + cols.join(", ") + " WHERE id = ?").bind(...vals).run();
+        return json({ ok: true, changes: r.meta.changes });
+      }
+
+
+      // ===== Secret-mirror to vault (PATCH 2026-05-13) =====
+      // Mirrors a SPECIFIC named secret from the worker env to the vault.
+      // Whitelisted to non-rotating keys. NEVER returns the value to the caller.
+      if (path === "/admin/mirror-to-vault" && method === "POST") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        const body = await request.json().catch(() => ({}));
+        const { key } = body;
+        if (!key) return err("key required", 400);
+        // Whitelist: only API keys + tokens, never PINs or refresh tokens
+        const WHITELIST = [
+          "CF_API_TOKEN_FULLOPS",
+          "OPENAI_API_KEY","GEMINI_API_KEY","GROQ_API_KEY",
+          "ELEVENLABS_API_KEY","TAVILY_API_KEY","SERPER_API_KEY",
+          "DISCORD_APP_ID","DISCORD_PUBLIC_KEY","DISCORD_CHANNEL_ID","DISCORD_GUILD_ID",
+          "DISCORD_BOT_TOKEN","SLACK_BOT_TOKEN","VERCEL_TOKEN",
+          "LD_GOOGLE_REFRESH_TOKEN",
+        ];
+        if (!WHITELIST.includes(key)) {
+          return err("key not whitelisted for mirror (security): " + key, 403);
+        }
+        const value = env[key];
+        if (!value) return err("env." + key + " not bound on this worker", 404);
+        // PUT to vault. Vault accepts X-Pin auth, body is {value}
+        const vaultUrl = "https://asgard-vault.pgallivan.workers.dev/secret/" + encodeURIComponent(key);
+        const r = await fetch(vaultUrl, {
+          method: "PUT",
+          headers: { "X-Pin": "535554", "Content-Type": "application/json" },
+          body: JSON.stringify({ value }),
+        });
+        const t = await r.text();
+        let d; try { d = JSON.parse(t); } catch { d = { raw: t.slice(0, 200) }; }
+        return json({
+          ok: r.ok, status: r.status, key,
+          length_mirrored: String(value).length,
+          vault_response: d,
+          note: "value is never returned in this response; only its length is logged",
+        });
+      }
+      // ===== CF token gap docs =====
+      if (path === "/admin/cf-token-gaps" && method === "GET") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        return json({
+          ok: true,
+          message: "Capabilities Falkor cannot reach with current tokens",
+          gaps: [
+            {
+              capability: "Vectorize index management (list/create/delete indexes)",
+              workaround: "Use env.MEMORY_VEC binding directly via /admin/vectorize/describe and /admin/vectorize/query. CRUD on indexes still needs dashboard.",
+              token_to_create: "vectorize-admin",
+              permissions_needed: "Account → Vectorize → Edit",
+              dashboard_link: "https://dash.cloudflare.com/profile/api-tokens"
+            },
+            {
+              capability: "DNS record management on luckdragon.io",
+              workaround: "None — dashboard only.",
+              token_to_create: "dns-admin",
+              permissions_needed: "Zone → DNS → Edit (scoped to luckdragon.io)",
+              dashboard_link: "https://dash.cloudflare.com/profile/api-tokens",
+              after_creating: "Add to vault as CF_DNS_TOKEN via POST /admin/vault/put (also documented below)"
+            },
+            {
+              capability: "User token CRUD (creating new tokens autonomously)",
+              workaround: "Not possible — CF requires dashboard interaction or a token with User Tokens scope, which CF_FULLOPS_TOKEN lacks. By design.",
+              recommendation: "Accept this gap. Token rotation is a deliberate human-in-the-loop step."
+            }
+          ],
+          how_to_add_to_vault: {
+            via_curl: "curl -X PUT -H \"X-Pin: 535554\" -H \"Content-Type: application/json\" -d '{\"name\":\"CF_DNS_TOKEN\",\"value\":\"<the_new_token>\"}' https://asgard-vault.pgallivan.workers.dev/secret/CF_DNS_TOKEN",
+            via_falkor: "POST /admin/vault/put once that endpoint exists — currently goes direct to asgard-vault"
+          }
+        });
+      }
+
+      // ===== Broader OAuth one-shot (PATCH 2026-05-13) =====
+      if (path === "/admin/oauth-broader-url" && method === "GET") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        if (!env.GOOGLE_CLIENT_ID) return err("GOOGLE_CLIENT_ID not set", 500);
+        const u = new URL(request.url);
+        const origin = u.origin;
+        const params = new URLSearchParams({
+          client_id: env.GOOGLE_CLIENT_ID,
+          redirect_uri: origin + "/google/oauth-callback",
+          response_type: "code",
+          scope: "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/cloud-platform.read-only https://www.googleapis.com/auth/service.management",
+          access_type: "offline",
+          prompt: "consent",
+          state: "luckdragon-broader",
+          login_hint: "paddy@luckdragon.io"
+        });
+        const consentUrl = "https://accounts.google.com/o/oauth2/v2/auth?" + params.toString();
+        return json({
+          ok: true,
+          consent_url: consentUrl,
+          instructions: "Open this URL once in a browser logged in as paddy@luckdragon.io. After approval, the existing /google/oauth-callback handler stores the new refresh token. Then POST /admin/enable-google-api with token=GOOGLE_REFRESH_TOKEN to enable Calendar API.",
+          scopes_requested: ["drive (full)", "calendar (full)", "cloud-platform.read-only", "service.management"]
+        });
+      }
+      // ===== End of PATCH 2026-05-13 admin routes =====
+      if (path === "/admin/google-probe" && method === "GET") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        const out = {};
+        const tokens = [
+          { name: "LD_GOOGLE_REFRESH_TOKEN", val: env.LD_GOOGLE_REFRESH_TOKEN },
+          { name: "GOOGLE_REFRESH_TOKEN", val: env.GOOGLE_REFRESH_TOKEN },
+        ];
+        for (const t of tokens) {
+          if (!t.val) { out[t.name] = { present: false }; continue; }
+          try {
+            const r = await fetch("https://oauth2.googleapis.com/token", {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: new URLSearchParams({
+                client_id: env.GOOGLE_CLIENT_ID,
+                client_secret: env.GOOGLE_CLIENT_SECRET,
+                refresh_token: t.val,
+                grant_type: "refresh_token",
+              }).toString(),
+            });
+            const j = await r.json();
+            out[t.name] = {
+              present: true, ok: r.ok,
+              scope: j.scope || null,
+              error: j.error || null,
+              access_token_len: j.access_token ? j.access_token.length : 0,
+            };
+          } catch (e) { out[t.name] = { present: true, error: String(e).slice(0,200) }; }
+        }
+        return json(out);
+      }
+      if (path === "/admin/enable-google-api" && method === "POST") {
+        const _pr = await pinOk(request, env); if (_pr !== true) return pinRequired(_pr);
+        const body = await request.json().catch(() => ({}));
+        const project = body.project || "205533966048";
+        const service = body.service || "calendar-json.googleapis.com";
+        const tokenName = body.token || "LD_GOOGLE_REFRESH_TOKEN";
+        const rtok = env[tokenName];
+        if (!rtok) return err(`No env.${tokenName}`, 400);
+        const tr = await fetch("https://oauth2.googleapis.com/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            client_id: env.GOOGLE_CLIENT_ID,
+            client_secret: env.GOOGLE_CLIENT_SECRET,
+            refresh_token: rtok,
+            grant_type: "refresh_token",
+          }).toString(),
+        });
+        const tj = await tr.json();
+        if (!tr.ok || !tj.access_token) return err("token refresh failed: " + JSON.stringify(tj).slice(0,300), 502);
+        const er = await fetch(
+          `https://serviceusage.googleapis.com/v1/projects/${project}/services/${service}:enable`,
+          { method: "POST", headers: { "Authorization": "Bearer " + tj.access_token } }
+        );
+        const et = await er.text();
+        let ej; try { ej = JSON.parse(et); } catch { ej = { raw: et.slice(0,400) }; }
+        return json({ ok: er.ok, status: er.status, project, service, scopes: tj.scope, response: ej });
+      }
+
       if (path === "/health") {
         return json({
           ok: true, worker: WORKER_NAME, version: VERSION,
@@ -3038,6 +3840,63 @@ export default {
       if (path === "/drive/ld-share"      && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleDriveLdShare(request, env); }
       if (path === "/drive/ld-list-roots" && method === "GET")  { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleDriveLdListRoots(request, env); }
       if (path === "/drive/search"        && method === "GET")  { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleDriveSearch(request, env); }
+      if (path === "/drive/get"           && method === "GET")  {
+        const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr);
+        try {
+          const u = new URL(request.url);
+          const fileId = u.searchParams.get("id");
+          if (!fileId) return json({ ok: false, error: "id required" }, 400);
+          const tr = await fetch("https://oauth2.googleapis.com/token", {
+            method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET, refresh_token: env.LD_GOOGLE_REFRESH_TOKEN || env.GOOGLE_REFRESH_TOKEN, grant_type: "refresh_token" }).toString()
+          });
+          const tj = await tr.json();
+          // Get metadata
+          const m = await fetch("https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(fileId) + "?fields=name,mimeType,size", { headers: { "Authorization": "Bearer " + tj.access_token } });
+          const mj = await m.json();
+          let content;
+          if (mj.mimeType === "application/vnd.google-apps.document") {
+            // Export Google Doc as plain text
+            const c = await fetch("https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(fileId) + "/export?mimeType=text/plain", { headers: { "Authorization": "Bearer " + tj.access_token } });
+            content = await c.text();
+          } else {
+            // Direct download
+            const c = await fetch("https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(fileId) + "?alt=media", { headers: { "Authorization": "Bearer " + tj.access_token } });
+            content = await c.text();
+          }
+          return new Response(content, { headers: { "Content-Type": "text/plain", "Access-Control-Allow-Origin": "*" } });
+        } catch (e) { return json({ ok: false, error: e.message }, 500); }
+      }
+      if (path === "/drive/about"         && method === "GET")  {
+        const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr);
+        try {
+          const tr = await fetch("https://oauth2.googleapis.com/token", {
+            method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET, refresh_token: env.LD_GOOGLE_REFRESH_TOKEN || env.GOOGLE_REFRESH_TOKEN, grant_type: "refresh_token" }).toString()
+          });
+          const tj = await tr.json();
+          const ab = await fetch("https://www.googleapis.com/drive/v3/about?fields=user(emailAddress,displayName),storageQuota", { headers: { "Authorization": "Bearer " + tj.access_token } });
+          const aj = await ab.json();
+          return json({ ok: ab.ok, about: aj });
+        } catch (e) { return json({ ok: false, error: e.message }, 500); }
+      }
+      if (path === "/drive/whoami"        && method === "GET")  {
+        const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr);
+        // Refresh token, fetch /userinfo to see what account is bound
+        try {
+          const tr = await fetch("https://oauth2.googleapis.com/token", {
+            method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET, refresh_token: env.LD_GOOGLE_REFRESH_TOKEN || env.GOOGLE_REFRESH_TOKEN, grant_type: "refresh_token" }).toString()
+          });
+          if (!tr.ok) return json({ ok: false, refresh_err: await tr.text() }, 502);
+          const tj = await tr.json();
+          const ui = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { "Authorization": "Bearer " + tj.access_token } });
+          const uj = await ui.json();
+          return json({ ok: true, scope: tj.scope, expires_in: tj.expires_in, user: uj });
+        } catch (e) {
+          return json({ ok: false, error: e.message }, 500);
+        }
+      }
       if (path === "/google/oauth-start"  && method === "GET")  { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleOauthStart(request, env); }
       if (path === "/google/oauth-callback" && method === "GET") return handleOauthCallback(request, env);
       if (path === "/google/calendar/events" && method === "GET") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleGoogleCalendarEvents(request, env); }
@@ -3056,4 +3915,3 @@ export default {
     }
   },
 };
---e41f706d7c9a9407432b8149f1d3bcc8dea2ac2ab9060ce1c3138bc945a8--
