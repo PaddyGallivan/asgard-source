@@ -1,5 +1,5 @@
 const SW_CODE = `
-const CACHE = 'falkor-v9.34.0';
+const CACHE = 'falkor-v9.34.1';
 const CACHE_URLS = ['/'];
 
 self.addEventListener('install', e => {
@@ -566,7 +566,7 @@ function installApp(){if(_deferredInstall){_deferredInstall.prompt();_deferredIn
 
 // ── Version polling — auto-reload when a new deploy is detected ──────────────
 (function() {
-  const CURRENT_VERSION = '9.33.0';
+  const CURRENT_VERSION = '9.34.0';
   let _lastKnownVersion = CURRENT_VERSION;
   let _checking = false;
 
