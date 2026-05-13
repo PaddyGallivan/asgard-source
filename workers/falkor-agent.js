@@ -767,7 +767,13 @@ export class FalkorAgent {
         if (action.type === 'note' || action.type === 'remind' || action.type === 'task' || action.type === 'check_email') {
           history.push({ role: 'user', content: text, ts: Date.now() });
           history.push({ role: 'assistant', content: actionReply, ts: Date.now() });
-          await this.state.storage.put('history', JSON.stringify(history.slice(-200)));
+          // Enforce size budget: keep last 200 items but cap total at 80KB
+    const trimmed = history.slice(-200);
+    let budget = trimmed;
+    while (JSON.stringify(budget).length > 80000 && budget.length > 10) {
+      budget = budget.slice(Math.floor(budget.length * 0.2)); // drop oldest 20%
+    }
+    await this.state.storage.put('history', JSON.stringify(budget));
           this.broadcast({ type: 'assistant_reply', text: actionReply, model });
           return actionReply;
         }
@@ -988,9 +994,15 @@ export class FalkorAgent {
     }
 
     // ── 7. Save to history ────────────────────────────────────────────────────
-    history.push({ role: 'user', content: text, ts: Date.now() });
-    history.push({ role: 'assistant', content: reply, ts: Date.now() });
-    await this.state.storage.put('history', JSON.stringify(history.slice(-200)));
+    history.push({ role: 'user', content: text.slice(0, 4000), ts: Date.now() });
+    history.push({ role: 'assistant', content: reply.slice(0, 4000), ts: Date.now() });
+    // Enforce size budget: keep last 200 items but cap total at 80KB
+    const trimmed = history.slice(-200);
+    let budget = trimmed;
+    while (JSON.stringify(budget).length > 80000 && budget.length > 10) {
+      budget = budget.slice(Math.floor(budget.length * 0.2)); // drop oldest 20%
+    }
+    await this.state.storage.put('history', JSON.stringify(budget));
 
     // ── 8. Auto-memory extraction (every 5 turns, fire-and-forget) ────────────
     maybeExtractMemory(history, userId, pin, aiPin, aiUrl).catch(() => {});
