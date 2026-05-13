@@ -1087,7 +1087,7 @@ async function handleImageGenerateAndStore(request, env) {
   const prompt = (body.prompt || '').toString();
   const folder = (body.folder || 'general').replace(/[^a-z0-9_-]/gi, '-');
   const size = body.size || '1024x1024';
-  const model = body.model || 'dall-e-3';
+  const model = body.model || 'gpt-image-1';
   const style = body.style || 'vivid';
   const quality = body.quality || (model === 'gpt-image-1' ? 'medium' : 'standard');
   const uid = body.uid || 'paddy';
