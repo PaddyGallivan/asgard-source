@@ -16,8 +16,6 @@ self.addEventListener('activate', e => {
       .then(clients => {
         clients.forEach(c => {
           c.postMessage({type:'SW_UPDATED',version:CACHE});
-          // Also navigate to force full reload
-          c.navigate && c.navigate(c.url).catch(()=>{});
         });
       })
   );
