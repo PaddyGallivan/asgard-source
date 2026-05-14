@@ -712,7 +712,7 @@ export class FalkorAgent {
       const memory = await this.getMemory();
       const ctxTs = await this.state.storage.get('liveContextTs');
       return corsJson({
-        version: '2.18.0',
+        version: '2.19.0',
         activeSessions: this.sessions.size,
         historyLength: history.length,
         memoryKeys: Object.keys(memory).length,
@@ -1044,7 +1044,15 @@ export class FalkorAgent {
       // ── Agentic path: full response with tool use; broadcast tool events + final reply ──
       try {
         this.broadcast({ type: 'token', msgId, text: '' });
-        const resp = await fetch(`${aiUrl}/chat/agentic`, {
+        // v2.19: WebSocket keepalive — broadcast a heartbeat every 25s so CF doesn't kill the connection during long thinks
+        let _heartbeatTicks = 0;
+        const _heartbeat = setInterval(() => {
+          _heartbeatTicks++;
+          try { this.broadcast({ type: 'heartbeat', msgId, tick: _heartbeatTicks, text: 'Falkor is still thinking… (' + (_heartbeatTicks * 25) + 's)' }); } catch(e) {}
+        }, 25000);
+        let resp;
+        try {
+          resp = await fetch(`${aiUrl}/chat/agentic`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Pin': aiPin },
           body: JSON.stringify({
@@ -1055,6 +1063,9 @@ export class FalkorAgent {
             max_tokens: 2048,
           }),
         });
+        } finally {
+          clearInterval(_heartbeat);
+        }
         if (resp.ok) {
           const data = await resp.json();
           reply = data.reply || data.content || data.response || data.text || '';
@@ -1105,6 +1116,9 @@ export class FalkorAgent {
             max_tokens: 2048,
           }),
         });
+        } finally {
+          clearInterval(_heartbeat);
+        }
         if (resp.ok) {
           const data = await resp.json();
           reply = data.reply || data.content || data.response || data.text || '';
@@ -1207,7 +1221,7 @@ export default {
     }
 
     if (url.pathname === '/health') {
-      return Response.json({ status: 'ok', version: '2.18.0', worker: 'falkor-agent' });
+      return Response.json({ status: 'ok', version: '2.19.0', worker: 'falkor-agent' });
     }
 
     // ── /tasks proxy → falkor-workflows via service binding (no 522 loopback) ──
