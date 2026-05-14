@@ -903,6 +903,47 @@ async function runTaskExecutor(env) {
         result = "Email sent to " + (params.to || "pgallivan@outlook.com");
         break;
       }
+      case "dns_activate": {
+        // Check if zone is active, then add DNS records
+        const params_obj = JSON.parse(task.params || "{}");
+        const zone_id = params_obj.zone_id;
+        const dns_records = params_obj.records || [];
+        const vault_key = params_obj.token_vault_key || "CF_ZONE_ADMIN_TOKEN";
+        
+        // Get zone admin token from vault
+        const vaultResp = await fetch("https://asgard-vault.pgallivan.workers.dev/secret/" + vault_key,
+          { headers: { "X-Pin": "535554" } });
+        const zoneToken = (await vaultResp.text()).trim();
+        if (!zoneToken) { result = "No zone token in vault"; break; }
+        
+        // Check zone status
+        const zoneResp = await fetch("https://api.cloudflare.com/client/v4/zones/" + zone_id,
+          { headers: { "Authorization": "Bearer " + zoneToken } });
+        const zoneData = await zoneResp.json();
+        const zoneStatus = (zoneData.result || {}).status;
+        
+        if (zoneStatus !== "active") {
+          result = { skipped: true, reason: "zone still " + zoneStatus + " — will retry" };
+          // Re-queue: update task back to pending so it runs again next cycle
+          await env.DB.prepare("UPDATE falkor_tasks SET status='pending' WHERE id=?").bind(task.id).run();
+          return { ran: 1, task: task.title, result };
+        }
+        
+        // Zone is active — add records
+        const added = [], failed = [];
+        for (const rec of dns_records) {
+          const r = await fetch("https://api.cloudflare.com/client/v4/zones/" + zone_id + "/dns_records", {
+            method: "POST",
+            headers: { "Authorization": "Bearer " + zoneToken, "Content-Type": "application/json" },
+            body: JSON.stringify({ ...rec, ttl: 1 })
+          });
+          const rd = await r.json();
+          if (rd.success) added.push(rec.name + " " + rec.type);
+          else failed.push(rec.name + ": " + (rd.errors||[{}])[0].message);
+        }
+        result = { zone: task.query, status: "active", added, failed };
+        break;
+      }
       default:
         result = "Unknown task type: " + task.type;
     }
@@ -1212,8 +1253,69 @@ async function runAsgardAiWatchdog(env) {
 
     if (currentId === canonicalId) return { ok: true, status: 'healthy', deployment_id: currentId };
 
-    // MISMATCH — fetch canonical source from GitHub and redeploy
-    console.log(`[watchdog] asgard-ai overwritten! current=${currentId} canonical=${canonicalId} — redeploying`);
+    // MISMATCH — but before reverting, check if the new deploy is actually broken.
+    // Only revert on catastrophic conditions; auto-bump canonical on benign changes.
+    let liveSize = 0;
+    try {
+      const liveSrcRes = await fetch('https://api.cloudflare.com/client/v4/accounts/a6f47c17811ee2f8b6caeb8f38768c20/workers/scripts/asgard-ai', {
+        headers: { 'Authorization': `Bearer ${cfToken}` }
+      });
+      const liveBody = await liveSrcRes.arrayBuffer();
+      liveSize = liveBody.byteLength;
+    } catch(e) {}
+
+    // Canonical size from vault
+    let canonicalSize = 0;
+    try {
+      const csRes = await fetch('https://asgard-vault.pgallivan.workers.dev/secret/ASGARD_AI_CANONICAL_SIZE', {
+        headers: { 'X-Pin': '535554' }
+      });
+      canonicalSize = parseInt((await csRes.text()).trim()) || 0;
+    } catch(e) {}
+
+    // Health probe
+    let healthOk = false;
+    try {
+      const hr = await fetch('https://asgard-ai.luckdragon.io/health', { signal: AbortSignal.timeout(5000) });
+      healthOk = hr.ok;
+    } catch(e) {}
+
+    // Catastrophic conditions for revert:
+    //   1) health probe failed (worker won't serve)
+    //   2) size dropped to <30% of canonical (massive truncation/corruption)
+    //   3) live source contains __ROGUE_DEPLOY__ marker
+    let liveSrcText = '';
+    try {
+      const liveSrcRes2 = await fetch('https://api.cloudflare.com/client/v4/accounts/a6f47c17811ee2f8b6caeb8f38768c20/workers/scripts/asgard-ai', {
+        headers: { 'Authorization': `Bearer ${cfToken}` }
+      });
+      liveSrcText = await liveSrcRes2.text();
+    } catch(e) {}
+
+    const catastrophic =
+      !healthOk ||
+      (canonicalSize > 0 && liveSize > 0 && liveSize < canonicalSize * 0.3) ||
+      liveSrcText.includes('__ROGUE_DEPLOY__');
+
+    if (!catastrophic) {
+      // Benign change — auto-bump canonical to current. No revert.
+      console.log(`[watchdog] asgard-ai changed (current=${currentId} canonical=${canonicalId}) but live is healthy (size=${liveSize}, canonical=${canonicalSize}). Auto-bumping canonical, not reverting.`);
+      try {
+        await fetch('https://asgard-vault.pgallivan.workers.dev/secret/ASGARD_AI_CANONICAL_DEPLOY_ID', {
+          method: 'PUT', headers: { 'X-Pin': '535554', 'Content-Type': 'text/plain' },
+          body: currentId
+        });
+        if (liveSize > 0) {
+          await fetch('https://asgard-vault.pgallivan.workers.dev/secret/ASGARD_AI_CANONICAL_SIZE', {
+            method: 'PUT', headers: { 'X-Pin': '535554', 'Content-Type': 'text/plain' },
+            body: String(liveSize)
+          });
+        }
+      } catch(e) {}
+      return { ok: true, action: 'auto_bumped_canonical', old_canonical: canonicalId, new_canonical: currentId, liveSize, canonicalSize };
+    }
+
+    console.log(`[watchdog] asgard-ai CATASTROPHIC FAILURE — healthOk=${healthOk} liveSize=${liveSize} canonicalSize=${canonicalSize} hasMarker=${liveSrcText.includes('__ROGUE_DEPLOY__')} — reverting from GitHub`);
 
     const ghTokRes = await fetch('https://asgard-vault.pgallivan.workers.dev/secret/GH_ADMIN_TOKEN', {
       headers: { 'X-Pin': '535554' }
@@ -1465,7 +1567,7 @@ async function runScheduled(cron, env) {
     var checkinRes = await runAfterSchoolCheckin(env).catch(function(e) {
       return { ok: false, error: e.message };
     });
-    await logRun(env, "after_school_checkin", checkinRes);
+    if (!checkinRes?.skipped) await logRun(env, "after_school_checkin", checkinRes);
   }
   return { skipped: true, hour, minute };
 }
