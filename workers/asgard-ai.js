@@ -1,5 +1,5 @@
 // asgard-ai v5.8.0-stream: multi-provider (Anthropic/OpenAI/Groq) streaming SSE, normalized tokens
-const VERSION = '6.7.0';
+const VERSION = '6.8.0';
 const WORKER_NAME = "asgard-ai";
 
 // --- PIN auth helper (v1.1.0 security patch) ---
@@ -2344,6 +2344,15 @@ const AGENTIC_TOOLS_OPENAI = [
   }},
   // New: create new Google Drive files (native Docs/Sheets/Slides/folders + plain)
   { type: "function", function: {
+    name: "recall",
+    description: "Search Paddy's stored memory (memory_v2 + memory) for facts and decisions matching a query. Use this when Paddy asks 'what did we say about X', 'remind me about Y', or you need stored context. Returns up to 10 matching memories with their key, value, project, and recency.",
+    parameters: { type: "object", properties: {
+      query: { type: "string", description: "Search query — what to look for in stored memory" },
+      project: { type: "string", description: "Optional project slug to scope the search" },
+      limit: { type: "integer", description: "Max results to return (default 10, max 25)" }
+    }, required: ["query"] }
+  }},
+  { type: "function", function: {
     name: "drive_create_file",
     description: "Create a new Google Drive file. Use type='doc' for Google Doc, 'sheet' for Sheet, 'slides' for Slides, 'folder' for folder, 'text' for plain text. Returns id and webViewLink. Optional initial_text inserts content (Docs only) after creation.",
     parameters: { type: "object", properties: {
@@ -3064,6 +3073,43 @@ async function agenticExecuteTool(name, input, env) {
       if (!r.ok) return { error: "drive_patch " + r.status, detail: (await r.text()).slice(0,300) };
       const data = await r.json();
       return { ok: true, file_id, size: new_content.length, name: data.name, modifiedTime: data.modifiedTime };
+    }
+    if (name === "recall") {
+      const { query = '', project = '', limit = 10 } = input || {};
+      if (!query) return { error: "query required" };
+      const lim = Math.min(parseInt(limit) || 10, 25);
+      const q = '%' + String(query).toLowerCase() + '%';
+      try {
+        let sql, params;
+        if (project) {
+          sql = "SELECT key, value, project, version, created_at, 'memory_v2' AS src FROM memory_v2 WHERE is_current=1 AND project=? AND (LOWER(key) LIKE ? OR LOWER(value) LIKE ?) ORDER BY created_at DESC LIMIT ?";
+          params = [project, q, q, lim];
+        } else {
+          sql = "SELECT key, value, project, version, created_at, 'memory_v2' AS src FROM memory_v2 WHERE is_current=1 AND (LOWER(key) LIKE ? OR LOWER(value) LIKE ?) ORDER BY created_at DESC LIMIT ?";
+          params = [q, q, lim];
+        }
+        const r = await env.DB.prepare(sql).bind(...params).all();
+        const results = (r.results || []).map(x => ({
+          key: x.key, value: String(x.value || '').slice(0, 600), project: x.project,
+          version: x.version, when: x.created_at ? new Date(x.created_at).toISOString().slice(0,10) : '', source: x.src
+        }));
+        // Also search project_hub notes / detail_md / concept_md if PROJECT_HUB binding present
+        let projectHits = [];
+        if (env.PROJECT_HUB) {
+          try {
+            const ph = await env.PROJECT_HUB.prepare(
+              "SELECT project_name, status, next_action, notes, concept_md, detail_md FROM project_hub WHERE LOWER(project_name) LIKE ? OR LOWER(notes) LIKE ? OR LOWER(detail_md) LIKE ? OR LOWER(concept_md) LIKE ? LIMIT 5"
+            ).bind(q, q, q, q).all();
+            projectHits = (ph.results || []).map(p => ({
+              project_name: p.project_name, status: p.status,
+              snippet: ((p.notes || '') + ' ' + (p.detail_md || '') + ' ' + (p.concept_md || '')).slice(0, 400)
+            }));
+          } catch(e) {}
+        }
+        return { ok: true, query, count: results.length, memories: results, project_matches: projectHits };
+      } catch(e) {
+        return { error: "recall failed: " + e.message };
+      }
     }
     if (name === "drive_create_file") {
       const { name: fname, type = "doc", parent, initial_text } = input || {};
