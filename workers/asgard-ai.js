@@ -2411,7 +2411,6 @@ function _buildProjectSystemPrefix(proj, events, health, commits) {
   }
   return lines.join('\n');
 }
-__name(_buildProjectSystemPrefix, "_buildProjectSystemPrefix");
 
 function _agSanitizeForGemini(schema) {
   if (!schema || typeof schema !== 'object') return schema;
