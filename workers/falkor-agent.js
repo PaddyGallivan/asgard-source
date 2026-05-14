@@ -730,7 +730,7 @@ export class FalkorAgent {
       const memory = await this.getMemory();
       const ctxTs = await this.state.storage.get('liveContextTs');
       return corsJson({
-        version: '2.20.1',
+        version: '2.20.2',
         activeSessions: this.sessions.size,
         historyLength: history.length,
         memoryKeys: Object.keys(memory).length,
@@ -1115,7 +1115,31 @@ export class FalkorAgent {
           this.broadcast({ type: 'token', msgId, text: reply });
         } else {
           const errBody = await resp.text().catch(() => '');
-          reply = '[AI error: ' + resp.status + (errBody ? ': ' + errBody.slice(0, 100) : '') + ']';
+          // v2.20.2: silent fallback — retry on haiku if upstream returns 413/429/524/502/503/504 OR error indicates rate-limit/too-large
+          const shouldFallback = [413, 429, 502, 503, 504, 524, 529].includes(resp.status) ||
+                                 /rate.?limit|too.?large|context.?length|exceed/i.test(errBody);
+          if (shouldFallback && model !== 'haiku') {
+            this.broadcast({ type: 'tool_status', msgId, text: 'Switching to Haiku for reliability…' });
+            try {
+              const resp2 = await fetch(`${aiUrl}/chat/agentic`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Pin': aiPin },
+                body: JSON.stringify({ message: text, messages: contextHistory, system: systemPrompt, model: 'haiku', max_tokens: 2048 }),
+              });
+              if (resp2.ok) {
+                const d2 = await resp2.json();
+                reply = d2.reply || d2.content || d2.response || d2.text || '';
+                this.broadcast({ type: 'token', msgId, text: reply });
+              } else {
+                const eb2 = await resp2.text().catch(() => '');
+                reply = '[Fallback to Haiku also failed: ' + resp2.status + (eb2 ? ': ' + eb2.slice(0, 100) : '') + ']';
+              }
+            } catch (err2) {
+              reply = '[Fallback error: ' + err2.message + ']';
+            }
+          } else {
+            reply = '[AI error: ' + resp.status + (errBody ? ': ' + errBody.slice(0, 100) : '') + ']';
+          }
         }
       } catch (err) {
         reply = '[Agentic error: ' + err.message + ']';
@@ -1139,7 +1163,28 @@ export class FalkorAgent {
           reply = data.reply || data.content || data.response || data.text || '';
         } else {
           const errBody = await resp.text().catch(() => '');
-          reply = '[AI error: ' + resp.status + (errBody ? ': ' + errBody.slice(0, 100) : '') + ']';
+          const shouldFallback = [413, 429, 502, 503, 504, 524, 529].includes(resp.status) ||
+                                 /rate.?limit|too.?large|context.?length|exceed/i.test(errBody);
+          if (shouldFallback && model !== 'haiku') {
+            try {
+              const resp2 = await fetch(`${aiUrl}/chat/agentic`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Pin': aiPin },
+                body: JSON.stringify({ message: text, messages: contextHistory, system: systemPrompt, model: 'haiku', max_tokens: 2048 }),
+              });
+              if (resp2.ok) {
+                const d2 = await resp2.json();
+                reply = d2.reply || d2.content || d2.response || d2.text || '';
+              } else {
+                const eb2 = await resp2.text().catch(() => '');
+                reply = '[Fallback to Haiku also failed: ' + resp2.status + (eb2 ? ': ' + eb2.slice(0, 100) : '') + ']';
+              }
+            } catch (err2) {
+              reply = '[Fallback error: ' + err2.message + ']';
+            }
+          } else {
+            reply = '[AI error: ' + resp.status + (errBody ? ': ' + errBody.slice(0, 100) : '') + ']';
+          }
         }
       } catch (err) {
         reply = '[Connection error: ' + err.message + ']';
@@ -1236,7 +1281,7 @@ export default {
     }
 
     if (url.pathname === '/health') {
-      return Response.json({ status: 'ok', version: '2.20.1', worker: 'falkor-agent' });
+      return Response.json({ status: 'ok', version: '2.20.2', worker: 'falkor-agent' });
     }
 
     // ── /tasks proxy → falkor-workflows via service binding (no 522 loopback) ──
