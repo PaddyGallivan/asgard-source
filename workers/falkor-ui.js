@@ -1,5 +1,5 @@
 const SW_CODE = `
-const CACHE = 'falkor-v9.37.0';
+const CACHE = 'falkor-v9.38.0';
 const CACHE_URLS = ['/'];
 
 self.addEventListener('install', e => {
@@ -95,7 +95,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === '/health') {
-      return new Response(JSON.stringify({status:'ok',version:'9.37.0',worker:'falkor-ui'}), {
+      return new Response(JSON.stringify({status:'ok',version:'9.38.0',worker:'falkor-ui'}), {
         headers: {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}
       });
     }
@@ -242,13 +242,13 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 
 /* ── Messages ── */
 .messages{flex:1;overflow-y:auto;padding:20px 16px;display:flex;flex-direction:column;gap:6px}
-.msg-row{display:flex;flex-direction:column;gap:3px;max-width:840px;width:100%}
+.msg-row{display:flex;flex-direction:column;gap:3px;max-width:840px;width:100%;min-width:0}
 .msg-row.user{align-self:flex-end;align-items:flex-end}
 .msg-row.assistant{align-self:flex-start;align-items:flex-start}
 .msg-role{font-size:11px;color:var(--muted);padding:0 4px;font-weight:500}
 .msg-bubble{padding:11px 15px;border-radius:14px;font-size:14px;line-height:1.65;word-break:break-word;position:relative}
-.msg-row.user .msg-bubble{background:var(--user-bubble);border-bottom-right-radius:4px;max-width:min(420px,88vw)}
-.msg-row.assistant .msg-bubble{background:var(--ai-bubble);border:1px solid var(--border);border-bottom-left-radius:4px;max-width:min(680px,96vw)}
+.msg-row.user .msg-bubble{background:var(--user-bubble);border-bottom-right-radius:4px;max-width:min(420px,100%);overflow-wrap:anywhere}
+.msg-row.assistant .msg-bubble{background:var(--ai-bubble);border:1px solid var(--border);border-bottom-left-radius:4px;max-width:min(680px,100%);overflow-wrap:anywhere}
 .msg-bubble pre{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:12px;margin:8px 0;overflow-x:auto;font-size:13px;position:relative}
 .msg-bubble code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:13px;font-family:'Fira Code',monospace}
 .msg-bubble pre code{background:none;padding:0;border-radius:0}
@@ -566,7 +566,7 @@ function installApp(){if(_deferredInstall){_deferredInstall.prompt();_deferredIn
 
 // ── Version polling — auto-reload when a new deploy is detected ──────────────
 (function() {
-  const CURRENT_VERSION = '9.37.0';
+  const CURRENT_VERSION = '9.38.0';
   let _lastKnownVersion = CURRENT_VERSION;
   let _checking = false;
 
