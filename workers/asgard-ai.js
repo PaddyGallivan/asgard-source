@@ -1,5 +1,5 @@
 // asgard-ai v5.8.0-stream: multi-provider (Anthropic/OpenAI/Groq) streaming SSE, normalized tokens
-const VERSION = '6.14.1';
+const VERSION = '6.15.0';
 const WORKER_NAME = "asgard-ai";
 
 // --- PIN auth helper (v1.1.0 security patch) ---
@@ -2158,6 +2158,12 @@ const AGENTIC_TOOLS_OPENAI = [
     parameters: { type: "object", properties: { worker_name: { type: "string" }, main_module: { type: "string" } }, required: ["worker_name"] } } },
   { type: "function", function: { name: "deploy_worker", description: "Deploy a new version of a CF Worker. Provide complete updated JS source.",
     parameters: { type: "object", properties: { worker_name: { type: "string" }, code: { type: "string" }, main_module: { type: "string", default: "worker.js" } }, required: ["worker_name", "code"] } } },
+  { type: "function", function: { name: "read_worker_section", description: "Read a section of a worker's source by finding a substring. Returns ~80 lines of context around the first match. Use this instead of get_worker_code when the worker is large (>100KB). Multiple sections can be read by calling again with a different needle.",
+    parameters: { type: "object", properties: { worker_name: { type: "string" }, needle: { type: "string", description: "Exact substring to locate. The 80 lines around it will be returned." }, context_lines: { type: "number", default: 40, description: "Lines of context before AND after the match." } }, required: ["worker_name", "needle"] } } },
+  { type: "function", function: { name: "replace_in_worker", description: "Surgical edit: in worker_name's source, replace ONE occurrence of `find` with `replace`. Auto commits to GitHub asgard-source/workers/<name>.js AND redeploys to Cloudflare with bindings preserved. Use this when the user wants a small change to a worker (e.g. remove a sidebar item, fix a typo, change a default). The `find` string must be unique in the source — if it appears 0 or 2+ times, the call fails safely.",
+    parameters: { type: "object", properties: { worker_name: { type: "string" }, find: { type: "string", description: "Exact substring to find (must appear EXACTLY ONCE in the worker source)" }, replace: { type: "string", description: "Replacement text" }, commit_message: { type: "string", description: "Optional GitHub commit message" } }, required: ["worker_name", "find", "replace"] } } },
+  { type: "function", function: { name: "multi_replace_in_worker", description: "Apply multiple find/replace edits to one worker in a single deploy. Each edit's `find` must appear exactly once after the previous edits are applied. Commits to GH + deploys to CF once at the end.",
+    parameters: { type: "object", properties: { worker_name: { type: "string" }, edits: { type: "array", items: { type: "object", properties: { find: { type: "string" }, replace: { type: "string" } }, required: ["find", "replace"] } }, commit_message: { type: "string" } }, required: ["worker_name", "edits"] } } },
   // Secrets
   { type: "function", function: { name: "get_secret", description: "Read a secret from the Asgard vault.",
     parameters: { type: "object", properties: { key: { type: "string" } }, required: ["key"] } } },
@@ -2695,7 +2701,183 @@ async function agenticExecuteTool(name, input, env) {
       const t = await r.text();
       return { content: t.substring(0, 60000), length: t.length };
     }
-    if (name === "github_get_file") {
+    // ── v6.15.0: read_worker_section ─────────────────────────────────────────
+    if (name === "read_worker_section") {
+      const { worker_name, needle, context_lines = 40 } = input || {};
+      if (!worker_name || !needle) return { error: "worker_name and needle required" };
+      // Try GH first (cleaner source), fall back to CF
+      const gh = env.GITHUB_TOKEN;
+      let src = null;
+      if (gh) {
+        try {
+          const r = await fetch("https://api.github.com/repos/Luck-Dragon-Pty-Ltd/asgard-source/contents/workers/" + worker_name + ".js?ref=main", {
+            headers: { "Authorization": "Bearer " + gh, "Accept": "application/vnd.github+json", "User-Agent": "Asgard/1.0" }
+          });
+          if (r.ok) {
+            const j = await r.json();
+            if (j.content) src = atob(j.content.replace(/\n/g, ""));
+          }
+        } catch(e) {}
+      }
+      if (!src) {
+        // Fallback: try CF Worker contents
+        const cfToken = env.CF_API_TOKEN_FULLOPS;
+        const acct = env.CF_ACCOUNT_ID;
+        if (!cfToken || !acct) return { error: "could not load worker source (no GH match and no CF creds)" };
+        const r = await fetch("https://api.cloudflare.com/client/v4/accounts/" + acct + "/workers/scripts/" + worker_name, { headers: { "Authorization": "Bearer " + cfToken } });
+        if (!r.ok) return { error: "CF API: " + r.status };
+        src = await r.text();
+      }
+      const idx = src.indexOf(needle);
+      if (idx === -1) return { error: "needle not found", worker: worker_name, needle_preview: needle.slice(0, 80), source_length: src.length };
+      // Find line boundaries
+      const before = src.slice(0, idx);
+      const lineNum = before.split("\n").length;
+      const lines = src.split("\n");
+      const startLine = Math.max(0, lineNum - context_lines - 1);
+      const endLine = Math.min(lines.length, lineNum + context_lines);
+      const section = lines.slice(startLine, endLine).map((l, i) => (startLine + i + 1) + ":" + l).join("\n");
+      const total_matches = src.split(needle).length - 1;
+      return { worker: worker_name, line: lineNum, total_matches, section, source_total_lines: lines.length };
+    }
+    // ── v6.15.0: replace_in_worker ───────────────────────────────────────────
+    if (name === "replace_in_worker") {
+      const { worker_name, find, replace, commit_message } = input || {};
+      if (!worker_name || typeof find !== "string" || typeof replace !== "string") return { error: "worker_name, find, replace all required" };
+      if (worker_name === "asgard-ai") return { error: "refusing to self-edit asgard-ai (use deploy_worker with full code if you really mean it)" };
+      const gh = env.GITHUB_TOKEN;
+      if (!gh) return { error: "GITHUB_TOKEN missing" };
+      // 1. Fetch from GH
+      const ghPath = "workers/" + worker_name + ".js";
+      const ghRes = await fetch("https://api.github.com/repos/Luck-Dragon-Pty-Ltd/asgard-source/contents/" + ghPath + "?ref=main", {
+        headers: { "Authorization": "Bearer " + gh, "Accept": "application/vnd.github+json", "User-Agent": "Asgard/1.0" }
+      });
+      if (!ghRes.ok) return { error: "GH fetch failed: " + ghRes.status, worker: worker_name };
+      const ghMeta = await ghRes.json();
+      const oldContent = atob(ghMeta.content.replace(/\n/g, ""));
+      const count = oldContent.split(find).length - 1;
+      if (count === 0) return { error: "find string not in worker source", worker: worker_name, find_preview: find.slice(0, 100) };
+      if (count > 1) return { error: "find string appears " + count + " times; must be exactly 1 to be safe. Add more context to the find string.", worker: worker_name, find_preview: find.slice(0, 100) };
+      const newContent = oldContent.replace(find, replace);
+      // 2. Commit to GH
+      const commitBody = JSON.stringify({
+        message: commit_message || ("falkor edit: " + worker_name + " — replace_in_worker"),
+        content: btoa(newContent),
+        sha: ghMeta.sha,
+        branch: "main"
+      });
+      const putRes = await fetch("https://api.github.com/repos/Luck-Dragon-Pty-Ltd/asgard-source/contents/" + ghPath, {
+        method: "PUT", body: commitBody,
+        headers: { "Authorization": "Bearer " + gh, "Accept": "application/vnd.github+json", "User-Agent": "Asgard/1.0" }
+      });
+      if (!putRes.ok) return { error: "GH commit failed: " + putRes.status, detail: (await putRes.text()).slice(0, 200) };
+      const commitData = await putRes.json();
+      const newSha = (commitData.commit || {}).sha || "";
+      // 3. Deploy to CF
+      const cfToken = env.CF_API_TOKEN_FULLOPS;
+      const acct = env.CF_ACCOUNT_ID;
+      if (!cfToken || !acct) return { ok: true, warning: "GH committed but CF token missing — not deployed", gh_sha: newSha.slice(0, 8) };
+      // Get bindings
+      const settingsRes = await fetch("https://api.cloudflare.com/client/v4/accounts/" + acct + "/workers/scripts/" + worker_name + "/settings", { headers: { "Authorization": "Bearer " + cfToken } });
+      if (!settingsRes.ok) return { ok: true, warning: "GH committed but bindings fetch failed — manual CF deploy required", gh_sha: newSha.slice(0, 8) };
+      const settingsData = await settingsRes.json();
+      const bindings = (settingsData.result || {}).bindings || [];
+      const secretBindings = bindings.filter(b => b.type === "secret_text").map(b => ({ type: "inherit", name: b.name }));
+      const otherBindings = bindings.filter(b => b.type !== "secret_text");
+      // Detect main_module from existing worker
+      const detectRes = await fetch("https://api.cloudflare.com/client/v4/accounts/" + acct + "/workers/scripts/" + worker_name, { headers: { "Authorization": "Bearer " + cfToken } });
+      const detectText = await detectRes.text();
+      const moduleMatch = detectText.match(/name="(index\.js|worker\.js)"/);
+      const mainModule = moduleMatch ? moduleMatch[1] : "index.js";
+      const metadata = { main_module: mainModule, compatibility_date: "2025-04-01", bindings: [...secretBindings, ...otherBindings] };
+      const bnd = "asgardedit" + Date.now();
+      const CRLF = "\r\n";
+      const enc = new TextEncoder();
+      const parts = [
+        enc.encode("--" + bnd + CRLF + 'Content-Disposition: form-data; name="metadata"' + CRLF + 'Content-Type: application/json' + CRLF + CRLF + JSON.stringify(metadata) + CRLF),
+        enc.encode("--" + bnd + CRLF + 'Content-Disposition: form-data; name="' + mainModule + '"; filename="' + mainModule + '"' + CRLF + 'Content-Type: application/javascript+module' + CRLF + CRLF),
+        enc.encode(newContent),
+        enc.encode(CRLF + "--" + bnd + "--" + CRLF)
+      ];
+      const totalLen = parts.reduce((s, p) => s + p.byteLength, 0);
+      const buf = new Uint8Array(totalLen);
+      let off = 0; for (const p of parts) { buf.set(p, off); off += p.byteLength; }
+      const deployRes = await fetch("https://api.cloudflare.com/client/v4/accounts/" + acct + "/workers/scripts/" + worker_name, {
+        method: "PUT",
+        headers: { "Authorization": "Bearer " + cfToken, "Content-Type": "multipart/form-data; boundary=" + bnd },
+        body: buf
+      });
+      const deployData = await deployRes.json();
+      return { ok: deployData.success === true, worker: worker_name, gh_sha: newSha.slice(0, 8), deploy_id: ((deployData.result || {}).deployment_id || "").slice(0, 12), find_preview: find.slice(0, 80), replace_preview: replace.slice(0, 80), errors: (deployData.errors || []).slice(0, 2) };
+    }
+    // ── v6.15.0: multi_replace_in_worker ─────────────────────────────────────
+    if (name === "multi_replace_in_worker") {
+      const { worker_name, edits, commit_message } = input || {};
+      if (!worker_name || !Array.isArray(edits) || edits.length === 0) return { error: "worker_name and non-empty edits array required" };
+      if (worker_name === "asgard-ai") return { error: "refusing to self-edit asgard-ai" };
+      const gh = env.GITHUB_TOKEN;
+      if (!gh) return { error: "GITHUB_TOKEN missing" };
+      const ghPath = "workers/" + worker_name + ".js";
+      const ghRes = await fetch("https://api.github.com/repos/Luck-Dragon-Pty-Ltd/asgard-source/contents/" + ghPath + "?ref=main", {
+        headers: { "Authorization": "Bearer " + gh, "Accept": "application/vnd.github+json", "User-Agent": "Asgard/1.0" }
+      });
+      if (!ghRes.ok) return { error: "GH fetch failed: " + ghRes.status };
+      const ghMeta = await ghRes.json();
+      let content = atob(ghMeta.content.replace(/\n/g, ""));
+      const applied = [];
+      for (let i = 0; i < edits.length; i++) {
+        const ed = edits[i];
+        const c = content.split(ed.find).length - 1;
+        if (c === 0) return { error: "edit " + i + ": find not found", find_preview: (ed.find || "").slice(0, 100), applied };
+        if (c > 1) return { error: "edit " + i + ": find appears " + c + " times (must be exactly 1)", find_preview: (ed.find || "").slice(0, 100), applied };
+        content = content.replace(ed.find, ed.replace);
+        applied.push({ index: i, find_preview: (ed.find || "").slice(0, 60), replace_preview: (ed.replace || "").slice(0, 60) });
+      }
+      // Commit
+      const putRes = await fetch("https://api.github.com/repos/Luck-Dragon-Pty-Ltd/asgard-source/contents/" + ghPath, {
+        method: "PUT",
+        body: JSON.stringify({ message: commit_message || ("falkor multi-edit: " + worker_name + " (" + edits.length + " edits)"), content: btoa(content), sha: ghMeta.sha, branch: "main" }),
+        headers: { "Authorization": "Bearer " + gh, "Accept": "application/vnd.github+json", "User-Agent": "Asgard/1.0" }
+      });
+      if (!putRes.ok) return { error: "GH commit failed: " + putRes.status, detail: (await putRes.text()).slice(0, 200), applied };
+      const commitData = await putRes.json();
+      const newSha = (commitData.commit || {}).sha || "";
+      // Deploy
+      const cfToken = env.CF_API_TOKEN_FULLOPS;
+      const acct = env.CF_ACCOUNT_ID;
+      if (!cfToken || !acct) return { ok: true, warning: "GH committed but CF deploy skipped (no CF creds)", gh_sha: newSha.slice(0, 8), applied };
+      const settingsRes = await fetch("https://api.cloudflare.com/client/v4/accounts/" + acct + "/workers/scripts/" + worker_name + "/settings", { headers: { "Authorization": "Bearer " + cfToken } });
+      if (!settingsRes.ok) return { ok: true, warning: "GH committed but bindings fetch failed", gh_sha: newSha.slice(0, 8), applied };
+      const settingsData = await settingsRes.json();
+      const bindings = (settingsData.result || {}).bindings || [];
+      const secretBindings = bindings.filter(b => b.type === "secret_text").map(b => ({ type: "inherit", name: b.name }));
+      const otherBindings = bindings.filter(b => b.type !== "secret_text");
+      const detectRes = await fetch("https://api.cloudflare.com/client/v4/accounts/" + acct + "/workers/scripts/" + worker_name, { headers: { "Authorization": "Bearer " + cfToken } });
+      const detectText = await detectRes.text();
+      const moduleMatch = detectText.match(/name="(index\.js|worker\.js)"/);
+      const mainModule = moduleMatch ? moduleMatch[1] : "index.js";
+      const metadata = { main_module: mainModule, compatibility_date: "2025-04-01", bindings: [...secretBindings, ...otherBindings] };
+      const bnd2 = "asgardmedit" + Date.now();
+      const CRLF = "\r\n";
+      const enc = new TextEncoder();
+      const parts = [
+        enc.encode("--" + bnd2 + CRLF + 'Content-Disposition: form-data; name="metadata"' + CRLF + 'Content-Type: application/json' + CRLF + CRLF + JSON.stringify(metadata) + CRLF),
+        enc.encode("--" + bnd2 + CRLF + 'Content-Disposition: form-data; name="' + mainModule + '"; filename="' + mainModule + '"' + CRLF + 'Content-Type: application/javascript+module' + CRLF + CRLF),
+        enc.encode(content),
+        enc.encode(CRLF + "--" + bnd2 + "--" + CRLF)
+      ];
+      const totalLen = parts.reduce((s, p) => s + p.byteLength, 0);
+      const buf = new Uint8Array(totalLen);
+      let off = 0; for (const p of parts) { buf.set(p, off); off += p.byteLength; }
+      const deployRes = await fetch("https://api.cloudflare.com/client/v4/accounts/" + acct + "/workers/scripts/" + worker_name, {
+        method: "PUT",
+        headers: { "Authorization": "Bearer " + cfToken, "Content-Type": "multipart/form-data; boundary=" + bnd2 },
+        body: buf
+      });
+      const deployData = await deployRes.json();
+      return { ok: deployData.success === true, worker: worker_name, gh_sha: newSha.slice(0, 8), edits_applied: applied.length, applied, errors: (deployData.errors || []).slice(0, 2) };
+    }
+        if (name === "github_get_file") {
       const { owner = "LuckDragonAsgard", repo, path, branch = "main" } = input || {};
       if (!env.GITHUB_TOKEN) return { error: "GITHUB_TOKEN missing" };
       const url = "https://api.github.com/repos/" + owner + "/" + repo + "/contents/" + path + "?ref=" + encodeURIComponent(branch);
