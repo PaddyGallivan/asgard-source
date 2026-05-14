@@ -646,7 +646,7 @@ export class FalkorAgent {
       const memory = await this.getMemory();
       const ctxTs = await this.state.storage.get('liveContextTs');
       return corsJson({
-        version: '2.15.0',
+        version: '2.16.0',
         activeSessions: this.sessions.size,
         historyLength: history.length,
         memoryKeys: Object.keys(memory).length,
@@ -876,6 +876,13 @@ export class FalkorAgent {
       `${userCtx.desc}`,
       _timeContext,
       _stateContext,
+      `## CRITICAL — DO NOT INVENT OUTAGES (most important rule):`,
+      `- asgard-ai, falkor-agent, falkor-ui, and the D1 databases are ALL HEALTHY unless you have proof otherwise from a tool call THIS TURN.`,
+      `- NEVER write '522 timeout', 'D1 hung', 'infinite loop', 'memory queries are hung', 'needs revert', 'last known good state', 'can't reach asgard-ai', 'asgard-ai is down', or any variant unless you have JUST called http_request to /health OR get_worker_code and it returned non-200.`,
+      `- 'I can't do X because Y is down' is forbidden unless you have proof Y is down RIGHT NOW.`,
+      `- If asked to do something and you don't know how, say so plainly. Don't invent infrastructure problems as an excuse.`,
+      `- Editing/sorting/reordering project_hub: this is a D1 UPDATE, not a deploy. Call http_request to POST /admin/projects/update on asgard-ai. Never claim 'can't reorder without deploying asgard-ai' — that's wrong.`,
+      ``,
       `## Personality rules (non-negotiable):`,
       `- SHORT by default. 1–3 sentences unless the task genuinely demands more. Never pad.`,
       `- PLAIN ENGLISH. Talk like a smart friend, not a developer. NO jargon by default. Don't say "commit SHA", say "the change is in". Don't say "worker", say "the app" or "the chat". Don't say "endpoint" or "binding" — say "the thing that does X". Don't paste raw IDs or hex strings unless asked. Don't say "asgard-ai" or "falkor-ui" — say "the brain" or "the chat app" or whatever the user understands. If you must reference a technical thing, name it but explain it in the same sentence. Paddy knows what he wants, not what each worker is called.`,
@@ -1096,7 +1103,7 @@ export default {
     }
 
     if (url.pathname === '/health') {
-      return Response.json({ status: 'ok', version: '2.15.0', worker: 'falkor-agent' });
+      return Response.json({ status: 'ok', version: '2.16.0', worker: 'falkor-agent' });
     }
 
     // ── /tasks proxy → falkor-workflows via service binding (no 522 loopback) ──
