@@ -593,11 +593,21 @@ async function maybeExtractMemory(history, userId, pin, aiPin, aiUrl) {
 
 // ── v2.17.0 — anti-hallucination safety net (server-side) ──────────────────
 const FORBIDDEN_PHRASES = [
-  '522 timeout', 'D1 hung', 'D1 query is hung', 'D1 memory queries are hung',
+  // exact phrases (legacy)
+  '522 timeout', 'd1 hung', 'd1 query is hung', 'd1 memory queries are hung',
   'infinite loop', 'last known good state', "can't reach asgard-ai",
   'asgard-ai is down', "can't fetch project_hub until it's back",
   "can't self-deploy asgard-ai", 'rollback to the last working version',
-  'manual revert', 'manual fix via CF dashboard',
+  'manual revert', 'manual fix via cf dashboard',
+  // broader substrings — catch every variant of fake outage
+  '522.', '522,', '522 ', ' 522', 'still 522', 'cf rollback', 'd1 query fix',
+  "asgard-ai's hung", "asgard-ai's down", "asgard-ai's broken",
+  'asgard-ai hung', 'asgard-ai broken', 'asgard ai is down',
+  'needs revert', 'needs rollback', 'needs manual', 'needs cf',
+  'd1 is hung', 'd1 is down', 'd1 is broken',
+  "can't reorder without", "can't fetch", "can't reach", "can't deploy",
+  'worker is hung', 'worker is down', 'worker has an infinite',
+  'outage is real', 'rollback to', 'rollback the', 'rollback from',
 ];
 function containsHallucinatedOutage(text) {
   if (!text || typeof text !== 'string') return false;
@@ -613,14 +623,19 @@ async function probeAsgardAi(aiUrl) {
 function detectProjectListIntent(text) {
   if (!text) return null;
   const t = text.toLowerCase().trim();
-  const verbs = ['list', 'show', 'sort', 'order', 'alphabetize', 'put', 'arrange'];
-  const target = t.includes('project');
-  const hasVerb = verbs.some(v => t.startsWith(v) || t.includes(' ' + v + ' '));
-  if (!target || !hasVerb) return null;
-  if (t.includes('alpha') || t.includes('a-z') || t.includes('a to z')) return 'alpha';
-  if (t.includes('number') || t.includes('id') || t.includes('#')) return 'number';
+  const verbs = ['list', 'show', 'sort', 'order', 'alphabetize', 'put', 'arrange',
+                 'rearrange', 'reorder', 'fix', 'display', 'view', 'see'];
+  const targets = ['project', 'projects tab', 'project tab', 'project list', 'project_hub'];
+  const target = targets.some(x => t.includes(x));
+  if (!target) return null;
+  const hasVerb = verbs.some(v => t.startsWith(v) || t.includes(' ' + v + ' ') || t.includes(v + ' '));
+  // also intercept short queries like "projects" or "all projects"
+  const isBareQuery = /^(all |the )?projects?\s*$/i.test(t) || /^projects? (in|by)\s/i.test(t);
+  if (!hasVerb && !isBareQuery) return null;
+  if (t.includes('alpha') || t.includes('a-z') || t.includes('a to z') || t.includes('alphabet')) return 'alpha';
+  if (t.includes('number') || t.includes(' id') || t.includes('#') || t.includes('numerical')) return 'number';
   if (t.includes('status')) return 'status';
-  if (t.includes('progress')) return 'progress';
+  if (t.includes('progress') || t.includes('%') || t.includes('percent')) return 'progress';
   return 'alpha';
 }
 async function fetchProjectsList(aiUrl, aiPin) {
@@ -697,7 +712,7 @@ export class FalkorAgent {
       const memory = await this.getMemory();
       const ctxTs = await this.state.storage.get('liveContextTs');
       return corsJson({
-        version: '2.17.0',
+        version: '2.18.0',
         activeSessions: this.sessions.size,
         historyLength: history.length,
         memoryKeys: Object.keys(memory).length,
@@ -1102,13 +1117,24 @@ export class FalkorAgent {
       }
     }
 
-    // ── v2.17.0 SAFETY NET: catch hallucinated outage replies ───────────────
+    // ── v2.18.0 SAFETY NET: catch hallucinated outage replies ───────────────
     if (containsHallucinatedOutage(reply)) {
       const _aiOk = await probeAsgardAi(aiUrl);
       if (_aiOk) {
         const _origReply = reply;
-        reply = "I started to say there was an outage — that was wrong. asgard-ai is healthy (just checked /health). Try your request again and I'll do it properly.";
-        try { console.warn('[falkor-agent v2.17] suppressed hallucination:', _origReply.slice(0,200)); } catch(e) {}
+        // If user was asking about projects, deliver actual data not a generic apology
+        const _retryIntent = detectProjectListIntent(text);
+        if (_retryIntent) {
+          const _projs = await fetchProjectsList(aiUrl, aiPin);
+          if (_projs) {
+            reply = formatProjectsList(_projs, _retryIntent);
+          } else {
+            reply = "asgard-ai is healthy but /admin/projects/list returned no data. The fetch endpoint may need attention.";
+          }
+        } else {
+          reply = "I almost gave you a fake outage report — that was wrong. asgard-ai is healthy. Ask me your real question again and I'll handle it properly.";
+        }
+        try { console.warn('[falkor-agent v2.18] suppressed hallucination:', _origReply.slice(0,200)); } catch(e) {}
       }
     }
     // ── 7. Save to history ────────────────────────────────────────────────────
@@ -1181,7 +1207,7 @@ export default {
     }
 
     if (url.pathname === '/health') {
-      return Response.json({ status: 'ok', version: '2.17.0', worker: 'falkor-agent' });
+      return Response.json({ status: 'ok', version: '2.18.0', worker: 'falkor-agent' });
     }
 
     // ── /tasks proxy → falkor-workflows via service binding (no 522 loopback) ──
