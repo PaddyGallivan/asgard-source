@@ -1,5 +1,5 @@
 // asgard-ai v5.8.0-stream: multi-provider (Anthropic/OpenAI/Groq) streaming SSE, normalized tokens
-const VERSION = '6.13.0';
+const VERSION = '6.14.0';
 const WORKER_NAME = "asgard-ai";
 
 // --- PIN auth helper (v1.1.0 security patch) ---
@@ -3340,12 +3340,26 @@ async function handleChatAgentic(request, env) {
     const claudeReq = { model: resolvedModelId, max_tokens: 8192, system, messages, tools: anthropicTools };
     while (iter < MAX_ITER) {
       iter++;
-      const r = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": ak, "anthropic-version": "2023-06-01" },
-        body: JSON.stringify(claudeReq)
-      });
-      if (!r.ok) return json({ ok: false, error: "anthropic " + r.status + ": " + (await r.text()).slice(0, 300) }, 502);
+      // v6.14: retry on transient upstream errors (524, 529, 502, 503, 504) with exponential backoff
+      let r = null, attemptErr = '';
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          r = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-api-key": ak, "anthropic-version": "2023-06-01" },
+            body: JSON.stringify(attempt > 0 ? { ...claudeReq, max_tokens: Math.max(2048, Math.floor(claudeReq.max_tokens / 2)) } : claudeReq),
+            signal: AbortSignal.timeout(70000)
+          });
+          if (r.ok) break;
+          if (![524, 529, 502, 503, 504].includes(r.status)) break;
+          attemptErr = "anthropic " + r.status + " (attempt " + (attempt+1) + ")";
+          await new Promise(res => setTimeout(res, 800 * (attempt + 1)));
+        } catch (e) {
+          attemptErr = "fetch error: " + (e.name || e.message || String(e)) + " (attempt " + (attempt+1) + ")";
+          await new Promise(res => setTimeout(res, 800 * (attempt + 1)));
+        }
+      }
+      if (!r || !r.ok) return json({ ok: false, error: attemptErr + (r ? ": " + (await r.text().catch(()=>'')).slice(0, 200) : '') }, 502);
       const d = await r.json();
       usage = d.usage || usage;
       if (d.stop_reason !== "tool_use") {
