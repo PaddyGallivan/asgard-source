@@ -646,7 +646,7 @@ export class FalkorAgent {
       const memory = await this.getMemory();
       const ctxTs = await this.state.storage.get('liveContextTs');
       return corsJson({
-        version: '2.11.0',
+        version: '2.12.0',
         activeSessions: this.sessions.size,
         historyLength: history.length,
         memoryKeys: Object.keys(memory).length,
@@ -670,7 +670,7 @@ export class FalkorAgent {
         const msg = JSON.parse(evt.data);
         if (msg.type === 'chat') {
           const userId = msg.userId || 'paddy';
-          await this.processChat(msg.text, msg.model || 'groq-fast', server, msg.productContext, userId);
+          await this.processChat(msg.text, msg.model || 'groq-fast', server, msg.productContext, userId, msg.system_prefix);
         } else if (msg.type === 'ping') {
           server.send(JSON.stringify({ type: 'pong' }));
         } else if (msg.type === 'history') {
@@ -743,7 +743,7 @@ export class FalkorAgent {
     return ctx;
   }
 
-  async processChat(text, model, ws, productContext, userId) {
+  async processChat(text, model, ws, productContext, userId, systemPrefix) {
     const history = await this.getHistory();
     const memory = await this.getMemory();
     const pin = this.env.AGENT_PIN || '';
@@ -916,6 +916,9 @@ export class FalkorAgent {
       ragContext,
       productCtxStr,
     ].filter(Boolean).join('\n');
+    if (systemPrefix && typeof systemPrefix === 'string' && systemPrefix.length > 0) {
+      systemPrompt = systemPrefix + '\n\n' + systemPrompt;
+    }
 
     // ── 6. Call asgard-ai router (streaming when ws present) ────────────
     let reply = '';
@@ -1048,7 +1051,7 @@ export default {
     }
 
     if (url.pathname === '/health') {
-      return Response.json({ status: 'ok', version: '2.11.0', worker: 'falkor-agent' });
+      return Response.json({ status: 'ok', version: '2.12.0', worker: 'falkor-agent' });
     }
 
     // ── /tasks proxy → falkor-workflows via service binding (no 522 loopback) ──
