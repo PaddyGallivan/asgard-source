@@ -646,7 +646,7 @@ export class FalkorAgent {
       const memory = await this.getMemory();
       const ctxTs = await this.state.storage.get('liveContextTs');
       return corsJson({
-        version: '2.14.0',
+        version: '2.14.1',
         activeSessions: this.sessions.size,
         historyLength: history.length,
         memoryKeys: Object.keys(memory).length,
@@ -905,10 +905,13 @@ export class FalkorAgent {
       `| Vector memory recall | falkor-brain | asgard-source/workers/falkor-brain.js |`,
       `| KBT trivia | falkor-kbt | asgard-source/workers/falkor-kbt.js |`,
       `| Project data, project_hub D1 row edits | asgard-ai (which owns PROJECT_HUB binding) | asgard-source/workers/asgard-ai.js |`,
+      `| Utility routes, /version, /brief, /pulse, daily snapshot endpoints | asgard-tools | asgard-source/workers/asgard-tools.js |`,
+      `| Status/audit/snapshot/projects helper endpoints | asgard-status, asgard-projects, asgard-snapshot | asgard-source/workers/<name>.js |`,
       `| Handover docs, asgard.md, SESSION-HANDOVER.md | (no worker — just commit to) asgard-handovers repo |`,
       ``,
       `When ${userCtx.name} says 'fix this' or 'add that' without naming a worker, infer which one from this map and act. If genuinely ambiguous, ask ONE short clarifying question, not three.`,
       `Discipline that ends the revert loop: 1) commit to GitHub asgard-source FIRST, 2) deploy_worker with --content endpoint, 3) for asgard-ai only, update vault ASGARD_AI_CANONICAL_DEPLOY_ID + ASGARD_AI_CANONICAL_SIZE.`,
+      `If Paddy names a worker not in the table above, DON'T assume it doesn't exist — call get_worker_code(name) first. The table covers common cases, not every worker. There are 154 in total.`,
       ``,
       `## Engineering rules (ALL projects, non-negotiable):`,
       `- Root-cause before patching. Read the surrounding code and any nearby comment. If code looks like a workaround, identify what it's masking. Don't remove a workaround until the underlying bug is proven gone.`,
@@ -1092,7 +1095,7 @@ export default {
     }
 
     if (url.pathname === '/health') {
-      return Response.json({ status: 'ok', version: '2.14.0', worker: 'falkor-agent' });
+      return Response.json({ status: 'ok', version: '2.14.1', worker: 'falkor-agent' });
     }
 
     // ── /tasks proxy → falkor-workflows via service binding (no 522 loopback) ──
