@@ -1,5 +1,5 @@
 // asgard-ai v5.8.0-stream: multi-provider (Anthropic/OpenAI/Groq) streaming SSE, normalized tokens
-const VERSION = '6.12.0';
+const VERSION = '6.13.0';
 const WORKER_NAME = "asgard-ai";
 
 // --- PIN auth helper (v1.1.0 security patch) ---
@@ -4058,7 +4058,7 @@ ${transcript.slice(0, 100000)}`;
             const key = (f.key || "fact_" + Date.now()).toString().slice(0,80);
             const val = (f.value || "").toString().slice(0,2000);
             if (!val) continue;
-            await env.DB.prepare("INSERT INTO memory_v2 (pin_user, project, key, value, version, is_current, is_shared, actor, created_at) VALUES (?, ?, ?, ?, 1, 1, 0, ?, ?)").bind(_uid, proj, key, val, "migrate-from-claude", Date.now()).run();
+            await env.DB.prepare("INSERT INTO memory_v2 (pin_user, project, key, value, version, is_current, is_shared, actor, created_at) VALUES (?, ?, ?, ?, 1, ?, 0, ?, ?)").bind(_uid, proj, key, val, body.historical ? 0 : 1, body.source_tag || "migrate-from-claude", Date.now()).run();
             saved.facts++;
           } catch(e) { saved.errors.push("fact: " + e.message); }
         }
@@ -4070,7 +4070,7 @@ ${transcript.slice(0, 100000)}`;
             const ev = (d.event || "decision").toString().slice(0,80);
             const summary = (d.summary || "").toString().slice(0,2000);
             if (!summary) continue;
-            await env.DB.prepare("INSERT INTO project_events (project, event, summary, source, uid) VALUES (?, ?, ?, ?, ?)").bind(proj, ev, summary, "migrate-from-claude", _uid).run();
+            await env.DB.prepare("INSERT INTO project_events (project, event, summary, source, uid) VALUES (?, ?, ?, ?, ?)").bind(proj, ev, summary, body.source_tag || "migrate-from-claude", _uid).run();
             saved.decisions++;
           } catch(e) { saved.errors.push("decision: " + e.message); }
         }
@@ -4083,11 +4083,16 @@ ${transcript.slice(0, 100000)}`;
               if (!slug) continue;
               const next = (s.next_action || "").toString().slice(0,2000);
               const notes = (s.notes || "").toString().slice(0,3000);
-              // Try to match by slug or project_name like-pattern
               const match = await env.PROJECT_HUB.prepare("SELECT id, project_name, notes FROM project_hub WHERE LOWER(REPLACE(project_name,' ','-')) = ? OR LOWER(project_name) LIKE ? LIMIT 1").bind(slug, '%' + slug.replace(/-/g,' ') + '%').first().catch(() => null);
               if (match) {
-                const newNotes = (match.notes ? match.notes + "\n\n" : "") + "[migrate-from-claude " + new Date().toISOString().slice(0,10) + "] " + notes;
-                await env.PROJECT_HUB.prepare("UPDATE project_hub SET next_action = COALESCE(?, next_action), notes = ? WHERE id = ?").bind(next || null, newNotes, match.id).run();
+                const tag = body.historical ? "[historical-import " : "[migrate-from-claude ";
+                const newNotes = (match.notes ? match.notes + "\n\n" : "") + tag + new Date().toISOString().slice(0,10) + "] " + notes;
+                if (body.historical) {
+                  // Don't overwrite next_action. Just append historical context to notes.
+                  await env.PROJECT_HUB.prepare("UPDATE project_hub SET notes = ? WHERE id = ?").bind(newNotes, match.id).run();
+                } else {
+                  await env.PROJECT_HUB.prepare("UPDATE project_hub SET next_action = COALESCE(?, next_action), notes = ? WHERE id = ?").bind(next || null, newNotes, match.id).run();
+                }
                 saved.states++;
               }
             } catch(e) { saved.errors.push("state: " + e.message); }
@@ -4115,7 +4120,7 @@ ${transcript.slice(0, 100000)}`;
             const key = "rule_" + (r.key || ("r_" + Date.now())).toString().slice(0,80);
             const val = (r.value || "").toString().slice(0,2000);
             if (!val) continue;
-            await env.DB.prepare("INSERT INTO memory_v2 (pin_user, project, key, value, version, is_current, is_shared, actor, created_at) VALUES (?, ?, ?, ?, 1, 1, 0, ?, ?)").bind(_uid, proj, key, val, "migrate-import-rule", Date.now()).run();
+            await env.DB.prepare("INSERT INTO memory_v2 (pin_user, project, key, value, version, is_current, is_shared, actor, created_at) VALUES (?, ?, ?, ?, 1, ?, 0, ?, ?)").bind(_uid, proj, key, val, body.historical ? 0 : 1, body.source_tag || "migrate-import-rule", Date.now()).run();
             saved.rules++;
           } catch(e) { saved.errors.push("rule: " + e.message); }
         }
@@ -4127,7 +4132,7 @@ ${transcript.slice(0, 100000)}`;
             const url = (l.url || "").toString().slice(0,500);
             if (!url) continue;
             const key = "link_" + label.toLowerCase().replace(/[^a-z0-9-]/g,'-').slice(0,60);
-            await env.DB.prepare("INSERT INTO memory_v2 (pin_user, project, key, value, version, is_current, is_shared, actor, created_at) VALUES (?, ?, ?, ?, 1, 1, 0, ?, ?)").bind(_uid, proj, key, label + ": " + url, "migrate-import-link", Date.now()).run();
+            await env.DB.prepare("INSERT INTO memory_v2 (pin_user, project, key, value, version, is_current, is_shared, actor, created_at) VALUES (?, ?, ?, ?, 1, ?, 0, ?, ?)").bind(_uid, proj, key, label + ": " + url, body.historical ? 0 : 1, body.source_tag || "migrate-import-link", Date.now()).run();
             saved.links++;
             // If this looks like a live URL and project has none, set it
             if (env.PROJECT_HUB && (label.toLowerCase().includes("live") || label.toLowerCase().includes("url") || label.toLowerCase().includes("home"))) {
@@ -4143,7 +4148,7 @@ ${transcript.slice(0, 100000)}`;
             const url = (r.repo_url || "").toString().slice(0,500);
             const notes = (r.notes || "").toString().slice(0,500);
             if (!url) continue;
-            await env.DB.prepare("INSERT INTO memory_v2 (pin_user, project, key, value, version, is_current, is_shared, actor, created_at) VALUES (?, ?, ?, ?, 1, 1, 0, ?, ?)").bind(_uid, proj, "repo_main", url + (notes ? " — " + notes : ""), "migrate-import-repo", Date.now()).run();
+            await env.DB.prepare("INSERT INTO memory_v2 (pin_user, project, key, value, version, is_current, is_shared, actor, created_at) VALUES (?, ?, ?, ?, 1, ?, 0, ?, ?)").bind(_uid, proj, "repo_main", url + (notes ? " — " + notes : ""), body.historical ? 0 : 1, body.source_tag || "migrate-import-repo", Date.now()).run();
             saved.repos++;
             if (env.PROJECT_HUB) {
               await env.PROJECT_HUB.prepare("UPDATE project_hub SET github_url = ? WHERE LOWER(REPLACE(project_name,' ','-')) = ? AND (github_url IS NULL OR github_url='')").bind(url, proj).run().catch(() => {});
