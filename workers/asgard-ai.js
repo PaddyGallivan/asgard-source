@@ -1,5 +1,5 @@
 // asgard-ai v5.8.0-stream: multi-provider (Anthropic/OpenAI/Groq) streaming SSE, normalized tokens
-const VERSION = '6.15.1';
+const VERSION = '6.16.0';
 const WORKER_NAME = "asgard-ai";
 
 // --- PIN auth helper (v1.1.0 security patch) ---
@@ -3519,7 +3519,10 @@ async function handleChatAgentic(request, env) {
     const anthropicTools = AGENTIC_TOOLS_OPENAI.map(function(t){
       return { name: t.function.name, description: t.function.description, input_schema: t.function.parameters };
     });
-    const claudeReq = { model: resolvedModelId, max_tokens: 8192, system, messages, tools: anthropicTools };
+    // v6.16: Anthropic prompt caching — cache system + tools (long-lived) so they don't burn rate-limit budget every call
+    const _sysArr = [{ type: "text", text: system, cache_control: { type: "ephemeral" } }];
+    const _tools_cached = anthropicTools.length ? anthropicTools.map(function(t,i){ return i===anthropicTools.length-1 ? Object.assign({}, t, { cache_control: { type: "ephemeral" } }) : t; }) : anthropicTools;
+    const claudeReq = { model: resolvedModelId, max_tokens: 8192, system: _sysArr, messages, tools: _tools_cached };
     while (iter < MAX_ITER) {
       iter++;
       // v6.14: retry on transient upstream errors (524, 529, 502, 503, 504) with exponential backoff
