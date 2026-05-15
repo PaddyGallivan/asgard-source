@@ -1,5 +1,5 @@
 // asgard-ai v5.8.0-stream: multi-provider (Anthropic/OpenAI/Groq) streaming SSE, normalized tokens
-const VERSION = '6.16.1';
+const VERSION = '6.16.2';
 const WORKER_NAME = "asgard-ai";
 
 // --- PIN auth helper (v1.1.0 security patch) ---
@@ -142,7 +142,7 @@ function err(message, status = 500, extra = {}) {
 }
 
 function resolveModel(input) {
-  if (!input) return MODELS[DEFAULT_MODEL];
+  if (!input || String(input).toLowerCase() === "auto") return MODELS["haiku"] || MODELS[DEFAULT_MODEL];
   const k = String(input).toLowerCase();
   if (MODELS[k]) return MODELS[k];
   // Auto-route by prefix
@@ -775,7 +775,7 @@ async function handleChatSmart(request, env) {
   const project = body.project || "global";
   const pinUser = await identifyPin(request, env) || uid;
   env._pinUser = pinUser;
-  const modelKey = body.model || quickRoute(message);
+  const modelKey = (body.model && body.model !== 'auto') ? body.model : quickRoute(message);
   const resolved = resolveModel(modelKey);
 
   let convId = body.conversation_id || null;
