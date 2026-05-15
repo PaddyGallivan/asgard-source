@@ -1,5 +1,5 @@
 // asgard-ai v5.8.0-stream: multi-provider (Anthropic/OpenAI/Groq) streaming SSE, normalized tokens
-const VERSION = '6.17.3';
+const VERSION = '6.17.4';
 const WORKER_NAME = "asgard-ai";
 
 // --- PIN auth helper (v1.1.0 security patch) ---
@@ -3062,12 +3062,8 @@ async function agenticExecuteTool(name, input, env) {
       const j = await r.json();
       return { ok: true, message_id: j.id, channel_id: j.channel_id };
     }
-    // Browser Rendering family — proxied through asgard-browser worker (CF loopback ok because we use full domain via fetch from outside?)
-    // Note: asgard-ai loops back to asgard-browser will hit 1042. Use direct REST API instead.
+    // v6.17.4: Browser Rendering — use env.BROWSER binding instead of REST API (no token scope dance needed)
     if (name === "browser_screenshot" || name === "browser_content" || name === "browser_markdown" || name === "browser_json" || name === "browser_links" || name === "browser_scrape" || name === "browser_pdf") {
-      const tok = env.CF_API_TOKEN_FULLOPS || env.CF_API_TOKEN;
-      if (!tok) return { error: "CF_API_TOKEN_FULLOPS missing on asgard-ai" };
-      const ACCT = "a6f47c17811ee2f8b6caeb8f38768c20";
       const ops = {
         browser_screenshot: { op: 'screenshot', body: { url: input.url, screenshotOptions: { fullPage: !!input.full_page } } },
         browser_content:    { op: 'content',    body: { url: input.url } },
@@ -3078,11 +3074,25 @@ async function agenticExecuteTool(name, input, env) {
         browser_pdf:        { op: 'pdf',        body: { url: input.url } }
       };
       const cfg = ops[name];
-      const r = await fetch("https://api.cloudflare.com/client/v4/accounts/" + ACCT + "/browser-rendering/" + cfg.op, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + tok },
-        body: JSON.stringify(cfg.body)
-      });
+      let r;
+      if (env.BROWSER && env.BROWSER.fetch) {
+        // Use binding (no token needed)
+        r = await env.BROWSER.fetch("https://browser/" + cfg.op, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(cfg.body)
+        });
+      } else {
+        // Fallback to REST API
+        const tok = env.CF_API_TOKEN_FULLOPS || env.CF_API_TOKEN;
+        if (!tok) return { error: "BROWSER binding + CF_API_TOKEN_FULLOPS both missing" };
+        const ACCT = env.CF_ACCOUNT_ID || "a6f47c17811ee2f8b6caeb8f38768c20";
+        r = await fetch("https://api.cloudflare.com/client/v4/accounts/" + ACCT + "/browser-rendering/" + cfg.op, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + tok },
+          body: JSON.stringify(cfg.body)
+        });
+      }
       if (!r.ok) return { error: "browser " + r.status, detail: (await r.text()).slice(0, 500) };
       const ct = r.headers.get("Content-Type") || "";
       if (ct.includes("image/png")) {
@@ -4804,7 +4814,7 @@ ${transcript.slice(0, 100000)}`;
           return json({ ok: false, error: e.message }, 500);
         }
       }
-      if (path === "/google/oauth-start"  && method === "GET")  { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleOauthStart(request, env); }
+      if (path === "/google/oauth-start"  && method === "GET")  { /* oauth-start: PIN may be in ?pin= because users navigate from browser bar */ const _qp=new URL(request.url).searchParams.get("pin"); if(_qp){ const _h=new Headers(request.headers); _h.set("X-Pin",_qp); request=new Request(request.url,{method:request.method,headers:_h}); } const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleOauthStart(request, env); }
       if (path === "/google/oauth-callback" && method === "GET") return handleOauthCallback(request, env);
       if (path === "/google/calendar/events" && method === "GET") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleGoogleCalendarEvents(request, env); }
       if (path === "/agent/propose"       && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleAgentPropose(request, env); }
