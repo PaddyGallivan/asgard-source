@@ -1,5 +1,5 @@
 // asgard-ai v5.8.0-stream: multi-provider (Anthropic/OpenAI/Groq) streaming SSE, normalized tokens
-const VERSION = '6.17.2';
+const VERSION = '6.17.3';
 const WORKER_NAME = "asgard-ai";
 
 // --- PIN auth helper (v1.1.0 security patch) ---
@@ -177,10 +177,10 @@ function quickRoute(message) {
   // Structured tasks → Gemini Flash (fast, great at lists/tables/translation)
   const structuredTriggers = ["list all","summarise","summarize","make a table","translate","convert","format this","extract","classify","categorize","give me a list","bullet point","schedule","itinerary","compare these","rank"];
   if (structuredTriggers.some(t => m.includes(t))) return "gemini-2.5-flash";
-  // Longer messages → Groq versatile (free, handles context well)
-  if (m.length > 400) return "groq";
-  // Default: instant free response
-  return "groq-fast";
+  // Longer messages → Sonnet (cached, reliable)
+  if (m.length > 400) return "sonnet";
+  // Default: haiku (cached system prompt is essentially free, and avoids Groq 6k TPM limit)
+  return "haiku";
 }
 
 // ---------- Provider adapters ----------
