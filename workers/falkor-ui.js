@@ -27,7 +27,7 @@ const html = `<!DOCTYPE html>
     .login-card { 
       background: #1a1f3a; 
       border: 1px solid #3a4155; 
-      border-radius: 12px; 
+      border-radius: 8px; 
       padding: 40px; 
       max-width: 380px; 
       width: 100%;
