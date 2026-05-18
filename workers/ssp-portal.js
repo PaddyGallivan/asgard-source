@@ -30,7 +30,7 @@ const SSP_HELP_HTML = `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Getting Started â School Sport Portal</title>
+<title>Getting Started — School Sport Portal</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f8faff;color:#1e293b;line-height:1.6}
@@ -75,12 +75,12 @@ footer a{color:#94a3b8;text-decoration:none}
 </nav>
 <div class="hero">
   <h1>Getting Started</h1>
-  <p>Set up your school sport portal in minutes. Enter student data once â use it everywhere.</p>
+  <p>Set up your school sport portal in minutes. Enter student data once — use it everywhere.</p>
 </div>
 <div class="container">
 
   <h2>What Is School Sport Portal?</h2>
-  <p>School Sport Portal (SSP) is a single place to manage all of your school's sport carnivals. One student roster feeds your cross country draw, swimming carnival, athletics program, and district entries â no re-keying, no wrong age groups, no double-handling.</p>
+  <p>School Sport Portal (SSP) is a single place to manage all of your school's sport carnivals. One student roster feeds your cross country draw, swimming carnival, athletics program, and district entries — no re-keying, no wrong age groups, no double-handling.</p>
   <p><strong>Pricing: $1 per student per year.</strong> A school with 400 students pays $400/year. That's it.</p>
 
   <h2>Step 1: Book a Demo or Sign Up</h2>
@@ -104,7 +104,7 @@ footer a{color:#94a3b8;text-decoration:none}
       <div class="step-num">3</div>
       <div class="step-body">
         <h3>Pay securely via Stripe</h3>
-        <p>Card payment, no lock-in contract. Annual subscription renews each year â cancel any time.</p>
+        <p>Card payment, no lock-in contract. Annual subscription renews each year — cancel any time.</p>
       </div>
     </div>
     <div class="step">
@@ -120,7 +120,7 @@ footer a{color:#94a3b8;text-decoration:none}
   <p>Your student roster is the foundation. Upload once at the start of the year and it powers everything.</p>
   <div class="card">
     <h3>CSV Upload (Recommended)</h3>
-    <p>Export from your school system (Compass, Sentral, CASES21) â first name, last initial, year level. We handle the rest.</p>
+    <p>Export from your school system (Compass, Sentral, CASES21) — first name, last initial, year level. We handle the rest.</p>
   </div>
   <div class="card">
     <h3>Manual Entry</h3>
@@ -145,7 +145,7 @@ footer a{color:#94a3b8;text-decoration:none}
     </div>
     <div class="grid-item">
       <h4>ð District Entry</h4>
-      <p>Select your qualifiers â their bib numbers and times are pre-filled from your results.</p>
+      <p>Select your qualifiers — their bib numbers and times are pre-filled from your results.</p>
     </div>
   </div>
 
@@ -156,7 +156,7 @@ footer a{color:#94a3b8;text-decoration:none}
       <div class="step-num">1</div>
       <div class="step-body">
         <h3>SSP subscribers get a free Carnival Timing code <span class="badge">Included</span></h3>
-        <p>No separate purchase needed â it's bundled with your portal subscription.</p>
+        <p>No separate purchase needed — it's bundled with your portal subscription.</p>
       </div>
     </div>
     <div class="step">
@@ -178,15 +178,15 @@ footer a{color:#94a3b8;text-decoration:none}
   <h2>Frequently Asked Questions</h2>
   <div class="card">
     <h3>Does it work on a Chromebook?</h3>
-    <p>Yes â SSP and Carnival Timing both run in any modern browser. No installs, no apps.</p>
+    <p>Yes — SSP and Carnival Timing both run in any modern browser. No installs, no apps.</p>
   </div>
   <div class="card">
     <h3>What if I don't have good internet at the oval?</h3>
-    <p>Carnival Timing works offline for timing â results sync when you reconnect. The live spectator board needs internet but that's optional.</p>
+    <p>Carnival Timing works offline for timing — results sync when you reconnect. The live spectator board needs internet but that's optional.</p>
   </div>
   <div class="card">
     <h3>Can I use it just for one carnival?</h3>
-    <p>Carnival Timing is available as a standalone $49 single-carnival purchase. SSP is an annual subscription â it's designed for schools running multiple carnivals per year.</p>
+    <p>Carnival Timing is available as a standalone $49 single-carnival purchase. SSP is an annual subscription — it's designed for schools running multiple carnivals per year.</p>
   </div>
   <div class="card">
     <h3>Is student data safe?</h3>
@@ -194,7 +194,7 @@ footer a{color:#94a3b8;text-decoration:none}
   </div>
   <div class="card">
     <h3>How do I get help on the day?</h3>
-    <p>Email info@schoolsportportal.com.au â we respond same day during school term. For urgent issues on carnival day, there's a phone number in your welcome email.</p>
+    <p>Email info@schoolsportportal.com.au — we respond same day during school term. For urgent issues on carnival day, there's a phone number in your welcome email.</p>
   </div>
 
   <div class="cta">
@@ -340,7 +340,7 @@ async function _innerFetch(request, env, ctx) {
       return new Response(DEMO_REGION, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300', 'X-Source': 'embedded-demo' } });
     }
 
-        // Williamstown PS and Hobsons Bay â embedded directly
+        // Williamstown PS and Hobsons Bay — embedded directly
     if (path === '/williamstownprimary' || path === '/school/primary/williamstown' || path === '/school/primary/williamstown-primary' || normPath === '/williamstownprimary.html' || normPath === '/williamstownps.html') {
       return new Response(WPS_HTML, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300', 'X-Source': 'embedded-wps' } });
     }
