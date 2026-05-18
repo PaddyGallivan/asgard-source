@@ -402,7 +402,7 @@ export default {
     }
 
     // ─── GET /account ───────────────────────────────────────────────────
-    if (p === '/account' && request.method === 'GET') {
+    if (p === '/account' && (request.method === 'GET' || request.method === 'HEAD')) {
       const session = await verifySessionToken(getCookie(request, COOKIE_NAME), sessionSecret);
       if (!session) {
         // Friendly "please sign in" page instead of silent redirect
@@ -423,7 +423,7 @@ export default {
     }
 
     // ─── GET /account/change-password ───────────────────────────────────
-    if (p === '/account/change-password' && request.method === 'GET') {
+    if (p === '/account/change-password' && (request.method === 'GET' || request.method === 'HEAD')) {
       const session = await verifySessionToken(getCookie(request, COOKIE_NAME), sessionSecret);
       if (!session) return Response.redirect(new URL('/signin?next=/account/change-password', url.origin).toString(), 302);
       return htmlResponse(changePasswordPage(url.searchParams.get('err'), url.searchParams.get('ok')));
@@ -450,7 +450,7 @@ export default {
     }
 
     // ─── GET /account/branding ─────────────────────────────────────────
-    if (p === '/account/branding' && request.method === 'GET') {
+    if (p === '/account/branding' && (request.method === 'GET' || request.method === 'HEAD')) {
       const session = await verifySessionToken(getCookie(request, COOKIE_NAME), sessionSecret);
       if (!session) return Response.redirect(new URL('/signin?next=/account/branding', url.origin).toString(), 302);
       const sch = await env.SSP_DB.prepare(
@@ -568,7 +568,7 @@ export default {
     }
 
     // ─── GET /account/branding/upload-logo ─────────────────────────────
-    if (p === '/account/branding/upload-logo' && request.method === 'GET') {
+    if (p === '/account/branding/upload-logo' && (request.method === 'GET' || request.method === 'HEAD')) {
       const session = await verifySessionToken(getCookie(request, COOKIE_NAME), sessionSecret);
       if (!session) return Response.redirect(new URL('/signin?next=/account/branding/upload-logo', url.origin).toString(), 302);
       const sch = await env.SSP_DB.prepare('SELECT id, name, logo_url FROM schools WHERE id = ? AND active = 1').bind(session.sid).first();
@@ -637,7 +637,7 @@ export default {
     }
 
     // ─── GET /account/sports ───────────────────────────────────────────
-    if (p === '/account/sports' && request.method === 'GET') {
+    if (p === '/account/sports' && (request.method === 'GET' || request.method === 'HEAD')) {
       const session = await verifySessionToken(getCookie(request, COOKIE_NAME), sessionSecret);
       if (!session) return Response.redirect(new URL('/signin?next=/account/sports', url.origin).toString(), 302);
       const sch = await env.SSP_DB.prepare('SELECT id, name FROM schools WHERE id = ? AND active = 1').bind(session.sid).first();
@@ -680,7 +680,7 @@ export default {
     }
 
     // ─── GET /account/news ─────────────────────────────────────────────
-    if (p === '/account/news' && request.method === 'GET') {
+    if (p === '/account/news' && (request.method === 'GET' || request.method === 'HEAD')) {
       const session = await verifySessionToken(getCookie(request, COOKIE_NAME), sessionSecret);
       if (!session) return Response.redirect(new URL('/signin?next=/account/news', url.origin).toString(), 302);
       const sch = await env.SSP_DB.prepare('SELECT id, name, account_type FROM schools WHERE id = ? AND active = 1').bind(session.sid).first();
@@ -765,7 +765,7 @@ export default {
 
 
     // ─── GET /account/records ──────────────────────────────────────────
-    if (p === '/account/records' && request.method === 'GET') {
+    if (p === '/account/records' && (request.method === 'GET' || request.method === 'HEAD')) {
       const session = await verifySessionToken(getCookie(request, COOKIE_NAME), sessionSecret);
       if (!session) return Response.redirect(new URL('/signin?next=/account/records', url.origin).toString(), 302);
       const sch = await env.SSP_DB.prepare('SELECT id, name, account_type, district_id FROM schools WHERE id = ? AND active = 1').bind(session.sid).first();
@@ -925,7 +925,7 @@ export default {
     }
 
     // ─── GET /account/calendar ──────────────────────────────────────────
-    if (p === '/account/calendar' && request.method === 'GET') {
+    if (p === '/account/calendar' && (request.method === 'GET' || request.method === 'HEAD')) {
       const session = await verifySessionToken(getCookie(request, COOKIE_NAME), sessionSecret);
       if (!session) return Response.redirect(new URL('/signin?next=/account/calendar', url.origin).toString(), 302);
       const sch = await env.SSP_DB.prepare('SELECT id, name, account_type FROM schools WHERE id = ? AND active = 1').bind(session.sid).first();
@@ -1156,7 +1156,7 @@ export default {
     }
 
     // ─── GET /api/auth/me — JSON session check (for client JS) ──────────
-    if (p === '/api/auth/me' && request.method === 'GET') {
+    if (p === '/api/auth/me' && (request.method === 'GET' || request.method === 'HEAD')) {
       const session = await verifySessionToken(getCookie(request, COOKIE_NAME), sessionSecret);
       if (!session) return jsonResponse({ ok: false, signed_in: false });
       const school = await lookupSchoolById(env, session.sid);
