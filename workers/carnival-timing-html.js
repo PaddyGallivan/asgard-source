@@ -5797,10 +5797,18 @@ var worker_default = {
     if (_path === "/sitemap.xml") return new Response(`<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://carnivaltiming.com/</loc><priority>1.0</priority><changefreq>daily</changefreq></url>
-  <url><loc>https://carnivaltiming.com/marketing</loc><priority>0.8</priority><changefreq>monthly</changefreq></url>
-  <url><loc>https://carnivaltiming.com/wd-crosscountry-2026</loc><priority>0.9</priority><changefreq>weekly</changefreq></url>
+  <url><loc>https://carnivaltiming.com/marketing</loc><priority>0.6</priority><changefreq>monthly</changefreq></url>
   <url><loc>https://carnivaltiming.com/wps-athletics-2026</loc><priority>0.9</priority><changefreq>weekly</changefreq></url>
   <url><loc>https://carnivaltiming.com/wps-swimming-2026</loc><priority>0.9</priority><changefreq>weekly</changefreq></url>
+  <url><loc>https://carnivaltiming.com/wps-crosscountry-2026</loc><priority>0.9</priority><changefreq>weekly</changefreq></url>
+  <url><loc>https://carnivaltiming.com/wd-athletics-2026</loc><priority>0.9</priority><changefreq>weekly</changefreq></url>
+  <url><loc>https://carnivaltiming.com/wd-swimming-2026</loc><priority>0.9</priority><changefreq>weekly</changefreq></url>
+  <url><loc>https://carnivaltiming.com/wd-crosscountry-2026</loc><priority>0.9</priority><changefreq>weekly</changefreq></url>
+  <url><loc>https://carnivaltiming.com/wmr-crosscountry-2026</loc><priority>0.9</priority><changefreq>weekly</changefreq></url>
+  <url><loc>https://carnivaltiming.com/wyndham-athletics-2026</loc><priority>0.9</priority><changefreq>weekly</changefreq></url>
+  <url><loc>https://carnivaltiming.com/wyndham-crosscountry-2026</loc><priority>0.9</priority><changefreq>weekly</changefreq></url>
+  <url><loc>https://carnivaltiming.com/hobsonsbay-athletics-2026</loc><priority>0.9</priority><changefreq>weekly</changefreq></url>
+  <url><loc>https://carnivaltiming.com/hobsonsbay-crosscountry-2026</loc><priority>0.9</priority><changefreq>weekly</changefreq></url>
 </urlset>`, { status: 200, headers: { "Content-Type": "application/xml", "Cache-Control": "public, max-age=86400" } });
     if (_path === "/robots.txt") return new Response("User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: https://carnivaltiming.com/sitemap.xml\n\nUser-agent: GPTBot\nDisallow: /\nUser-agent: ClaudeBot\nDisallow: /\nUser-agent: CCBot\nDisallow: /\nUser-agent: anthropic-ai\nDisallow: /\nUser-agent: Google-Extended\nDisallow: /\nUser-agent: Bytespider\nDisallow: /", { status: 200, headers: { "Content-Type": "text/plain", "Cache-Control": "public, max-age=86400" } });
     if (_path === "/marketing") return new Response(HTML, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Permissions-Policy": "camera=(self), microphone=(), geolocation=()" } });
