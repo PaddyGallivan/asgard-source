@@ -444,7 +444,7 @@ async function _innerFetch(request, env, ctx) {
               'Email: ' + raw.email + '\n' +
               'Students: ' + (raw.students || '') + '\n' +
               'IP: ' + ip + '\n\n---\n\n' + raw.message + '\n\n---\n' +
-              'View all submissions: https://schoolsportportal.com.au/admin/contact-submissions?pin=PIN';
+              'View all submissions: https://schoolsportportal.com.au/admin/contact-submissions?pin=7342';
             const recipients = ['pgallivan@outlook.com', 'paddy@luckdragon.io', 'info@schoolsportportal.com.au'];
             for (const to of recipients) {
               try {
@@ -475,7 +475,7 @@ async function _innerFetch(request, env, ctx) {
 
     if (path === '/admin/contact-submissions' && request.method === 'GET') {
       const pin = url.searchParams.get('pin');
-      if (pin !== '2967') return new Response('Forbidden', { status: 403 });
+      if (pin !== '7342') return new Response('Forbidden', { status: 403 });
       try {
         const r = await env.DB.prepare('SELECT id, name, email, school, role, topic, message, status, email_send_status, created_at FROM contact_submissions ORDER BY id DESC LIMIT 100').all();
         const rows = (r.results || []).map(s => '<tr><td>#' + s.id + '</td><td>' + (s.created_at||'') + '</td><td><strong>' + (s.name||'') + '</strong><br><a href="mailto:' + (s.email||'') + '">' + (s.email||'') + '</a></td><td>' + (s.school||'') + '<br><small style="color:#94a3b8">' + (s.role||'') + ' / ' + (s.topic||'') + '</small></td><td style="font-size:13px">' + ((s.message||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')).slice(0,400) + '</td><td><small style="color:#94a3b8">email: ' + (s.email_send_status||'-') + '</small></td></tr>').join('');
