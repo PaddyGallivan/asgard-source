@@ -4,7 +4,7 @@
 // Deploy as worker script name: asgard-tools
 // Required bindings: CF_API_TOKEN (secret, optional — falls back to vault)
 
-const VERSION = '1.4.3';
+const VERSION = '1.5.6';
 const ACCOUNT_ID = 'a6f47c17811ee2f8b6caeb8f38768c20';
 
 const SYSTEM_PROMPT = `You are Asgard, Luck Dragon's infrastructure AI. You have REAL tools — when Paddy asks you to change something, you actually do it. Don't describe what to do; do it.
@@ -107,20 +107,6 @@ const TOOLS = [
       },
       required: ['key']
     }
-  },
-  {
-    name: 'patch_worker',
-    description: 'Find and replace a string in a Cloudflare Worker source code, then redeploy. The find string must match exactly once. Use this to make surgical edits to worker code.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        worker_name: { type: 'string', description: 'CF Worker script name to patch, e.g. "falkor-ui", "asgard", "falkor-tools"' },
-        find: { type: 'string', description: 'Exact string to find in the worker code. Must match exactly once.' },
-        replace: { type: 'string', description: 'String to replace it with. Can be longer or shorter than find.' },
-        main_module: { type: 'string', description: 'Main module filename. Use "asgard.js" for asgard worker, "worker.js" for others. Default: worker.js' }
-      },
-      required: ['worker_name', 'find', 'replace']
-    }
   }
 ];
 
@@ -178,7 +164,7 @@ async function executeTool(toolName, toolInput, env) {
 
         // Classic (non-module) worker: raw JS body
         if (ct.startsWith('application/javascript') && !ct.includes('multipart')) {
-          return { code: text.substring(0, 60000), length: text.length, format: 'classic' };
+          return { code: text.substring(0, 500000), length: text.length, format: 'classic' };
         }
 
         // Module worker: multipart/form-data — extract the JS part by boundary + Content-Disposition
@@ -223,7 +209,7 @@ async function executeTool(toolName, toolInput, env) {
           };
         }
         return {
-          code: pick.body.substring(0, 60000),
+          code: pick.body.substring(0, 500000),
           length: pick.body.length,
           format: 'module',
           part_name: pick.filename
@@ -231,13 +217,55 @@ async function executeTool(toolName, toolInput, env) {
       }
 
       case 'deploy_worker': {
-        const { worker_name, code, main_module = 'worker.js' } = toolInput;
+        const { worker_name, main_module = 'worker.js', format, compatibility_flags, compatibility_date } = toolInput;
+        let code = toolInput.code;
         const cfToken = await getCfToken(env);
 
-        const metadata = JSON.stringify({
-          main_module,
-          keep_bindings: ['secret_text', 'plain_text', 'kv_namespace', 'd1', 'service']
-        });
+        // Auto-detect classic service worker vs module worker if format not provided
+        const isClassic = (format === 'classic') ||
+          (!format && /addEventListener\s*\(\s*['"]fetch['"]/.test(code) && !/export\s+default\s*\{/.test(code));
+
+        // v6.18.5: Auto-bump VERSION constant on every deploy (patch increment)
+        let codeWithBumpedVersion = code;
+        try {
+          const _vRe = /const\s+VERSION\s*=\s*['"](\d+)\.(\d+)\.(\d+)['"]/;
+          const _vMatch = code.match(_vRe);
+          if (_vMatch) {
+            const _major = parseInt(_vMatch[1], 10);
+            const _minor = parseInt(_vMatch[2], 10);
+            const _patch = parseInt(_vMatch[3], 10);
+            const _newV = _major + '.' + _minor + '.' + (_patch + 1);
+            codeWithBumpedVersion = code.replace(_vRe, "const VERSION = '" + _newV + "'");
+            console.log('[deploy] auto-bumped ' + worker_name + ' VERSION: ' + _vMatch[1]+'.'+_vMatch[2]+'.'+_vMatch[3] + ' -> ' + _newV);
+          }
+        } catch (e) { /* skip if regex fails */ }
+        code = codeWithBumpedVersion;
+
+        // Preserve existing compat flags + date if caller did not override
+        let _existingFlags = null, _existingDate = null;
+        try {
+          const _settingsRes = await fetch(
+            `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/workers/scripts/${worker_name}/settings`,
+            { headers: { 'Authorization': `Bearer ${cfToken}` } }
+          );
+          if (_settingsRes.ok) {
+            const _s = await _settingsRes.json();
+            _existingFlags = _s?.result?.compatibility_flags || null;
+            _existingDate = _s?.result?.compatibility_date || null;
+          }
+        } catch {}
+        const _finalFlags = Array.isArray(compatibility_flags) ? compatibility_flags : _existingFlags;
+        const _finalDate = compatibility_date || _existingDate || '2024-01-01';
+        const _finalFlagsList = (Array.isArray(_finalFlags) && _finalFlags.length > 0) ? _finalFlags : ['nodejs_compat'];
+        const _baseKeep = ['secret_text', 'plain_text', 'kv_namespace', 'd1', 'service', 'durable_object_namespace', 'r2_bucket', 'vectorize', 'ai', 'queue', 'analytics_engine', 'hyperdrive', 'browser', 'dispatch_namespace', 'version_metadata', 'send_email'];
+        const _metaObj = isClassic
+          ? { body_part: main_module, keep_bindings: _baseKeep }
+          : { main_module, keep_bindings: _baseKeep };
+        if (_finalFlagsList && _finalFlagsList.length) _metaObj.compatibility_flags = _finalFlagsList;
+        if (_finalDate) _metaObj.compatibility_date = _finalDate;
+        const metadata = JSON.stringify(_metaObj);
+
+        const contentType = isClassic ? 'application/javascript' : 'application/javascript+module';
 
         const CRLF = String.fromCharCode(13, 10);
         const boundary = 'AsgardToolsBoundary' + Date.now();
@@ -247,7 +275,7 @@ async function executeTool(toolName, toolInput, env) {
           metadata + CRLF +
           '--' + boundary + CRLF +
           'Content-Disposition: form-data; name="' + main_module + '"; filename="' + main_module + '"' + CRLF +
-          'Content-Type: application/javascript+module' + CRLF + CRLF +
+          'Content-Type: ' + contentType + CRLF + CRLF +
           code + CRLF +
           '--' + boundary + '--';
 
@@ -263,7 +291,24 @@ async function executeTool(toolName, toolInput, env) {
           }
         );
         const j = await r.json();
-        return { ok: j.success, errors: j.errors, worker: j.result?.id };
+        // Auto-enable workers.dev subdomain (safety: deploy could re-create worker with subdomain off)
+        try {
+          const _subRes = await fetch(
+            `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/workers/scripts/${worker_name}/subdomain`,
+            { headers: { 'Authorization': `Bearer ${cfToken}` } }
+          );
+          if (_subRes.ok) {
+            const _sub = await _subRes.json();
+            if (_sub?.result?.enabled === false) {
+              await fetch(
+                `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/workers/scripts/${worker_name}/subdomain`,
+                { method: 'POST', headers: { 'Authorization': `Bearer ${cfToken}`, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ enabled: true, previews_enabled: true }) }
+              );
+            }
+          }
+        } catch {}
+        return { ok: j.success, errors: j.errors, worker: j.result?.id, format: isClassic ? 'classic' : 'module' };
       }
 
       case 'get_secret': {
@@ -277,36 +322,6 @@ async function executeTool(toolName, toolInput, env) {
         if (!r.ok) return { error: `Vault ${r.status} for ${key}; not in env either` };
         const val = await r.text();
         return { value: val, source: 'vault' };
-      }
-
-      case 'patch_worker': {
-        const { worker_name, find, replace, main_module = 'worker.js' } = toolInput;
-        if (!worker_name || typeof find !== 'string' || typeof replace !== 'string') {
-          return { error: 'worker_name, find, replace (all strings) required' };
-        }
-        // Get current worker code
-        const cur = await executeTool('get_worker_code', { worker_name }, env);
-        if (cur.error) return { error: `get_worker_code failed: ${cur.error}` };
-        const code = cur.code;
-        // Count occurrences of find string
-        const occurrences = code.split(find).length - 1;
-        if (occurrences === 0) {
-          return { error: `find string not found in worker code`, find_preview: find.substring(0, 100) };
-        }
-        if (occurrences > 1) {
-          return { error: `find string matches ${occurrences} times — must be unique. Refine your search.`, occurrences };
-        }
-        // Patch and deploy
-        const patched = code.replace(find, replace);
-        const deployResult = await executeTool('deploy_worker', { worker_name, code: patched, main_module }, env);
-        return {
-          patched: deployResult.ok === true,
-          worker: worker_name,
-          occurrences,
-          before_len: code.length,
-          after_len: patched.length,
-          ...deployResult
-        };
       }
 
       default:
@@ -480,6 +495,88 @@ export default {
       } catch(e) { return Response.json({error:e.message}, { status:500, headers:cors }); }
     }
 
+    // /admin/get-worker — POST {worker_name, main_module?} → live worker JS source
+    if (pathname === '/admin/get-worker' && request.method === 'POST') {
+      const pin = request.headers.get('X-Pin');
+      const _validPins_get = [env.PADDY_PIN || '2967', env.AGENT_PIN, env.VAULT_PIN || '535554'].filter(Boolean);
+      if (!_validPins_get.includes(pin)) return Response.json({error:'Forbidden'}, {status:403, headers:cors});
+      let body; try { body = await request.json(); } catch { return Response.json({error:'Invalid JSON'}, {status:400, headers:cors}); }
+      const { worker_name, main_module } = body;
+      if (!worker_name) return Response.json({error:'worker_name required'}, {status:400, headers:cors});
+      const cfToken = await getCfToken(env);
+      const r = await fetch(
+        'https://api.cloudflare.com/client/v4/accounts/' + ACCOUNT_ID + '/workers/scripts/' + worker_name,
+        { headers: { 'Authorization': 'Bearer ' + cfToken } }
+      );
+      if (!r.ok) return Response.json({error: 'CF API ' + r.status, detail:(await r.text()).substring(0,500)}, {status:500, headers:cors});
+      const ct = r.headers.get('Content-Type') || '';
+      const text = await r.text();
+      if (ct.startsWith('application/javascript') && !ct.includes('multipart')) {
+        return new Response(text, { status:200, headers: {...cors, 'Content-Type':'application/javascript; charset=utf-8', 'X-Format':'classic', 'X-Length': String(text.length)} });
+      }
+      const bm = ct.match(/boundary=([^;]+)/);
+      if (!bm) return Response.json({error:'No boundary', ct}, {status:500, headers:cors});
+      const boundary = bm[1].trim().replace(/^"|"$/g, '');
+      const parts = text.split('--' + boundary).slice(1, -1);
+      const cands = [];
+      for (const raw of parts) {
+        let p = raw.replace(/^\r?\n/, '');
+        let si = p.indexOf('\r\n\r\n'); let sl = 4;
+        if (si === -1) { si = p.indexOf('\n\n'); sl = 2; }
+        if (si === -1) continue;
+        const hdrs = p.substring(0, si);
+        let bp = p.substring(si + sl).replace(/\r?\n$/, '');
+        const fn = hdrs.match(/filename="([^"]+)"/);
+        const nm = hdrs.match(/name="([^"]+)"/);
+        cands.push({ filename: fn ? fn[1] : (nm ? nm[1] : ''), body: bp });
+      }
+      const wm = main_module || 'worker.js';
+      let pick = cands.find(c => c.filename === wm) || cands.find(c => /\.m?js$/i.test(c.filename)) || cands.find(c => c.filename && c.filename !== 'metadata');
+      if (!pick) return Response.json({error:'No JS part', filenames: cands.map(c=>c.filename)}, {status:500, headers:cors});
+      return new Response(pick.body, { status:200, headers: {...cors, 'Content-Type':'application/javascript; charset=utf-8', 'X-Format':'module', 'X-Part-Name':pick.filename, 'X-Length':String(pick.body.length)} });
+    }
+
+    // /admin/get-worker — POST {worker_name, main_module?} → live worker JS source
+    if (pathname === '/admin/get-worker' && request.method === 'POST') {
+      const pin = request.headers.get('X-Pin');
+      const _validPins_get = [env.PADDY_PIN || '2967', env.AGENT_PIN, env.VAULT_PIN || '535554'].filter(Boolean);
+      if (!_validPins_get.includes(pin)) return Response.json({error:'Forbidden'}, {status:403, headers:cors});
+      let body; try { body = await request.json(); } catch { return Response.json({error:'Invalid JSON'}, {status:400, headers:cors}); }
+      const { worker_name, main_module } = body;
+      if (!worker_name) return Response.json({error:'worker_name required'}, {status:400, headers:cors});
+      const cfToken = await getCfToken(env);
+      const r = await fetch(
+        'https://api.cloudflare.com/client/v4/accounts/' + ACCOUNT_ID + '/workers/scripts/' + worker_name,
+        { headers: { 'Authorization': 'Bearer ' + cfToken } }
+      );
+      if (!r.ok) return Response.json({error: 'CF API ' + r.status, detail:(await r.text()).substring(0,500)}, {status:500, headers:cors});
+      const ct = r.headers.get('Content-Type') || '';
+      const text = await r.text();
+      if (ct.startsWith('application/javascript') && !ct.includes('multipart')) {
+        return new Response(text, { status:200, headers: {...cors, 'Content-Type':'application/javascript; charset=utf-8', 'X-Format':'classic', 'X-Length': String(text.length)} });
+      }
+      const bm = ct.match(/boundary=([^;]+)/);
+      if (!bm) return Response.json({error:'No boundary', ct}, {status:500, headers:cors});
+      const boundary = bm[1].trim().replace(/^"|"$/g, '');
+      const parts = text.split('--' + boundary).slice(1, -1);
+      const cands = [];
+      for (const raw of parts) {
+        let p = raw.replace(/^\r?\n/, '');
+        let si = p.indexOf('\r\n\r\n'); let sl = 4;
+        if (si === -1) { si = p.indexOf('\n\n'); sl = 2; }
+        if (si === -1) continue;
+        const hdrs = p.substring(0, si);
+        let bp = p.substring(si + sl).replace(/\r?\n$/, '');
+        const fn = hdrs.match(/filename="([^"]+)"/);
+        const nm = hdrs.match(/name="([^"]+)"/);
+        cands.push({ filename: fn ? fn[1] : (nm ? nm[1] : ''), body: bp });
+      }
+      const wm = main_module || 'worker.js';
+      let pick = cands.find(c => c.filename === wm) || cands.find(c => /\.m?js$/i.test(c.filename)) || cands.find(c => c.filename && c.filename !== 'metadata');
+      if (!pick) return Response.json({error:'No JS part', filenames: cands.map(c=>c.filename)}, {status:500, headers:cors});
+      return new Response(pick.body, { status:200, headers: {...cors, 'Content-Type':'application/javascript; charset=utf-8', 'X-Format':'module', 'X-Part-Name':pick.filename, 'X-Length':String(pick.body.length)} });
+    }
+
     // /admin/patch — find/replace on a worker source, then redeploy. POST {worker_name, find, replace, main_module}
     if (pathname === '/admin/patch' && request.method === 'POST') {
       const pin = request.headers.get('X-Pin');
@@ -499,9 +596,300 @@ export default {
       return Response.json({ deployed: result.ok === true, occurrences, before_len: code.length, after_len: patched.length, ...result }, { headers: cors });
     }
 
+    // /admin/binding-add — add a binding to an existing worker without redeploying code
+    // POST { worker_name, binding: {type:'d1', name:'DB', id:'<uuid>'} OR {type:'kv_namespace', name:'KV', namespace_id:'<id>'} }
+    if (pathname === '/admin/binding-add' && request.method === 'POST') {
+      const pin = request.headers.get('X-Pin');
+      const _validPins_ba = [env.PADDY_PIN || '2967', env.AGENT_PIN].filter(Boolean);
+      if (!_validPins_ba.includes(pin)) {
+        return Response.json({ error: 'Forbidden' }, { status: 403, headers: cors });
+      }
+      let p;
+      try { p = await request.json(); } catch { return Response.json({ error: 'Invalid JSON' }, { status: 400, headers: cors }); }
+      const { worker_name, binding } = p;
+      if (!worker_name || !binding || !binding.type || !binding.name) {
+        return Response.json({ error: 'worker_name and binding {type,name,...} required' }, { status: 400, headers: cors });
+      }
+      const cfTokenBA = await getCfToken(env);
+      // 1. Fetch current bindings
+      const getRes = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/workers/scripts/${worker_name}/settings`,
+        { headers: { 'Authorization': `Bearer ${cfTokenBA}` } }
+      );
+      const getJ = await getRes.json();
+      if (!getJ.success) {
+        return Response.json({ error: 'Failed to fetch current settings', detail: getJ.errors }, { status: 500, headers: cors });
+      }
+      const current = getJ.result || {};
+      const existingBindings = current.bindings || [];
+      // Filter out any binding with the same name (to replace)
+      const newBindings = existingBindings.filter(b => b.name !== binding.name);
+      newBindings.push(binding);
+      // 2. PATCH with new bindings
+      const settings = {
+        bindings: newBindings,
+        compatibility_date: current.compatibility_date,
+        compatibility_flags: current.compatibility_flags,
+        usage_model: current.usage_model
+      };
+      const CRLF2 = String.fromCharCode(13, 10);
+      const boundary2 = 'AsgardBindingBoundary' + Date.now();
+      const bodyStr2 = '--' + boundary2 + CRLF2 +
+        'Content-Disposition: form-data; name="settings"' + CRLF2 +
+        'Content-Type: application/json' + CRLF2 + CRLF2 +
+        JSON.stringify(settings) + CRLF2 +
+        '--' + boundary2 + '--';
+      const patchRes = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/workers/scripts/${worker_name}/settings`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${cfTokenBA}`,
+            'Content-Type': `multipart/form-data; boundary=${boundary2}`
+          },
+          body: bodyStr2
+        }
+      );
+      const patchJ = await patchRes.json();
+      return Response.json({
+        ok: patchJ.success === true,
+        worker: worker_name,
+        binding_added: binding.name,
+        total_bindings: newBindings.length,
+        previous_count: existingBindings.length,
+        errors: patchJ.errors
+      }, { headers: cors });
+    }
+
+    // /admin/kv-delete — delete a key from any KV namespace. POST {namespace_id, key}
+    if (pathname === '/admin/kv-delete' && request.method === 'POST') {
+      const pin_kd = request.headers.get('X-Pin');
+      const _vp_kd = [env.PADDY_PIN || '2967', env.AGENT_PIN].filter(Boolean);
+      if (!_vp_kd.includes(pin_kd)) return Response.json({ error: 'Forbidden' }, { status: 403, headers: cors });
+      let body_kd;
+      try { body_kd = await request.json(); } catch { return Response.json({ error: 'Invalid JSON' }, { status: 400, headers: cors }); }
+      const { namespace_id, key } = body_kd;
+      if (!namespace_id || !key) return Response.json({ error: 'namespace_id and key required' }, { status: 400, headers: cors });
+      const cfTok_kd = await getCfToken(env);
+      const r_kd = await fetch(`https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/storage/kv/namespaces/${namespace_id}/values/${encodeURIComponent(key)}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${cfTok_kd}` }
+      });
+      const j_kd = await r_kd.json();
+      return Response.json(j_kd, { headers: cors });
+    }
+
+    // /admin/secret-set — set a Worker secret on any script. POST {worker_name, name, text}
+    if (pathname === '/admin/secret-set' && request.method === 'POST') {
+      const pin_ss = request.headers.get('X-Pin');
+      const _validPins_ss = [env.PADDY_PIN || '2967', env.AGENT_PIN].filter(Boolean);
+      if (!_validPins_ss.includes(pin_ss)) return Response.json({ error: 'Forbidden' }, { status: 403, headers: cors });
+      let payload;
+      try { payload = await request.json(); } catch { return Response.json({ error: 'Invalid JSON' }, { status: 400, headers: cors }); }
+      const { worker_name, name, text } = payload;
+      if (!worker_name || !name || text === undefined) return Response.json({ error: 'worker_name, name, text required' }, { status: 400, headers: cors });
+      const cfTokenSS = await getCfToken(env);
+      const r_ss = await fetch(`https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/workers/scripts/${worker_name}/secrets`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${cfTokenSS}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, text, type: 'secret_text' })
+      });
+      const j_ss = await r_ss.json();
+      return Response.json(j_ss, { headers: cors });
+    }
+
+    // /admin/sql — run SQL on any D1 database (by id)
+    if (pathname === '/admin/sql' && request.method === 'POST') {
+      const pin = request.headers.get('X-Pin');
+      const _validPins_sql = [env.PADDY_PIN || '2967', env.AGENT_PIN].filter(Boolean);
+      if (!_validPins_sql.includes(pin)) {
+        return Response.json({ error: 'Forbidden' }, { status: 403, headers: cors });
+      }
+      let payload;
+      try { payload = await request.json(); } catch { return Response.json({ error: 'Invalid JSON' }, { status: 400, headers: cors }); }
+      const { d1_id, sql, params = [] } = payload;
+      if (!d1_id || !sql) return Response.json({ error: 'd1_id and sql required' }, { status: 400, headers: cors });
+      const cfTokenSql = await getCfToken(env);
+      const r = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/d1/database/${d1_id}/query`,
+        {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${cfTokenSql}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sql, params })
+        }
+      );
+      const j = await r.json();
+      return Response.json(j, { headers: cors });
+    }
+
+    // /admin/d1-list — list all D1 databases in the account
+    if (pathname === '/admin/d1-list' && request.method === 'GET') {
+      const pin = new URL(request.url).searchParams.get('pin') || request.headers.get('X-Pin');
+      const _validPins_d1 = [env.PADDY_PIN || '2967', env.AGENT_PIN].filter(Boolean);
+      if (!_validPins_d1.includes(pin)) {
+        return Response.json({ error: 'Forbidden' }, { status: 403, headers: cors });
+      }
+      const cfTokenL = await getCfToken(env);
+      const r = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/d1/database`,
+        { headers: { 'Authorization': `Bearer ${cfTokenL}` } }
+      );
+      const j = await r.json();
+      return Response.json(j, { headers: cors });
+    }
+
+    // /admin/get-worker — read current source of any worker (uses existing get_worker_code tool)
+    if (pathname === '/admin/get-worker' && request.method === 'GET') {
+      const pin = new URL(request.url).searchParams.get('pin') || request.headers.get('X-Pin');
+      const _validPins_gw = [env.PADDY_PIN || '2967', env.AGENT_PIN].filter(Boolean);
+      if (!_validPins_gw.includes(pin)) {
+        return Response.json({ error: 'Forbidden' }, { status: 403, headers: cors });
+      }
+      const wn = new URL(request.url).searchParams.get('name');
+      if (!wn) return Response.json({ error: 'name required' }, { status: 400, headers: cors });
+      const result = await executeTool('get_worker_code', { worker_name: wn }, env);
+      return Response.json(result, { headers: cors });
+    }
+
+    // /admin/patch-worker — find-and-replace inside a worker source, then redeploy
+    // POST {worker_name, find, replace, main_module?}  X-Pin
+    if (pathname === '/admin/patch-worker' && request.method === 'POST') {
+      const pin = request.headers.get('X-Pin');
+      const _vp = [env.PADDY_PIN || '2967', env.AGENT_PIN].filter(Boolean);
+      if (!_vp.includes(pin)) return Response.json({ error: 'Forbidden' }, { status: 403, headers: cors });
+      let p; try { p = await request.json(); } catch { return Response.json({ error: 'Invalid JSON' }, { status: 400, headers: cors }); }
+      const { worker_name, find, replace, main_module = 'worker.js' } = p;
+      if (!worker_name || typeof find !== 'string' || typeof replace !== 'string') {
+        return Response.json({ error: 'worker_name, find, replace (strings) required' }, { status: 400, headers: cors });
+      }
+      const cur = await executeTool('get_worker_code', { worker_name }, env);
+      if (cur.error) return Response.json({ error: 'get_worker_code: ' + cur.error }, { status: 500, headers: cors });
+      const code = cur.code;
+      const occ = code.split(find).length - 1;
+      if (occ === 0) return Response.json({ error: 'find string not in source', find_preview: find.substring(0,100) }, { status: 404, headers: cors });
+      if (occ > 1) return Response.json({ error: 'find matches ' + occ + ' times — must be unique' }, { status: 409, headers: cors });
+      const patched = code.replace(find, replace);
+      const result = await executeTool('deploy_worker', { worker_name, code: patched, main_module }, env);
+      return Response.json({ ok: result.ok === true, occurrences: occ, deploy: result }, { headers: cors });
+    }
+
     // /admin/deploy — direct deploy endpoint for large payloads (no LLM in the loop)
     // POST { worker_name, code_b64, main_module? }  X-Pin: <pin>
-    if (pathname === '/admin/deploy' && request.method === 'POST') {
+        // /admin/env-keys — list env binding KEYS (not values) for inventory
+    if (pathname === '/admin/env-keys' && request.method === 'GET') {
+      const pin = request.headers.get('X-Pin') || new URL(request.url).searchParams.get('pin');
+      const _validPins_keys = [env.PADDY_PIN || '2967', env.AGENT_PIN, env.VAULT_PIN || '535554'].filter(Boolean);
+      if (!_validPins_keys.includes(pin)) {
+        return Response.json({ error: 'Forbidden' }, { status: 403, headers: cors });
+      }
+      const keys = [];
+      for (const k of Object.keys(env || {})) {
+        const v = env[k];
+        if (typeof v === 'string') keys.push(k);
+      }
+      return Response.json({ keys: keys.sort() }, { headers: cors });
+    }
+
+    // /admin/gh-write — write a file to GitHub via API
+    if (pathname === '/admin/gh-write' && request.method === 'POST') {
+      const pin = request.headers.get('X-Pin');
+      const _validPins_gh = [env.PADDY_PIN || '2967', env.AGENT_PIN, env.VAULT_PIN || '535554'].filter(Boolean);
+      if (!_validPins_gh.includes(pin)) {
+        return Response.json({ error: 'Forbidden' }, { status: 403, headers: cors });
+      }
+      let payload;
+      try { payload = await request.json(); } catch { return Response.json({ error: 'Invalid JSON' }, { status: 400, headers: cors }); }
+      const { repo, path: filePath, content_b64, message, branch = 'main' } = payload;
+      if (!repo || !filePath || !content_b64) return Response.json({ error: 'repo, path, content_b64 required' }, { status: 400, headers: cors });
+      const token = env.GITHUB_TOKEN;
+      if (!token) return Response.json({ error: 'GITHUB_TOKEN missing' }, { status: 500, headers: cors });
+      // Get current SHA
+      let sha = null;
+      const getR = await fetch(`https://api.github.com/repos/${repo}/contents/${filePath}?ref=${branch}`, {
+        headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json', 'User-Agent': 'asgard-tools' }
+      });
+      if (getR.ok) {
+        const meta = await getR.json();
+        sha = meta.sha;
+      }
+      // PUT new content
+      const putR = await fetch(`https://api.github.com/repos/${repo}/contents/${filePath}`, {
+        method: 'PUT',
+        headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json', 'User-Agent': 'asgard-tools' },
+        body: JSON.stringify({ message: message || ('Update ' + filePath), content: content_b64, sha, branch })
+      });
+      const result = await putR.json();
+      return Response.json({ status: putR.status, body: result }, { headers: cors });
+    }
+
+    // /admin/cf-api — generic Cloudflare API proxy (uses stored CF_API_TOKEN, locked to PADDY/AGENT PIN)
+    // POST { path: "/zones/{id}/settings/security_header", method: "PATCH", body: {...} }
+    if (pathname === '/admin/pages-deploy' && request.method === 'POST') {
+      const pin = request.headers.get('X-Pin');
+      const _validPinsPD = [env.PADDY_PIN || '2967', env.AGENT_PIN, env.VAULT_PIN || '535554'].filter(Boolean);
+      if (!_validPinsPD.includes(pin)) {
+        return Response.json({ error: 'Forbidden' }, { status: 403, headers: cors });
+      }
+      let payload;
+      try { payload = await request.json(); } catch { return Response.json({ error: 'Invalid JSON' }, { status: 400, headers: cors }); }
+      const { account_id, project, manifest, branch } = payload;
+      if (!account_id || !project || !manifest) return Response.json({ error: 'account_id, project, manifest required' }, { status: 400, headers: cors });
+      const cfToken = env.CF_FULLOPS_TOKEN || env.CF_API_TOKEN;
+      if (!cfToken) return Response.json({ error: 'no CF token' }, { status: 500, headers: cors });
+      // Build multipart manually
+      const boundary = '----asgardtools' + Math.random().toString(36).slice(2);
+      const manifestStr = typeof manifest === 'string' ? manifest : JSON.stringify(manifest);
+      const branchStr = branch || 'main';
+      const parts = [];
+      parts.push('--' + boundary + '\r\n');
+      parts.push('Content-Disposition: form-data; name="manifest"\r\n\r\n');
+      parts.push(manifestStr + '\r\n');
+      parts.push('--' + boundary + '\r\n');
+      parts.push('Content-Disposition: form-data; name="branch"\r\n\r\n');
+      parts.push(branchStr + '\r\n');
+      parts.push('--' + boundary + '--\r\n');
+      const body = parts.join('');
+      const url = 'https://api.cloudflare.com/client/v4/accounts/' + account_id + '/pages/projects/' + project + '/deployments';
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + cfToken,
+          'Content-Type': 'multipart/form-data; boundary=' + boundary,
+        },
+        body,
+      });
+      const text = await resp.text();
+      let parsed; try { parsed = JSON.parse(text); } catch { parsed = { raw: text }; }
+      return Response.json({ status: resp.status, body: parsed }, { headers: cors });
+    }
+
+    if (pathname === '/admin/cf-api' && request.method === 'POST') {
+      const pin = request.headers.get('X-Pin');
+      const _validPins_cf = [env.PADDY_PIN || '2967', env.AGENT_PIN, env.VAULT_PIN || '535554'].filter(Boolean);
+      if (!_validPins_cf.includes(pin)) {
+        return Response.json({ error: 'Forbidden' }, { status: 403, headers: cors });
+      }
+      let payload;
+      try { payload = await request.json(); } catch { return Response.json({ error: 'Invalid JSON' }, { status: 400, headers: cors }); }
+      const { path: cfPath, method: cfMethod = 'GET', body: cfBody } = payload;
+      if (!cfPath || !cfPath.startsWith('/')) return Response.json({ error: 'path required, starting with /' }, { status: 400, headers: cors });
+      // Prefer CF_FULLOPS_TOKEN (broader scope: Zone:Edit) if available, else CF_API_TOKEN
+      const cfToken = env.CF_FULLOPS_TOKEN || await getCfToken(env);
+      const cfRes = await fetch('https://api.cloudflare.com/client/v4' + cfPath, {
+        method: cfMethod,
+        headers: {
+          'Authorization': 'Bearer ' + cfToken,
+          'Content-Type': 'application/json'
+        },
+        body: cfBody ? JSON.stringify(cfBody) : undefined
+      });
+      const text = await cfRes.text();
+      let parsed;
+      try { parsed = JSON.parse(text); } catch { parsed = { raw: text }; }
+      return Response.json({ status: cfRes.status, body: parsed }, { headers: cors });
+    }
+
+if (pathname === '/admin/deploy' && request.method === 'POST') {
       const pin = request.headers.get('X-Pin');
       const _validPins_deploy = [env.PADDY_PIN || '2967', env.AGENT_PIN].filter(Boolean);
       if (!_validPins_deploy.includes(pin)) {
@@ -510,7 +898,7 @@ export default {
       let payload;
       try { payload = await request.json(); }
       catch { return Response.json({ error: 'Invalid JSON' }, { status: 400, headers: cors }); }
-      const { worker_name, code_b64, main_module = 'worker.js' } = payload;
+      const { worker_name, code_b64, main_module = 'worker.js', compatibility_date, compatibility_flags } = payload;
       if (!worker_name || !code_b64) {
         return Response.json({ error: 'worker_name and code_b64 required' }, { status: 400, headers: cors });
       }
@@ -525,7 +913,7 @@ export default {
         return Response.json({ error: 'Invalid base64', detail: e.message }, { status: 400, headers: cors });
       }
       try {
-        const result = await executeTool('deploy_worker', { worker_name, code, main_module }, env);
+        const result = await executeTool('deploy_worker', { worker_name, code, main_module, compatibility_date, compatibility_flags }, env);
         return Response.json({ deployed: result.ok === true, ...result }, { headers: cors });
       } catch (e) {
         return Response.json({ error: 'Deploy failed', detail: e.message }, { status: 500, headers: cors });
@@ -540,4 +928,42 @@ export default {
       const pin = qpin || request.headers.get('X-Pin');
       const validPins = [env.VAULT_PIN || '535554', env.AGENT_PIN].filter(Boolean);
       if (!validPins.includes(pin)) {
-        return Response.json({ error: 'Forbidden' }, { status: 403, headers: cors 
+        return Response.json({ error: 'Forbidden' }, { status: 403, headers: cors });
+      }
+      try {
+        const AGENT_PIN = env.AGENT_PIN;      // all /brief sub-calls use AGENT_PIN
+        const [agentRes, wfRes, toolsRes] = await Promise.allSettled([
+          fetch('https://falkor-agent.luckdragon.io/health', { headers: { 'X-Pin': AGENT_PIN } }).then(r => r.json()),
+          fetch('https://falkor-workflows.luckdragon.io/health', { headers: { 'X-Pin': AGENT_PIN } }).then(r => r.json()),
+          fetch('https://falkor-brain.luckdragon.io/health', { headers: { 'X-Pin': AGENT_PIN } }).then(r => r.json())
+        ]);
+        const agentHealth = agentRes.status === 'fulfilled' ? agentRes.value : { error: 'unreachable' };
+        const wfHealth = wfRes.status === 'fulfilled' ? wfRes.value : { error: 'unreachable' };
+        const brainHealth = toolsRes.status === 'fulfilled' ? toolsRes.value : { error: 'unreachable' };
+
+        // Route through asgard-ai (holds ANTHROPIC_API_KEY binding + CF AI Gateway)
+        const briefPrompt = 'Give a concise Falkor status brief (4-6 bullets). Flag anything wrong. Today: ' +
+          new Date().toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) +
+          '\n\nAgent: ' + JSON.stringify(agentHealth) +
+          '\nWorkflows: ' + JSON.stringify(wfHealth) +
+          '\nBrain: ' + JSON.stringify(brainHealth);
+        const llmRes = await fetch('https://asgard-ai.luckdragon.io/chat/smart', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Pin': AGENT_PIN },
+          body: JSON.stringify({ model: 'haiku', message: briefPrompt, use_tools: false })
+        });
+        const llmData = await llmRes.json();
+        const brief = llmData.reply || llmData.response || llmData.text || llmData.content || llmData.message || 'LLM unavailable.';
+        return Response.json({
+          brief,
+          raw: { agent: agentHealth, workflows: wfHealth, brain: brainHealth },
+          generated_at: new Date().toISOString()
+        }, { headers: cors });
+      } catch (e) {
+        return Response.json({ error: 'Brief failed', detail: e.message }, { status: 500, headers: cors });
+      }
+    }
+
+    return new Response('Not found', { status: 404, headers: cors });
+  }
+};
