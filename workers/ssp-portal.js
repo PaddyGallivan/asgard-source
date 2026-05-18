@@ -440,9 +440,11 @@ async function _innerFetch(request, env, ctx) {
         status: 503, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Retry-After': '3600' }
       });
     }
-    // /setup GET — token-validated password setter UI
+    // /setup GET — redirect to /reset-password (which uses ssp-auth /api/auth/reset for PBKDF2 + token validation)
     if (path === '/setup' || path === '/setup.html') {
-      return new Response(SETUP_HTML_SSP, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow', 'X-Source': 'embedded-setup' } });
+      const token = url.searchParams.get('token');
+      const target = token ? '/reset-password?token=' + encodeURIComponent(token) + '&first=1' : '/forgot-password?msg=' + encodeURIComponent('Please ask your administrator to send you a fresh setup link.');
+      return new Response(null, { status: 302, headers: { 'Location': new URL(target, url.origin).toString() } });
     }
 
     const targetUrl = "https://2233d7af.schoolsportportal.pages.dev" + path + url.search;
