@@ -573,6 +573,28 @@ export default {
       } catch (e) { return json({ ok: false, error: e.message }, 500, corsHeaders); }
     }
 
+    // /api/data/school/{slug}/history — past sport_history rows matching school name
+    let mSchHist = p.match(/^\/api\/data\/school\/([a-z0-9-]+)\/history$/);
+    if (mSchHist && (request.method === 'GET' || request.method === 'HEAD')) {
+      try {
+        const SCHOOL_ALIASES = {'wps':'williamstownprimary','williamstown-primary':'williamstownprimary','williamstown-ps':'williamstownprimary'};
+        const schoolId = SCHOOL_ALIASES[mSchHist[1]] || mSchHist[1];
+        // Look up school name to match against winner/runner_up strings
+        const sch = await env.SSP_DB.prepare('SELECT name FROM schools WHERE id = ?').bind(schoolId).first();
+        if (!sch) return json({ ok: false, error: 'School not found' }, 404, corsHeaders);
+        const namePat = '%' + sch.name.replace(' School', '').trim() + '%';
+        const year = url.searchParams.get('year');
+        const sport = url.searchParams.get('sport');
+        let q = 'SELECT district_id, sport, sport_label, year, winner, runner_up FROM sport_history WHERE (winner LIKE ? OR runner_up LIKE ?)';
+        const args = [namePat, namePat];
+        if (year) { q += ' AND year = ?'; args.push(parseInt(year)); }
+        if (sport) { q += ' AND sport = ?'; args.push(sport); }
+        q += ' ORDER BY year DESC, sport';
+        const r = await env.SSP_DB.prepare(q).bind(...args).all();
+        return json({ ok: true, school_id: schoolId, school_name: sch.name, total: r.results?.length || 0, history: r.results || [] }, 200, corsHeaders);
+      } catch (e) { return json({ ok: false, error: e.message }, 500, corsHeaders); }
+    }
+
     // /api/data/division/{id}/records — event records for a division
     let mDivRec = p.match(/^\/api\/data\/division\/([a-z0-9-]+)\/records$/);
     if (mDivRec && (request.method === 'GET' || request.method === 'HEAD')) {
