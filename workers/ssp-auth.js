@@ -179,14 +179,32 @@ function accountPage(school, ownedSchools) {
   const owned = ownedSchools || [school];
   const fmtType = { school: 'School', district: 'District', division: 'Division', region: 'Region' };
   const linkFor = (s) => {
+    // Canonical hierarchical URLs per account_type + school id
     const idMap = {
+      // Schools
       'williamstownprimary': '/school/primary/williamstown',
+      'williamstown-primary': '/school/primary/williamstown',
+      // Districts
       'williamstown-district': '/district/primary/williamstown',
       'williamstowndistrict': '/district/primary/williamstown',
-      'hobsonsbay': '/division/primary/hobsonsbay',
-      'wyndham': '/division/primary/hobsonsbay'
+      // Divisions
+      'hobsonsbay': '/division/primary/hobsons-bay',
+      'hobsonsbay-division': '/division/primary/hobsons-bay',
+      'hobsons-bay': '/division/primary/hobsons-bay',
+      'wyndham': '/division/primary/wyndham',
+      'wyndham-division': '/division/primary/wyndham',
+      // Regions
+      'wmr': '/region/wmr',
+      'westernmetroregion': '/region/wmr',
     };
-    return idMap[s.id] || ('/' + s.id);
+    if (idMap[s.id]) return idMap[s.id];
+    // Fallback: build canonical URL from account_type + id
+    const t = (s.account_type || '').toLowerCase();
+    if (t === 'school') return '/school/primary/' + s.id;
+    if (t === 'district') return '/district/primary/' + s.id.replace(/-district$/, '');
+    if (t === 'division') return '/division/primary/' + s.id.replace(/-division$/, '');
+    if (t === 'region') return '/region/' + s.id;
+    return '/' + s.id;
   };
   const card = (s) => {
     const url = linkFor(s);
