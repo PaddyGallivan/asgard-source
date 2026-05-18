@@ -400,47 +400,88 @@ async function _innerFetch(request, env, ctx) {
     if (path === '/contact' || path === '/contact.html') {
       return new Response(CONTACT_HTML_SSP, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=600', 'X-Source': 'embedded-contact' } });
     }
-    // /contact POST — translates {topic, name, role, school, email, message, website} to ssp-contact's {name, email, subject, message}
+    // /contact POST — D1 first (durable), Resend best-effort
     if (path === '/api/contact' && request.method === 'POST') {
       try {
         const raw = await request.json();
-        // Honeypot
         if (raw.website && raw.website.length > 0) {
           return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
         }
         if (!raw.email || !raw.message || !raw.name) {
           return new Response(JSON.stringify({ ok: false, error: 'Name, email and message are required.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
         }
-        const TOPIC_LABELS = {
-          'general': 'General enquiry', 'school-subscription': 'School subscription',
-          'early-access': 'Early access 2026', 'procurement': 'Procurement / quote / PO',
-          'district': 'District / division setup', 'support': 'Support / bug report'
-        };
-        const topicLabel = TOPIC_LABELS[raw.topic] || raw.topic || 'General enquiry';
-        const subject = '[SSP Contact] ' + topicLabel + (raw.school ? ' — ' + raw.school : '');
-        const message = 'Topic: ' + topicLabel + '\n' +
-                        'Name: ' + (raw.name || '') + '\n' +
-                        'Role: ' + (raw.role || '') + '\n' +
-                        'School: ' + (raw.school || '') + '\n' +
-                        'Email: ' + (raw.email || '') + '\n' +
-                        'IP: ' + (request.headers.get('CF-Connecting-IP') || '') + '\n\n' +
-                        '---\n\n' + (raw.message || '');
-        const body = JSON.stringify({ name: raw.name, email: raw.email, school: raw.school || subject, message: message, website: '' });
-        const proxied = await fetch('https://ssp-contact.pgallivan.workers.dev/api/contact', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': request.headers.get('CF-Connecting-IP') || '' },
-          body: body
-        });
-        const text = await proxied.text();
-        return new Response(text, {
-          status: proxied.status,
-          headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+        const ip = request.headers.get('CF-Connecting-IP') || '';
+        const ua = request.headers.get('User-Agent') || '';
+        let submissionId = null;
+        try {
+          const r = await env.DB.prepare(
+            'INSERT INTO contact_submissions (name, email, school, role, topic, students, message, ip, user_agent, status, email_send_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id'
+          ).bind(
+            String(raw.name || '').slice(0, 200),
+            String(raw.email || '').slice(0, 200),
+            String(raw.school || '').slice(0, 200),
+            String(raw.role || '').slice(0, 100),
+            String(raw.topic || 'general').slice(0, 50),
+            parseInt(raw.students) || null,
+            String(raw.message || '').slice(0, 2000),
+            ip, ua, 'new', 'pending'
+          ).first();
+          submissionId = r ? r.id : null;
+        } catch (dbErr) {
+          return new Response(JSON.stringify({ ok: false, error: 'Could not save your message. Please email info@schoolsportportal.com.au.' }), {
+            status: 500, headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        let emailStatus = 'skipped';
+        if (env.RESEND_API_KEY) {
+          try {
+            const subject = '[SSP Contact #' + submissionId + '] ' + (raw.topic || 'general') + (raw.school ? ' - ' + raw.school : '');
+            const body = 'New contact form submission (#' + submissionId + ')\n\n' +
+              'Topic: ' + (raw.topic || 'general') + '\n' +
+              'Name: ' + raw.name + '\n' +
+              'Role: ' + (raw.role || '') + '\n' +
+              'School: ' + (raw.school || '') + '\n' +
+              'Email: ' + raw.email + '\n' +
+              'Students: ' + (raw.students || '') + '\n' +
+              'IP: ' + ip + '\n\n---\n\n' + raw.message + '\n\n---\n' +
+              'View all submissions: https://schoolsportportal.com.au/admin/contact-submissions?pin=PIN';
+            const recipients = ['pgallivan@outlook.com', 'paddy@luckdragon.io', 'info@schoolsportportal.com.au'];
+            for (const to of recipients) {
+              try {
+                const resp = await fetch('https://api.resend.com/emails', {
+                  method: 'POST',
+                  headers: { 'Authorization': 'Bearer ' + env.RESEND_API_KEY, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    from: 'School Sport Portal <onboarding@resend.dev>',
+                    to: [to], reply_to: raw.email, subject: subject, text: body
+                  })
+                });
+                if (resp.ok) { emailStatus = 'sent:' + to; break; }
+                else { emailStatus = 'failed:' + resp.status + ':' + to; }
+              } catch (e) { emailStatus = 'error:' + String(e.message).slice(0, 60); }
+            }
+          } catch (e) { emailStatus = 'wrapper-error:' + String(e.message).slice(0, 60); }
+          try { await env.DB.prepare('UPDATE contact_submissions SET email_send_status = ? WHERE id = ?').bind(emailStatus, submissionId).run(); } catch {}
+        }
+        return new Response(JSON.stringify({ ok: true, id: submissionId }), {
+          status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
         });
       } catch (e) {
-        return new Response(JSON.stringify({ ok: false, error: 'Send failed. Please email info@schoolsportportal.com.au directly. (' + String(e.message || e).slice(0, 80) + ')' }), {
+        return new Response(JSON.stringify({ ok: false, error: 'Submission failed. Please email info@schoolsportportal.com.au.' }), {
           status: 500, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
         });
       }
+    }
+
+    if (path === '/admin/contact-submissions' && request.method === 'GET') {
+      const pin = url.searchParams.get('pin');
+      if (pin !== '2967') return new Response('Forbidden', { status: 403 });
+      try {
+        const r = await env.DB.prepare('SELECT id, name, email, school, role, topic, message, status, email_send_status, created_at FROM contact_submissions ORDER BY id DESC LIMIT 100').all();
+        const rows = (r.results || []).map(s => '<tr><td>#' + s.id + '</td><td>' + (s.created_at||'') + '</td><td><strong>' + (s.name||'') + '</strong><br><a href="mailto:' + (s.email||'') + '">' + (s.email||'') + '</a></td><td>' + (s.school||'') + '<br><small style="color:#94a3b8">' + (s.role||'') + ' / ' + (s.topic||'') + '</small></td><td style="font-size:13px">' + ((s.message||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')).slice(0,400) + '</td><td><small style="color:#94a3b8">email: ' + (s.email_send_status||'-') + '</small></td></tr>').join('');
+        const html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Contact Submissions</title><style>body{font-family:-apple-system,sans-serif;max-width:1200px;margin:24px auto;padding:0 20px;color:#0f172a}h1{font-size:1.5rem;margin:0 0 18px}table{width:100%;border-collapse:collapse;font-size:14px}th{background:#f1f5f9;text-align:left;padding:10px;border-bottom:2px solid #e2e8f0;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#64748b}td{padding:10px;border-bottom:1px solid #e2e8f0;vertical-align:top}</style></head><body><h1>Contact submissions (most recent first)</h1><table><thead><tr><th>ID</th><th>When</th><th>Who</th><th>School / Topic</th><th>Message</th><th>Status</th></tr></thead><tbody>' + (rows || '<tr><td colspan=6 style="text-align:center;color:#94a3b8;padding:40px">No submissions yet.</td></tr>') + '</tbody></table></body></html>';
+        return new Response(html, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' } });
+      } catch (e) { return new Response('Error: ' + e.message, { status: 500 }); }
     }
     // /api/portal/setup-check — stub until token wiring rebuilt
     if (path === '/api/portal/setup-check' && request.method === 'POST') {
