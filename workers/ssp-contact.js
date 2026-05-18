@@ -198,8 +198,8 @@ async function handleRequest(request) {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      from: "School Sport Portal <noreply@luckdragon.io>",
-      to: ["info@schoolsportportal.com.au"],
+      from: "School Sport Portal <onboarding@resend.dev>",
+      to: ["pgallivan@outlook.com"],
       reply_to: safeEmail,
       subject: "Demo request — " + safeSchool,
       text: internalBody
@@ -207,9 +207,10 @@ async function handleRequest(request) {
   });
 
   if (!notifyRes.ok) {
-    console.error("Resend notify error:", await notifyRes.text());
+    const resendErr = await notifyRes.text();
+    console.error("Resend notify error:", resendErr);
     return new Response(
-      JSON.stringify({ ok: false, error: "Email send failed" }),
+      JSON.stringify({ ok: false, error: "Email send failed", detail: resendErr.slice(0, 400), status: notifyRes.status }),
       { status: 500, headers: { ...cors, "Content-Type": "application/json" } }
     );
   }
@@ -220,21 +221,8 @@ async function handleRequest(request) {
 
   const autoReplyHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:600px;margin:0 auto;padding:32px 20px;color:#1e293b"><div style="text-align:center;padding:24px 0 32px"><div style="font-size:2rem">🏫</div><h1 style="font-size:1.4rem;color:#1e3a8a;margin:8px 0 4px">School Sport Portal</h1><p style="color:#64748b;font-size:.9rem;margin:0">schoolsportportal.com.au</p></div><p>Hi ${safeName},</p><p>Thanks for your interest in School Sport Portal! We've received your request for <strong>${safeSchool}</strong>.</p>${nextStepsHtml}<p>Any questions? Just reply to this email.</p><p>Cheers,<br><strong>Paddy</strong><br>Luck Dragon Pty Ltd</p></body></html>`;
 
-  // Fire-and-forget auto-reply
-  fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      "Authorization": "Bearer " + RESEND_API_KEY,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      from: "Paddy at School Sport Portal <noreply@luckdragon.io>",
-      reply_to: "info@schoolsportportal.com.au",
-      to: [safeEmail],
-      subject: "Got your demo request — School Sport Portal",
-      html: autoReplyHtml
-    })
-  }).catch((e) => console.error("Auto-reply failed:", e));
+  // Auto-reply disabled until Resend domain verification (see resend.com/domains).
+  // Paddy will reply manually to the user's email captured in reply_to of the notify email.
 
   return new Response(
     JSON.stringify({ ok: true, checkoutUrl }),
