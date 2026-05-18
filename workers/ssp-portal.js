@@ -412,7 +412,7 @@ async function _innerFetch(request, env, ctx) {
                         'Email: ' + (raw.email || '') + '\n' +
                         'IP: ' + (request.headers.get('CF-Connecting-IP') || '') + '\n\n' +
                         '---\n\n' + (raw.message || '');
-        const body = JSON.stringify({ name: raw.name, email: raw.email, subject: subject, message: message });
+        const body = JSON.stringify({ name: raw.name, email: raw.email, school: raw.school || subject, message: message, website: '' });
         const proxied = await fetch('https://ssp-contact.pgallivan.workers.dev/api/contact', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': request.headers.get('CF-Connecting-IP') || '' },
