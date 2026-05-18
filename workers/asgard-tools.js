@@ -931,15 +931,28 @@ if (pathname === '/admin/deploy' && request.method === 'POST') {
         return Response.json({ error: 'Forbidden' }, { status: 403, headers: cors });
       }
       try {
-        const AGENT_PIN = env.AGENT_PIN;      // all /brief sub-calls use AGENT_PIN
-        const [agentRes, wfRes, toolsRes] = await Promise.allSettled([
-          fetch('https://falkor-agent.luckdragon.io/health', { headers: { 'X-Pin': AGENT_PIN } }).then(r => r.json()),
-          fetch('https://falkor-workflows.luckdragon.io/health', { headers: { 'X-Pin': AGENT_PIN } }).then(r => r.json()),
-          fetch('https://falkor-brain.luckdragon.io/health', { headers: { 'X-Pin': AGENT_PIN } }).then(r => r.json())
+        const AGENT_PIN = env.AGENT_PIN;
+        async function probeWorker(url, timeoutMs = 3000, retries = 1) {
+          for (let attempt = 0; attempt <= retries; attempt++) {
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+            try {
+              const r = await fetch(url, { headers: { 'X-Pin': AGENT_PIN }, signal: ctrl.signal });
+              clearTimeout(timer);
+              if (r.status >= 500 && attempt < retries) continue;
+              const body = await r.json().catch(() => ({}));
+              return { ok: r.ok, status: r.status, ...body };
+            } catch (e) {
+              clearTimeout(timer);
+              if (attempt === retries) return { ok: false, error: e.name === 'AbortError' ? `timeout ${timeoutMs}ms` : e.message };
+            }
+          }
+        }
+        const [agentHealth, wfHealth, brainHealth] = await Promise.all([
+          probeWorker('https://falkor-agent.pgallivan.workers.dev/health'),
+          probeWorker('https://falkor-workflows.pgallivan.workers.dev/health'),
+          probeWorker('https://falkor-brain.pgallivan.workers.dev/health'),
         ]);
-        const agentHealth = agentRes.status === 'fulfilled' ? agentRes.value : { error: 'unreachable' };
-        const wfHealth = wfRes.status === 'fulfilled' ? wfRes.value : { error: 'unreachable' };
-        const brainHealth = toolsRes.status === 'fulfilled' ? toolsRes.value : { error: 'unreachable' };
 
         // Route through asgard-ai (holds ANTHROPIC_API_KEY binding + CF AI Gateway)
         const briefPrompt = 'Give a concise Falkor status brief (4-6 bullets). Flag anything wrong. Today: ' +
