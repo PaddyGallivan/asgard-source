@@ -611,7 +611,7 @@ const HTML = `<!doctype html>
   .msg .body h2 { font-size: 17px; font-weight: 700; margin: 14px 0 6px; color: var(--text); line-height: 1.3; }
   .msg .body h3 { font-size: 15px; font-weight: 600; margin: 12px 0 4px; color: var(--text-soft); line-height: 1.3; }
   .msg .body ul, .msg .body ol { padding-left: 20px; margin: 4px 0 10px; }
-  .msg .body li { margin-bottom: 3px; }
+  .msg .body li { margin-bottom: 0; }
   .msg .body hr { border: 0; border-top: 1px solid var(--border); margin: 12px 0; }
   .msg .body a { color: var(--accent); text-decoration: underline; }
   .msg .body p:empty { display: none; }
