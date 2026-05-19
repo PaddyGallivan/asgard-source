@@ -141,7 +141,7 @@ async function rollback(env, worker, stepsBack = 1) {
   return { ok: result.ok, worker, restored_from: target, deploy_result: result };
 }
 
-// ── GitHub PR flow ────────────────────────────────────────────────────────────
+// ── GitHub PR flow ───────────────────────────────────────────────────────────
 async function gh(env, path, opts = {}) {
   return fetch(`https://api.github.com${path}`, {
     ...opts,
