@@ -52,7 +52,7 @@ const html = `<!DOCTYPE html>
       padding: 12px; 
       background: #6c63ff; 
       border: none; 
-      border-radius: 14px; 
+      border-radius: 16px; 
       color: white; 
       font-size: 16px; 
       font-weight: 600; 
